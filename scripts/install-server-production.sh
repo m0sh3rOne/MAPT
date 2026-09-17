@@ -134,20 +134,35 @@ apt-get update -y
 apt-get install -y curl wget git gnupg ca-certificates lsb-release golang-go
 
 if ! command -v docker &> /dev/null; then
-    echo -e "${BLUE}[2/5] Installation de Docker Engine...${NC}"
+    echo -e "${BLUE}[2/5] Installation de Docker Engine & Docker Compose...${NC}"
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
 
-    echo \
-      "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-      "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-      tee /etc/apt/sources.list.d/docker.list > /dev/null
+    # Tentative d'ajout du dépôt officiel Docker avec options de compatibilité SSL
+    DOCKER_REPO_OK=false
+    if curl -fsSL --tlsv1.2 --ciphers DEFAULT@SECLEVEL=1 https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        if apt-get update -y && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+            DOCKER_REPO_OK=true
+        fi
+    elif wget -qO- --no-check-certificate https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        if apt-get update -y && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+            DOCKER_REPO_OK=true
+        fi
+    fi
 
-    apt-get update -y
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    systemctl enable docker
-    systemctl start docker
+    # Si le dépôt officiel échoue (ex: filtrage SSL / Proxy réseau), bascule transparente sur les paquets officiels Ubuntu
+    if [ "$DOCKER_REPO_OK" = false ]; then
+        echo -e "${YELLOW}[!] Installation de Docker via les dépôts natifs Ubuntu (docker.io)...${NC}"
+        rm -f /etc/apt/sources.list.d/docker.list
+        apt-get update -y
+        apt-get install -y docker.io docker-compose-v2 docker-compose
+    fi
+
+    systemctl enable docker || true
+    systemctl start docker || true
     echo -e "${GREEN}[✓] Docker installé et démarré.${NC}"
 else
     echo -e "${GREEN}[2/5] Docker Engine est déjà installé.${NC}"
@@ -166,8 +181,18 @@ echo -e "${GREEN}[✓] Binaire Windows mapt-agent.exe généré avec succès dan
 # ==============================================================================
 echo -e "${BLUE}[4/5] Lancement des conteneurs MAPT (Docker Compose)...${NC}"
 cd "$DIR/infrastructure"
-docker compose down || true
-docker compose up -d --build
+
+# Détection de la commande docker compose
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+else
+    COMPOSE_CMD="docker compose"
+fi
+
+$COMPOSE_CMD down || true
+$COMPOSE_CMD up -d --build
 
 # Détection de l'adresse IP du serveur
 SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
