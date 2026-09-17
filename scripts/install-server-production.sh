@@ -133,32 +133,16 @@ echo -e "${BLUE}[1/5] Mise à jour des dépôts et installation des paquets pré
 apt-get update -y
 apt-get install -y curl wget git gnupg ca-certificates lsb-release golang-go
 
+export DEBIAN_FRONTEND=noninteractive
+
 if ! command -v docker &> /dev/null; then
     echo -e "${BLUE}[2/5] Installation de Docker Engine & Docker Compose...${NC}"
-    install -m 0755 -d /etc/apt/keyrings
-
-    # Tentative d'ajout du dépôt officiel Docker avec options de compatibilité SSL
-    DOCKER_REPO_OK=false
-    if curl -fsSL --tlsv1.2 --ciphers DEFAULT@SECLEVEL=1 https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
-        chmod a+r /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-        if apt-get update -y && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
-            DOCKER_REPO_OK=true
-        fi
-    elif wget -qO- --no-check-certificate https://download.docker.com/linux/ubuntu/gpg 2>/dev/null | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg 2>/dev/null; then
-        chmod a+r /etc/apt/keyrings/docker.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-        if apt-get update -y && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
-            DOCKER_REPO_OK=true
-        fi
-    fi
-
-    # Si le dépôt officiel échoue (ex: filtrage SSL / Proxy réseau), bascule transparente sur les paquets officiels Ubuntu
-    if [ "$DOCKER_REPO_OK" = false ]; then
-        echo -e "${YELLOW}[!] Installation de Docker via les dépôts natifs Ubuntu (docker.io)...${NC}"
-        rm -f /etc/apt/sources.list.d/docker.list
-        apt-get update -y
-        apt-get install -y docker.io docker-compose-v2 docker-compose
+    rm -f /etc/apt/keyrings/docker.gpg /etc/apt/sources.list.d/docker.list 2>/dev/null || true
+    
+    # Installation via les dépôts officiels Ubuntu (rapide, sécurisé et 100% compatible)
+    if ! apt-get install -y docker.io docker-compose-v2 docker-compose; then
+        echo -e "${YELLOW}[!] Tentative avec les paquets alternatifs Docker...${NC}"
+        apt-get install -y docker.io || true
     fi
 
     systemctl enable docker || true
