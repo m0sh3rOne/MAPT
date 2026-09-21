@@ -134,8 +134,15 @@ func ExecutePackage(
 	} else {
 		// Exécutable binaire direct (.exe)
 		var args []string
-		if strings.TrimSpace(packageArgs) != "" {
-			args = strings.Fields(strings.TrimSpace(packageArgs))
+		trimmedArgs := strings.TrimSpace(packageArgs)
+		if trimmedArgs != "" {
+			args = strings.Fields(trimmedArgs)
+		} else {
+			// Détection automatique intelligente des installateurs connus requérant un switch silencieux en Session 0
+			lowerFile := strings.ToLower(filename)
+			if strings.Contains(lowerFile, "npp") || strings.Contains(lowerFile, "notepad") {
+				args = []string{"/S"}
+			}
 		}
 		cmd = exec.CommandContext(execCtx, destPath, args...)
 	}
@@ -149,7 +156,7 @@ func ExecutePackage(
 	duration := time.Since(start)
 
 	output := stdoutBuf.String()
-	errMsg := stderrBuf.String()
+	errMsg := strings.TrimSpace(stderrBuf.String())
 
 	exitCode := 0
 	if runErr != nil {
@@ -163,6 +170,9 @@ func ExecutePackage(
 			if errMsg == "" {
 				errMsg = runErr.Error()
 			}
+		}
+		if errMsg == "" && exitCode != 0 {
+			errMsg = fmt.Sprintf("Processus d'installation terminé avec le code d'erreur %d. Les installateurs exécutés par le service d'arrière-plan requièrent des arguments d'installation silencieuse (ex: /S, /quiet, /verysilent, /qn).", exitCode)
 		}
 	}
 

@@ -13,6 +13,7 @@ from app.schemas.device import (
 )
 from app.core.security import UserRole
 from app.services.device_service import DeviceService
+from app.repositories.deployment_repository import DeploymentRepository
 from app.api.deps import get_current_user, require_roles
 from app.models.user import User
 

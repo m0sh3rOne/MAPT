@@ -226,6 +226,11 @@ export const Packages: React.FC = () => {
       else if (ext === 'bat' || ext === 'cmd') matchedId = 'bat';
       
       applyPreset(matchedId, ext);
+
+      const lowerName = selectedFile.name.toLowerCase();
+      if (ext === 'exe' && (lowerName.includes('npp') || lowerName.includes('notepad') || lowerName.includes('setup') || lowerName.includes('installer'))) {
+        setPackageArgs('/S');
+      }
     }
     if (!name) {
       const baseName = selectedFile.name.replace(/\.[^/.]+$/, "");
