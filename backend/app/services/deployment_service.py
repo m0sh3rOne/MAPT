@@ -48,6 +48,7 @@ class DeploymentService:
             script_version_id=dep.script_version_id,
             custom_command=dep.custom_command,
             created_by=dep.created_by,
+            wake_on_lan=getattr(dep, "wake_on_lan", False),
             is_recurring=dep.is_recurring,
             schedule_type=dep.schedule_type or "immediate",
             scheduled_at=dep.scheduled_at,
@@ -198,6 +199,7 @@ class DeploymentService:
             cron_expression=dep_in.cron_expression,
             next_run_at=initial_next_run,
             end_at=dep_in.end_at,
+            wake_on_lan=dep_in.wake_on_lan,
             target_all_devices=dep_in.target_all_devices,
             target_group_ids=[str(g) for g in dep_in.target_group_ids],
             target_device_ids=[str(d) for d in dep_in.target_device_ids],
@@ -215,6 +217,16 @@ class DeploymentService:
                 self.db.add(target)
             await self.db.flush()
 
+            # Si Wake-on-LAN activé, envoyer un paquet magique à toutes les machines cibles
+            if dep_in.wake_on_lan:
+                try:
+                    from app.services.wol_service import WolService
+                    wol_svc = WolService(self.db)
+                    await wol_svc.wake_devices(list(target_device_ids))
+                except Exception as e:
+                    from app.core.logging import logger
+                    logger.warning(f"Échec envoi Wake-on-LAN pour le déploiement {created.id}: {e}")
+
         await self.audit_repo.create(
             action=AuditAction.DEPLOYMENT_CREATED,
             entity_type="deployment",
@@ -224,6 +236,7 @@ class DeploymentService:
                 "name": created.name,
                 "type": created.deployment_type,
                 "is_recurring": created.is_recurring,
+                "wake_on_lan": created.wake_on_lan,
                 "schedule_type": created.schedule_type,
                 "next_run_at": created.next_run_at.isoformat() if created.next_run_at else None,
                 "targets_count": len(target_device_ids)
@@ -256,6 +269,16 @@ class DeploymentService:
                     target_device_ids.add(UUID(d_id))
                 except Exception:
                     pass
+
+        # Si Wake-on-LAN activé, envoyer un paquet magique à toutes les machines cibles
+        if getattr(deployment, "wake_on_lan", False):
+            try:
+                from app.services.wol_service import WolService
+                wol_svc = WolService(self.db)
+                await wol_svc.wake_devices(list(target_device_ids))
+            except Exception as e:
+                from app.core.logging import logger
+                logger.warning(f"Échec envoi Wake-on-LAN planifié pour le déploiement {deployment.id}: {e}")
 
         # Créer les cibles pour cette itération en évitant les cibles actives en double
         for dev_id in target_device_ids:

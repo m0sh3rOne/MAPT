@@ -171,6 +171,37 @@ export const DeviceDetail: React.FC = () => {
     },
   });
 
+  // WoL state and mutation
+  const [wolNotification, setWolNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const wakeMutation = useMutation({
+    mutationFn: () => api.wakeDevice(id!),
+    onSuccess: (res) => {
+      if (res.success) {
+        setWolNotification({
+          type: 'success',
+          message: `Paquet magique Wake-on-LAN envoyé avec succès à ${res.mac_address} (${res.broadcast_ip}:${res.port})`,
+        });
+      } else {
+        setWolNotification({
+          type: 'error',
+          message: `Erreur WoL : ${res.message}`,
+        });
+      }
+      setTimeout(() => setWolNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setWolNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Échec de l'envoi du paquet Wake-on-LAN",
+      });
+      setTimeout(() => setWolNotification(null), 7000);
+    },
+  });
+
   if (loadingDevice || !device) {
     return <div className="py-12 text-center text-slate-500">Chargement des données de la machine...</div>;
   }
@@ -178,9 +209,9 @@ export const DeviceDetail: React.FC = () => {
   // Action Handlers
   const handleRestart = (e: React.FormEvent) => {
     e.preventDefault();
-    const reasonArg = powerMessage.trim() ? ` /c "${powerMessage.replace(/"/g, '')}"` : '';
+    const reasonArg = powerMessage.trim() ? ` /d p:0:0 /c "${powerMessage.replace(/["\r\n]/g, '')}"` : '';
     const forceArg = powerForce ? ' /f' : '';
-    const cmd = `shutdown /r /t ${powerDelay}${forceArg}${reasonArg}`;
+    const cmd = `shutdown.exe /r /t ${powerDelay}${forceArg}${reasonArg}`;
 
     createActionMutation.mutate({
       name: `🔄 Redémarrage - ${device.hostname}`,
@@ -197,9 +228,9 @@ export const DeviceDetail: React.FC = () => {
 
   const handleShutdown = (e: React.FormEvent) => {
     e.preventDefault();
-    const reasonArg = powerMessage.trim() ? ` /c "${powerMessage.replace(/"/g, '')}"` : '';
+    const reasonArg = powerMessage.trim() ? ` /d p:0:0 /c "${powerMessage.replace(/["\r\n]/g, '')}"` : '';
     const forceArg = powerForce ? ' /f' : '';
-    const cmd = `shutdown /s /t ${powerDelay}${forceArg}${reasonArg}`;
+    const cmd = `shutdown.exe /s /t ${powerDelay}${forceArg}${reasonArg}`;
 
     createActionMutation.mutate({
       name: `⚡ Arrêt - ${device.hostname}`,
@@ -400,20 +431,56 @@ export const DeviceDetail: React.FC = () => {
           </div>
         </div>
 
-        {/* Quick launch action button in header */}
-        <div className="flex items-center gap-2">
+      {/* WoL Toast Notification */}
+      {wolNotification && (
+        <div
+          className={`p-4 rounded-2xl border flex items-start justify-between shadow-xl transition animate-in fade-in slide-in-from-top-2 duration-200 ${
+            wolNotification.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-950/80 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          <div className="flex items-start space-x-3">
+            {wolNotification.type === 'success' ? (
+              <Zap className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <p className="text-sm font-semibold">{wolNotification.message}</p>
+          </div>
           <button
-            onClick={() => setActiveTab('actions')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-semibold transition border ${
-              activeTab === 'actions'
-                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/40'
-                : 'bg-slate-900 hover:bg-slate-800 text-emerald-400 border-emerald-500/30'
-            }`}
+            onClick={() => setWolNotification(null)}
+            className="text-slate-400 hover:text-slate-200 p-1"
           >
-            <Zap className="w-4 h-4" />
-            <span>Actions Rapides</span>
+            <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {/* Quick launch action button in header */}
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={() => wakeMutation.mutate()}
+          disabled={wakeMutation.isPending}
+          className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 hover:border-amber-500/60 px-4 py-2 rounded-xl text-sm font-semibold transition shadow-sm disabled:opacity-50"
+          title="Envoyer un paquet magique Wake-on-LAN pour allumer ce poste"
+        >
+          <Zap className="w-4 h-4" />
+          <span>{wakeMutation.isPending ? 'Envoi...' : 'Réveiller (WoL)'}</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('actions')}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-semibold transition border ${
+            activeTab === 'actions'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/40'
+              : 'bg-slate-900 hover:bg-slate-800 text-emerald-400 border-emerald-500/30'
+          }`}
+        >
+          <Zap className="w-4 h-4" />
+          <span>Actions Rapides</span>
+        </button>
+      </div>
       </div>
 
       {/* Tabs */}

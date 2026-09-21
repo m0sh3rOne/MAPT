@@ -25,7 +25,8 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
 
@@ -51,6 +52,7 @@ export const Deployments: React.FC = () => {
   const [customCommand, setCustomCommand] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [wakeOnLan, setWakeOnLan] = useState(false);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
     is_recurring: false,
     schedule_type: 'immediate',
@@ -174,6 +176,7 @@ export const Deployments: React.FC = () => {
     setCustomCommand('');
     setSelectedDeviceIds([]);
     setSelectedGroupIds([]);
+    setWakeOnLan(false);
     setScheduleConfig({
       is_recurring: false,
       schedule_type: 'immediate',
@@ -202,6 +205,7 @@ export const Deployments: React.FC = () => {
       custom_command: deploymentType === 'command' ? customCommand || null : null,
       target_device_ids: selectedDeviceIds,
       target_group_ids: selectedGroupIds,
+      wake_on_lan: wakeOnLan,
       is_recurring: scheduleConfig.is_recurring,
       schedule_type: scheduleConfig.schedule_type,
       scheduled_at: scheduleConfig.scheduled_at ? new Date(scheduleConfig.scheduled_at).toISOString() : undefined,
@@ -446,6 +450,12 @@ export const Deployments: React.FC = () => {
                       <div className="space-y-1.5">
                         <div className="flex items-center space-x-2">
                           <span className="font-semibold text-slate-100">{dep.name}</span>
+                          {dep.wake_on_lan && (
+                            <span className="inline-flex items-center space-x-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold px-2 py-0.5 rounded-md" title="Wake-on-LAN activé">
+                              <Zap className="w-2.5 h-2.5 text-amber-400" />
+                              <span>WoL</span>
+                            </span>
+                          )}
                           {dep.is_recurring && (
                             <span className="inline-flex items-center space-x-1 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                               <Repeat className="w-2.5 h-2.5 animate-spin-slow" />
@@ -795,6 +805,33 @@ export const Deployments: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Wake-on-LAN Option */}
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <span>Réveiller les machines cibles (Wake-on-LAN)</span>
+                      <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">UDP Magique</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Émet un paquet magique WoL à chaque machine ciblée avant de distribuer le déploiement.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={wakeOnLan}
+                    onChange={(e) => setWakeOnLan(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
 
               {/* Schedule and Recurrence Selector */}
               <SchedulerSelector value={scheduleConfig} onChange={setScheduleConfig} />

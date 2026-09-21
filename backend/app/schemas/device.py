@@ -22,6 +22,8 @@ class DeviceResponse(DeviceBase):
     device_uuid: UUID
     enabled: bool
     is_online: bool = False
+    mac_address: Optional[str] = None
+    mac_addresses: Optional[List[str]] = None
     last_seen_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -29,6 +31,22 @@ class DeviceResponse(DeviceBase):
 
     class Config:
         from_attributes = True
+
+
+class WolBatchRequest(BaseModel):
+    device_ids: List[UUID]
+
+
+class WolCustomRequest(BaseModel):
+    mac_address: str
+    broadcast_ip: Optional[str] = None
+    port: Optional[int] = 9
+
+
+class WolResultResponse(BaseModel):
+    success: bool
+    message: str
+    details: Optional[Any] = None
 
 
 class DeviceInventoryUpdate(BaseModel):

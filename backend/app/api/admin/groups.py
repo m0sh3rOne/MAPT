@@ -104,3 +104,18 @@ async def remove_device_from_group(
     await service.remove_device_from_group(group_id, device_id)
     return {"status": "success", "message": "Machine retirée du groupe."}
 
+
+@router.post("/{group_id}/wol")
+async def wake_group_devices(
+    group_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Envoie un paquet magique Wake-on-LAN à l'ensemble des machines du groupe.
+    """
+    from app.services.wol_service import WolService
+    wol_svc = WolService(db)
+    return await wol_svc.wake_group(group_id)
+
+

@@ -26,6 +26,8 @@ ssh utilisateur@<IP_VM_PROXMOX>
 ### Étape A — Cloner ou copier le dépôt MAPT sur la VM
 
 ```bash
+sudo mkdir -p /opt/MAPT
+sudo chown ubuntu:ubuntu /opt/MAPT
 git clone https://github.com/m0sh3rOne/MAPT.git /opt/MAPT
 cd /opt/MAPT
 ```

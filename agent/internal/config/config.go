@@ -38,6 +38,11 @@ func LoadConfig(path string) (*Config, error) {
 	if path == "" {
 		path = "mapt-agent-config.json"
 	}
+	if !filepath.IsAbs(path) {
+		if exe, err := os.Executable(); err == nil {
+			path = filepath.Join(filepath.Dir(exe), path)
+		}
+	}
 	cfg := DefaultConfig()
 	cfg.configPath = path
 

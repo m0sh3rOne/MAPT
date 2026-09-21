@@ -27,6 +27,22 @@ class DeviceService:
 
     def _map_to_response(self, device: Device) -> DeviceResponse:
         group_ids = [m.group_id for m in device.group_memberships] if device.group_memberships else []
+        macs = []
+        primary_mac = None
+        if device.inventory:
+            if device.inventory.mac_addresses and isinstance(device.inventory.mac_addresses, list):
+                for m in device.inventory.mac_addresses:
+                    if m and m not in macs:
+                        macs.append(str(m))
+            if device.inventory.network_interfaces and isinstance(device.inventory.network_interfaces, list):
+                for iface in device.inventory.network_interfaces:
+                    if isinstance(iface, dict):
+                        m = iface.get("mac_address") or iface.get("mac")
+                        if m and m not in macs:
+                            macs.append(str(m))
+            if macs:
+                primary_mac = macs[0]
+
         return DeviceResponse(
             id=device.id,
             device_uuid=device.device_uuid,
@@ -38,6 +54,8 @@ class DeviceService:
             ip_address=device.ip_address,
             enabled=device.enabled,
             is_online=self._is_online(device.last_seen_at),
+            mac_address=primary_mac,
+            mac_addresses=macs if macs else None,
             last_seen_at=device.last_seen_at,
             created_at=device.created_at,
             updated_at=device.updated_at,

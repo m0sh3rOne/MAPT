@@ -67,6 +67,9 @@ class DeploymentCreate(BaseModel):
     interval_unit: Optional[str] = None  # hours, days, weeks, months, years
     cron_expression: Optional[str] = None
     end_at: Optional[datetime] = None
+    
+    # Wake-on-LAN
+    wake_on_lan: bool = False
 
 
 class DeploymentResponse(BaseModel):
@@ -79,6 +82,9 @@ class DeploymentResponse(BaseModel):
     script_version_id: Optional[UUID] = None
     custom_command: Optional[str] = None
     created_by: Optional[UUID] = None
+    
+    # Wake-on-LAN
+    wake_on_lan: bool = False
     
     # Scheduling & Recurrence fields
     is_recurring: bool = False

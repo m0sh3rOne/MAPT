@@ -15,8 +15,10 @@ import {
   Search,
   CheckSquare,
   Square,
-  AlertCircle
+  AlertCircle,
+  Zap
 } from 'lucide-react';
+import { WolResult } from '../../types';
 
 export const Groups: React.FC = () => {
   const queryClient = useQueryClient();
@@ -31,6 +33,45 @@ export const Groups: React.FC = () => {
   const [searchGroupQuery, setSearchGroupQuery] = useState('');
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // WoL toast notification
+  const [wolNotification, setWolNotification] = useState<{
+    type: 'success' | 'error';
+    message: string;
+    details?: string[];
+  } | null>(null);
+
+  const wakeGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return api.wakeGroup(groupId);
+    },
+    onSuccess: (results: WolResult[]) => {
+      const successful = results.filter((r) => r.success);
+      const failed = results.filter((r) => !r.success);
+
+      if (successful.length > 0) {
+        setWolNotification({
+          type: 'success',
+          message: `${successful.length} machine(s) du groupe réveillée(s) par Wake-on-LAN avec succès !`,
+          details: failed.map((f) => `Échec ${f.mac_address || 'inconnue'} : ${f.message}`),
+        });
+      } else {
+        setWolNotification({
+          type: 'error',
+          message: `Aucune machine n'a pu être réveillée (${failed.length} échecs ou pas d'adresse MAC).`,
+          details: failed.map((f) => f.message),
+        });
+      }
+      setTimeout(() => setWolNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setWolNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || 'Erreur lors du réveil du groupe',
+      });
+      setTimeout(() => setWolNotification(null), 7000);
+    },
+  });
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery({
     queryKey: ['groups'],
@@ -130,6 +171,41 @@ export const Groups: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {wolNotification && (
+        <div
+          className={`p-4 rounded-2xl border flex items-start justify-between shadow-xl transition animate-in fade-in slide-in-from-top-2 duration-200 ${
+            wolNotification.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-950/80 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          <div className="flex items-start space-x-3">
+            {wolNotification.type === 'success' ? (
+              <Zap className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <p className="text-sm font-semibold">{wolNotification.message}</p>
+              {wolNotification.details && wolNotification.details.length > 0 && (
+                <ul className="text-xs text-rose-400/80 list-disc list-inside mt-1">
+                  {wolNotification.details.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setWolNotification(null)}
+            className="text-slate-400 hover:text-slate-200 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -210,6 +286,14 @@ export const Groups: React.FC = () => {
                 >
                   <Users className="w-4 h-4 text-emerald-400" />
                   <span>Membres ({grp.device_count || 0})</span>
+                </button>
+                <button
+                  onClick={() => wakeGroupMutation.mutate(grp.id)}
+                  disabled={wakeGroupMutation.isPending}
+                  className="p-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 transition disabled:opacity-50"
+                  title="Réveiller toutes les machines de ce groupe (Wake-on-LAN)"
+                >
+                  <Zap className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleOpenEdit(grp)}

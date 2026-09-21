@@ -16,6 +16,8 @@ export interface Device {
   os_build?: string;
   agent_version?: string;
   ip_address?: string;
+  mac_address?: string;
+  mac_addresses?: string[];
   enabled: boolean;
   is_online: boolean;
   last_seen_at?: string;
@@ -178,6 +180,7 @@ export interface Deployment {
   script_version_id?: string;
   custom_command?: string;
   created_by?: string;
+  wake_on_lan?: boolean;
   
   // Scheduling & Recurrence
   is_recurring?: boolean;
@@ -222,4 +225,13 @@ export interface AuditLog {
   details?: any;
   ip_address?: string;
   created_at: string;
+}
+
+export interface WolResult {
+  device_id?: string;
+  mac_address: string;
+  broadcast_ip: string;
+  port: number;
+  success: boolean;
+  message: string;
 }

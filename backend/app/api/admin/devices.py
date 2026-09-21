@@ -3,9 +3,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
+from app.schemas.device import (
+    DeviceResponse,
+    DeviceInventoryResponse,
+    DeviceTargetHistoryResponse,
+    WolBatchRequest,
+    WolCustomRequest,
+    WolResultResponse
+)
 from app.core.security import UserRole
-from app.schemas.device import DeviceResponse, DeviceInventoryResponse, DeviceTargetHistoryResponse
-from app.repositories.deployment_repository import DeploymentRepository
 from app.services.device_service import DeviceService
 from app.api.deps import get_current_user, require_roles
 from app.models.user import User
@@ -153,3 +159,45 @@ async def delete_device(
     client_ip = request.client.host if request.client else None
     await service.delete_device(device_id, current_user.id, client_ip)
     return {"status": "success", "message": "Machine supprimée avec succès."}
+
+
+@router.post("/{device_id}/wol")
+async def wake_device(
+    device_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Envoie un paquet magique Wake-on-LAN pour réveiller la machine cible.
+    """
+    from app.services.wol_service import WolService
+    wol_svc = WolService(db)
+    return await wol_svc.wake_device(device_id)
+
+
+@router.post("/wol/batch")
+async def wake_devices_batch(
+    payload: WolBatchRequest,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Envoie un paquet magique Wake-on-LAN pour réveiller une sélection de machines.
+    """
+    from app.services.wol_service import WolService
+    wol_svc = WolService(db)
+    return await wol_svc.wake_devices(payload.device_ids)
+
+
+@router.post("/wol/custom")
+async def wake_custom_mac(
+    payload: WolCustomRequest,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+):
+    """
+    Envoie un paquet magique Wake-on-LAN vers une adresse MAC et adresse de diffusion personnalisées.
+    """
+    from app.services.wol_service import send_magic_packet
+    port = payload.port or 9
+    return send_magic_packet(payload.mac_address, broadcast_ip=payload.broadcast_ip, ports=(port,))
+

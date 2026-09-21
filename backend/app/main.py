@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from app.core.config import settings
@@ -64,6 +64,20 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
+@app.get("/scripts/install-agent.ps1")
+@app.get("/scripts/install.ps1")
+async def get_ps1_root(request: Request, token: str = None):
+    from app.api.agent.enroll import get_agent_installer_script
+    return await get_agent_installer_script(request, token)
+
+
+@app.get("/scripts/install-agent.bat")
+@app.get("/scripts/install.bat")
+async def get_bat_root(request: Request, token: str = None):
+    from app.api.agent.enroll import get_agent_installer_batch
+    return await get_agent_installer_batch(request, token)
+
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {
@@ -79,3 +93,4 @@ async def root():
         "message": "Bienvenue sur l'API MAPT (Plateforme de Déploiement et Administration de Parc)",
         "docs": f"{settings.API_V1_STR}/docs"
     }
+

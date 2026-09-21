@@ -57,6 +57,9 @@ class Deployment(Base):
     target_all_devices = Column(Boolean, default=False, nullable=False)
     target_group_ids = Column(JSON, nullable=True)
     target_device_ids = Column(JSON, nullable=True)
+    
+    # Wake-on-LAN option
+    wake_on_lan = Column(Boolean, default=False, nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     started_at = Column(DateTime(timezone=True), nullable=True)

@@ -34,6 +34,13 @@ async def get_me(current_user: User = Depends(get_current_user)):
     )
 
 
+@router.get("/enrollment-token")
+async def get_enrollment_token(current_user: User = Depends(get_current_user)):
+    from app.core.config import settings
+    return {"enrollment_token": settings.DEFAULT_ENROLLMENT_TOKEN}
+
+
+
 @router.post("/users", response_model=UserResponse)
 async def create_user(
     user_in: UserCreate,

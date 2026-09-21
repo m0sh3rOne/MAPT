@@ -2,7 +2,7 @@ import axios from 'axios';
 import {
   User, Device, DeviceInventory, DeviceGroup, DeviceActionHistory,
   Package, PackageVersion, Script, ScriptVersion,
-  Deployment, DeploymentTarget, JobLog, AuditLog
+  Deployment, DeploymentTarget, JobLog, AuditLog, WolResult
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -43,6 +43,10 @@ export const api = {
     const res = await apiClient.get('/auth/me');
     return res.data;
   },
+  getEnrollmentToken: async (): Promise<{ enrollment_token: string }> => {
+    const res = await apiClient.get('/auth/enrollment-token');
+    return res.data;
+  },
 
   // Devices
   getDevices: async (): Promise<Device[]> => {
@@ -81,10 +85,40 @@ export const api = {
     const res = await apiClient.delete(`/admin/devices/${id}`);
     return res.data;
   },
+  wakeDevice: async (id: string, broadcastIp?: string, port?: number): Promise<WolResult> => {
+    const res = await apiClient.post(`/admin/devices/${id}/wol`, {
+      broadcast_ip: broadcastIp,
+      port: port
+    });
+    return res.data;
+  },
+  wakeDevices: async (deviceIds: string[], broadcastIp?: string, port?: number): Promise<WolResult[]> => {
+    const res = await apiClient.post('/admin/devices/wol/batch', {
+      device_ids: deviceIds,
+      broadcast_ip: broadcastIp,
+      port: port
+    });
+    return res.data;
+  },
+  sendCustomWol: async (macAddress: string, broadcastIp?: string, port?: number): Promise<WolResult> => {
+    const res = await apiClient.post('/admin/devices/wol/custom', {
+      mac_address: macAddress,
+      broadcast_ip: broadcastIp,
+      port: port
+    });
+    return res.data;
+  },
 
   // Groups
   getGroups: async (): Promise<DeviceGroup[]> => {
     const res = await apiClient.get('/admin/groups');
+    return res.data;
+  },
+  wakeGroup: async (groupId: string, broadcastIp?: string, port?: number): Promise<WolResult[]> => {
+    const res = await apiClient.post(`/admin/groups/${groupId}/wol`, {
+      broadcast_ip: broadcastIp,
+      port: port
+    });
     return res.data;
   },
   createGroup: async (name: string, description?: string): Promise<DeviceGroup> => {
