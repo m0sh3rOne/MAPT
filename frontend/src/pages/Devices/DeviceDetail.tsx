@@ -95,6 +95,7 @@ export const DeviceDetail: React.FC = () => {
   const [logonDomain, setLogonDomain] = useState('');
   const [logonUsername, setLogonUsername] = useState('');
   const [logonPassword, setLogonPassword] = useState('');
+  const [logonOneTime, setLogonOneTime] = useState(true);
   const [logonRestartNow, setLogonRestartNow] = useState(true);
   const [logonShowPassword, setLogonShowPassword] = useState(false);
 
@@ -415,10 +416,18 @@ Set-ItemProperty $w -Name "AutoAdminLogon" -Value "1" -Type String -Force
 Set-ItemProperty $w -Name "DefaultUserName" -Value $u -Type String -Force
 Set-ItemProperty $w -Name "DefaultDomainName" -Value $d -Type String -Force
 Set-ItemProperty $w -Name "DefaultPassword" -Value $p -Type String -Force
-Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force
 Set-ItemProperty $w -Name "DisableCAD" -Value 1 -Type DWord -Force
-Set-ItemProperty $w -Name "IgnoreShiftOvrd" -Value "1" -Type String -Force
+Remove-ItemProperty $w -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
+Remove-ItemProperty $w -Name "IgnoreShiftOvrd" -ErrorAction SilentlyContinue
+
+${logonOneTime ? `
+# Mode usage unique : Windows consomme le compteur et desactive AutoAdminLogon des l'ouverture
+Set-ItemProperty $w -Name "AutoLogonCount" -Value 1 -Type DWord -Force
+` : `
+# Mode persistant : reconnexion permanente
+Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force
 Remove-ItemProperty $w -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+`}
 
 if (Test-Path $s) {
     Set-ItemProperty $s -Name "DisableCAD" -Value 1 -Type DWord -Force
@@ -427,7 +436,7 @@ if (Test-Path $s) {
     Set-ItemProperty $s -Name "LegalNoticeText" -Value "" -Type String -Force
 }
 
-Write-Output "AutoLogon configure avec succes pour $d\\$u"
+Write-Output "AutoLogon configure avec succes pour $d\\$u (${logonOneTime ? 'Usage unique' : 'Persistant'})"
 ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
 `.trim();
 
@@ -2448,8 +2457,23 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                 </p>
               </div>
 
-              {/* Option de redémarrage immédiat */}
-              <div className="pt-2 border-t border-slate-800/80">
+              {/* Option Usage Unique & Redémarrage */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={logonOneTime}
+                    onChange={(e) => setLogonOneTime(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Connexion à usage unique (Recommandé)</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      Ouvre la session automatiquement une seule fois. Dès que l'utilisateur se déconnecte, Windows retourne normalement à l'écran de verrouillage sans le reconnecter en boucle.
+                    </p>
+                  </div>
+                </label>
+
                 <label className="flex items-start space-x-3 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -2460,7 +2484,7 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                   <div>
                     <span className="font-semibold text-slate-200">Redémarrer immédiatement pour ouvrir la session</span>
                     <p className="text-slate-500 text-[11px] mt-0.5">
-                      Déclenche un redémarrage instantané (3s) pour charger directement le profil et le bureau de l'utilisateur.
+                      Déclenche un redémarrage instantané (2s) pour charger directement le profil et le bureau de l'utilisateur.
                     </p>
                   </div>
                 </label>
