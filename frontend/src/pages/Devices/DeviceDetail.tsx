@@ -183,12 +183,12 @@ export const DeviceDetail: React.FC = () => {
       if (res.success) {
         setWolNotification({
           type: 'success',
-          message: `Paquet magique Wake-on-LAN envoyé avec succès à ${res.mac_address} (${res.broadcast_ip}:${res.port})`,
+          message: res.message || `Paquet magique Wake-on-LAN envoyé avec succès à ${res.mac_address || 'la machine'}`,
         });
       } else {
         setWolNotification({
           type: 'error',
-          message: `Erreur WoL : ${res.message}`,
+          message: res.message || "Erreur lors de l'envoi du paquet Wake-on-LAN",
         });
       }
       setTimeout(() => setWolNotification(null), 7000);
