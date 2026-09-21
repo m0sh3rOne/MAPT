@@ -139,6 +139,8 @@ export const DeviceDetail: React.FC = () => {
     mutationFn: (deploymentData: any) => api.createDeployment(deploymentData),
     onSuccess: () => {
       setActiveModal(null);
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
       queryClient.invalidateQueries({ queryKey: ['device-actions', id] });
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     },
@@ -191,6 +193,8 @@ export const DeviceDetail: React.FC = () => {
           message: res.message || "Erreur lors de l'envoi du paquet Wake-on-LAN",
         });
       }
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
       setTimeout(() => setWolNotification(null), 7000);
     },
     onError: (err: any) => {

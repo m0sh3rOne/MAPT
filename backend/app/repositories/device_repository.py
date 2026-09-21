@@ -38,7 +38,7 @@ class DeviceRepository:
     async def get_by_token(self, agent_token: str) -> Optional[Device]:
         result = await self.db.execute(
             select(Device)
-            .where(Device.agent_token == agent_token, Device.is_archived == False)
+            .where(Device.agent_token == agent_token)
         )
         return result.scalar_one_or_none()
 

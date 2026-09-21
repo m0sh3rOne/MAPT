@@ -152,13 +152,14 @@ async def disable_device(
 async def delete_device(
     device_id: UUID,
     request: Request,
+    uninstall_agent: bool = True,
     current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = DeviceService(db)
     client_ip = request.client.host if request.client else None
-    await service.delete_device(device_id, current_user.id, client_ip)
-    return {"status": "success", "message": "Machine supprimée avec succès."}
+    await service.delete_device(device_id, current_user.id, client_ip, uninstall_agent=uninstall_agent)
+    return {"status": "success", "message": "Ordre de désinstallation de l'agent envoyé et machine supprimée du parc."}
 
 
 @router.post("/{device_id}/wol")

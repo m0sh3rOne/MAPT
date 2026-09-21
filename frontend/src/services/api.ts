@@ -81,8 +81,10 @@ export const api = {
     const res = await apiClient.post(`/admin/devices/${id}/disable`);
     return res.data;
   },
-  deleteDevice: async (id: string) => {
-    const res = await apiClient.delete(`/admin/devices/${id}`);
+  deleteDevice: async (id: string, uninstallAgent: boolean = true) => {
+    const res = await apiClient.delete(`/admin/devices/${id}`, {
+      params: { uninstall_agent: uninstallAgent }
+    });
     return res.data;
   },
   wakeDevice: async (id: string, broadcastIp?: string, port?: number): Promise<WolResult> => {

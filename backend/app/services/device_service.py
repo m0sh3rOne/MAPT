@@ -91,11 +91,50 @@ class DeviceService:
         )
         return self._map_to_response(updated)
 
-    async def delete_device(self, device_id: UUID, user_id: UUID, ip_address: Optional[str] = None):
+    async def delete_device(self, device_id: UUID, user_id: UUID, ip_address: Optional[str] = None, uninstall_agent: bool = True):
         device = await self.device_repo.get_by_id(device_id)
         if not device:
             raise HTTPException(status_code=404, detail="Machine introuvable.")
-        # Soft delete
+
+        # Si demandé et que l'agent a un token d'accès, on émet immédiatement un job de désinstallation propre
+        if uninstall_agent and device.agent_token:
+            from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
+            uninstall_ps = (
+                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "
+                "\"Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; "
+                "& 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; "
+                "sc.exe delete 'mapt-agent'; "
+                "Start-Sleep -Seconds 2; "
+                "Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; "
+                "Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\""
+            )
+            dep = Deployment(
+                name=f"🗑️ Désinstallation de l'agent - {device.hostname}",
+                description="Désinstallation propre de l'agent et suppression du service Windows avant retrait du parc",
+                deployment_type="command",
+                custom_command=uninstall_ps,
+                created_by=user_id,
+                target_all_devices=False,
+                target_device_ids=[device.id],
+                target_group_ids=[],
+                status=DeploymentStatus.RUNNING,
+                is_recurring=False,
+                schedule_type="immediate"
+            )
+            self.db.add(dep)
+            await self.db.flush()
+
+            target = DeploymentTarget(
+                deployment_id=dep.id,
+                device_id=device.id,
+                status=TargetStatus.PENDING,
+                retry_count=0,
+                max_retries=1
+            )
+            self.db.add(target)
+            await self.db.commit()
+
+        # Soft delete (archivage pour masquer immédiatement de l'inventaire)
         device.is_archived = True
         device.updated_at = datetime.now(timezone.utc)
         await self.device_repo.update(device)
@@ -105,7 +144,7 @@ class DeviceService:
             entity_type="device",
             user_id=user_id,
             entity_id=device.id,
-            details={"hostname": device.hostname},
+            details={"hostname": device.hostname, "uninstalled_agent": uninstall_agent},
             ip_address=ip_address
         )
 

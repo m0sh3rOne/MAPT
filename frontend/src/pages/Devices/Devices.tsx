@@ -19,9 +19,11 @@ import {
   Send,
   X,
   AlertCircle,
-  Check
+  Check,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
-import { WolResult } from '../../types';
+import { WolResult, Device } from '../../types';
 
 export const Devices: React.FC = () => {
   const queryClient = useQueryClient();
@@ -36,18 +38,19 @@ export const Devices: React.FC = () => {
   const [customPort, setCustomPort] = useState(9);
 
   // Toast / Notification State
-  const [wolNotification, setWolNotification] = useState<{
-    type: 'success' | 'error';
+  const [notification, setNotification] = useState<{
+    type: 'success' | 'error' | 'info';
     message: string;
     details?: string[];
   } | null>(null);
 
-  const { data: devices = [], isLoading, refetch } = useQuery({
+  const { data: devices = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['devices'],
     queryFn: api.getDevices,
     refetchInterval: 10000,
   });
 
+  // Enable / Disable Device
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       if (enabled) {
@@ -56,15 +59,81 @@ export const Devices: React.FC = () => {
         return api.enableDevice(id);
       }
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
+      setNotification({
+        type: 'success',
+        message: res.enabled
+          ? `Machine ${res.hostname} activée avec succès.`
+          : `Machine ${res.hostname} désactivée avec succès.`,
+      });
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      refetch();
+      setTimeout(() => setNotification(null), 5000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors du changement de statut",
+      });
+      setTimeout(() => setNotification(null), 6000);
     },
   });
 
+  // Delete Device with automatic Agent Uninstallation
   const deleteMutation = useMutation({
-    mutationFn: api.deleteDevice,
-    onSuccess: () => {
+    mutationFn: async ({ id, hostname }: { id: string; hostname: string }) => {
+      return api.deleteDevice(id, true);
+    },
+    onSuccess: (_, variables) => {
+      setNotification({
+        type: 'success',
+        message: `Ordre de désinstallation de l'agent envoyé et machine ${variables.hostname} supprimée du parc.`,
+      });
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      setSelectedDeviceIds((prev) => prev.filter((dId) => dId !== variables.id));
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors de la suppression de la machine",
+      });
+      setTimeout(() => setNotification(null), 7000);
+    },
+  });
+
+  // Remote Immediate Shutdown Mutation (shutdown.exe /s /t 0 /f)
+  const powerShutdownMutation = useMutation({
+    mutationFn: async ({ id, hostname }: { id: string; hostname: string }) => {
+      return api.createDeployment({
+        name: `⚡ Arrêt immédiat - ${hostname}`,
+        description: `Extinction forcée rapide à distance`,
+        deployment_type: 'command',
+        custom_command: 'shutdown.exe /s /t 0 /f',
+        target_all_devices: false,
+        target_device_ids: [id],
+        target_group_ids: [],
+        schedule_type: 'immediate',
+        is_recurring: false,
+      });
+    },
+    onSuccess: (_, variables) => {
+      setNotification({
+        type: 'success',
+        message: `Ordre d'extinction immédiate envoyé avec succès à ${variables.hostname}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors de l'envoi de l'ordre d'extinction",
+      });
+      setTimeout(() => setNotification(null), 7000);
     },
   });
 
@@ -75,24 +144,26 @@ export const Devices: React.FC = () => {
     },
     onSuccess: (res: WolResult) => {
       if (res.success) {
-        setWolNotification({
+        setNotification({
           type: 'success',
           message: res.message || `Paquet magique Wake-on-LAN envoyé avec succès à ${res.mac_address || 'la machine'}`,
         });
       } else {
-        setWolNotification({
+        setNotification({
           type: 'error',
           message: res.message || "Erreur lors de l'envoi du paquet Wake-on-LAN",
         });
       }
-      setTimeout(() => setWolNotification(null), 7000);
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
     },
     onError: (err: any) => {
-      setWolNotification({
+      setNotification({
         type: 'error',
         message: err?.response?.data?.detail || "Échec de l'envoi du paquet Wake-on-LAN",
       });
-      setTimeout(() => setWolNotification(null), 7000);
+      setTimeout(() => setNotification(null), 7000);
     },
   });
 
@@ -106,26 +177,62 @@ export const Devices: React.FC = () => {
       const failed = results.filter((r) => !r.success);
 
       if (successful.length > 0) {
-        setWolNotification({
+        setNotification({
           type: 'success',
           message: `${successful.length} machine(s) réveillée(s) par Wake-on-LAN avec succès !`,
           details: failed.map((f) => `Échec ${f.mac_address || 'inconnue'} : ${f.message}`),
         });
       } else {
-        setWolNotification({
+        setNotification({
           type: 'error',
           message: `Aucune machine n'a pu être réveillée (${failed.length} échecs).`,
           details: failed.map((f) => f.message),
         });
       }
-      setTimeout(() => setWolNotification(null), 7000);
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
     },
     onError: (err: any) => {
-      setWolNotification({
+      setNotification({
         type: 'error',
         message: err?.response?.data?.detail || 'Erreur lors du réveil groupé',
       });
-      setTimeout(() => setWolNotification(null), 7000);
+      setTimeout(() => setNotification(null), 7000);
+    },
+  });
+
+  // Batch Shutdown Mutation
+  const batchShutdownMutation = useMutation({
+    mutationFn: async (deviceIds: string[]) => {
+      return api.createDeployment({
+        name: `⚡ Arrêt groupé (${deviceIds.length} machines)`,
+        description: `Extinction forcée rapide à distance sur sélection de machines`,
+        deployment_type: 'command',
+        custom_command: 'shutdown.exe /s /t 0 /f',
+        target_all_devices: false,
+        target_device_ids: deviceIds,
+        target_group_ids: [],
+        schedule_type: 'immediate',
+        is_recurring: false,
+      });
+    },
+    onSuccess: (_, variables) => {
+      setNotification({
+        type: 'success',
+        message: `Ordre d'extinction envoyé avec succès à ${variables.length} machine(s).`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors de l'arrêt groupé",
+      });
+      setTimeout(() => setNotification(null), 7000);
     },
   });
 
@@ -136,26 +243,28 @@ export const Devices: React.FC = () => {
     },
     onSuccess: (res: WolResult) => {
       if (res.success) {
-        setWolNotification({
+        setNotification({
           type: 'success',
           message: `Paquet magique WoL envoyé à l'adresse MAC ${res.mac_address} (${res.broadcast_ip}:${res.port})`,
         });
         setShowCustomWolModal(false);
         setCustomMac('');
       } else {
-        setWolNotification({
+        setNotification({
           type: 'error',
           message: `Erreur WoL : ${res.message}`,
         });
       }
-      setTimeout(() => setWolNotification(null), 7000);
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
     },
     onError: (err: any) => {
-      setWolNotification({
+      setNotification({
         type: 'error',
         message: err?.response?.data?.detail || "Échec de l'envoi personnalisé",
       });
-      setTimeout(() => setWolNotification(null), 7000);
+      setTimeout(() => setNotification(null), 7000);
     },
   });
 
@@ -188,25 +297,29 @@ export const Devices: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
-      {wolNotification && (
+      {notification && (
         <div
           className={`p-4 rounded-2xl border flex items-start justify-between shadow-xl transition animate-in fade-in slide-in-from-top-2 duration-200 ${
-            wolNotification.type === 'success'
+            notification.type === 'success'
               ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300'
+              : notification.type === 'info'
+              ? 'bg-sky-950/80 border-sky-500/30 text-sky-300'
               : 'bg-rose-950/80 border-rose-500/30 text-rose-300'
           }`}
         >
           <div className="flex items-start space-x-3">
-            {wolNotification.type === 'success' ? (
-              <Zap className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            {notification.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            ) : notification.type === 'info' ? (
+              <Zap className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
             ) : (
               <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
             )}
             <div>
-              <p className="text-sm font-semibold">{wolNotification.message}</p>
-              {wolNotification.details && wolNotification.details.length > 0 && (
+              <p className="text-sm font-semibold">{notification.message}</p>
+              {notification.details && notification.details.length > 0 && (
                 <ul className="text-xs text-rose-400/80 list-disc list-inside mt-1">
-                  {wolNotification.details.map((d, i) => (
+                  {notification.details.map((d, i) => (
                     <li key={i}>{d}</li>
                   ))}
                 </ul>
@@ -214,7 +327,7 @@ export const Devices: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={() => setWolNotification(null)}
+            onClick={() => setNotification(null)}
             className="text-slate-400 hover:text-slate-200 p-1"
           >
             <X className="w-4 h-4" />
@@ -232,7 +345,7 @@ export const Devices: React.FC = () => {
             </span>
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Inventaire des postes clients, état en temps réel et réveil à distance (Wake-on-LAN)
+            Inventaire des postes clients, état en temps réel, actions rapides et réveil à distance (Wake-on-LAN)
           </p>
         </div>
 
@@ -248,35 +361,37 @@ export const Devices: React.FC = () => {
 
           <a
             href="/api/v1/agent/download/windows"
-            download="mapt-agent.exe"
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-sm font-semibold transition shadow-lg shadow-emerald-600/20"
-            title="Télécharger l'agent d'enrôlement Windows x64"
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-sm font-semibold transition shadow-sm"
           >
             <Power className="w-4 h-4" />
             <span>Télécharger l'Agent (.exe)</span>
           </a>
 
           <button
-            onClick={() => refetch()}
-            className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-3.5 py-2 rounded-xl text-sm font-semibold transition"
+            onClick={() => {
+              refetch();
+              queryClient.invalidateQueries({ queryKey: ['devices'] });
+            }}
+            className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl text-sm font-medium transition"
+            title="Actualiser la liste"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${isLoading || isFetching ? 'animate-spin text-emerald-400' : ''}`} />
             <span>Actualiser</span>
           </button>
         </div>
       </div>
 
-      {/* Controls: Search & Filter & Bulk Actions */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        <div className="flex flex-col sm:flex-row items-center gap-4 flex-1 w-full">
-          <div className="relative flex-1 w-full">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+      {/* Filters and Search Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+        <div className="flex flex-1 items-center space-x-3 w-full sm:w-auto">
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="text"
               placeholder="Rechercher par nom d'hôte, IP, adresse MAC, OS..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-200 outline-none transition"
+              className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none"
             />
           </div>
 
@@ -296,7 +411,7 @@ export const Devices: React.FC = () => {
 
         {/* Bulk Action Bar */}
         {selectedDeviceIds.length > 0 && (
-          <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+          <div className="flex flex-wrap items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 animate-in fade-in">
             <span className="text-xs text-slate-400 font-semibold">
               {selectedDeviceIds.length} sélectionnée(s)
             </span>
@@ -309,6 +424,21 @@ export const Devices: React.FC = () => {
               <Zap className="w-3.5 h-3.5" />
               <span>{wolBatchMutation.isPending ? 'Envoi...' : 'Réveiller (WoL)'}</span>
             </button>
+
+            <button
+              onClick={() => {
+                if (confirm(`Confirmez-vous l'extinction immédiate de ${selectedDeviceIds.length} machine(s) sélectionnée(s) ?`)) {
+                  batchShutdownMutation.mutate(selectedDeviceIds);
+                }
+              }}
+              disabled={batchShutdownMutation.isPending}
+              className="flex items-center space-x-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs px-2.5 py-1.5 rounded-lg font-bold transition disabled:opacity-50"
+              title="Éteindre à distance les machines sélectionnées"
+            >
+              <Power className="w-3.5 h-3.5" />
+              <span>{batchShutdownMutation.isPending ? 'Arrêt en cours...' : 'Éteindre'}</span>
+            </button>
+
             <button
               onClick={() => setSelectedDeviceIds([])}
               className="text-slate-500 hover:text-slate-300 p-1"
@@ -380,10 +510,26 @@ export const Devices: React.FC = () => {
                             >
                               {device.hostname}
                             </Link>
-                            {!device.enabled && (
-                              <span className="text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-1.5 py-0.5 rounded font-bold">
+                            {!device.enabled ? (
+                              <button
+                                onClick={() =>
+                                  toggleStatusMutation.mutate({ id: device.id, enabled: false })
+                                }
+                                title="Machine désactivée. Cliquez pour la réactiver."
+                                className="text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-1.5 py-0.5 rounded font-bold hover:bg-rose-500/20 transition cursor-pointer"
+                              >
                                 DÉSACTIVÉ
-                              </span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  toggleStatusMutation.mutate({ id: device.id, enabled: true })
+                                }
+                                title="Machine active. Cliquez pour la désactiver."
+                                className="text-[10px] opacity-0 hover:opacity-100 text-slate-500 hover:text-rose-400 transition"
+                              >
+                                (Désactiver)
+                              </button>
                             )}
                           </div>
                           <div className="flex items-center space-x-2 text-xs font-mono text-slate-400 mt-0.5">
@@ -429,12 +575,12 @@ export const Devices: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end space-x-2">
-                        {/* WoL Button */}
+                        {/* WoL Button (Allumage) */}
                         <button
                           onClick={() => wolSingleMutation.mutate(device.id)}
                           disabled={wolSingleMutation.isPending}
                           className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/40 transition disabled:opacity-50"
-                          title="Envoyer un paquet magique Wake-on-LAN (Allumer à distance)"
+                          title="Allumer la machine à distance (Wake-on-LAN)"
                         >
                           <Zap className="w-4 h-4" />
                         </button>
@@ -442,36 +588,51 @@ export const Devices: React.FC = () => {
                         {/* View details */}
                         <Link
                           to={`/devices/${device.id}`}
-                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
-                          title="Consulter l'inventaire complet et les actions"
+                          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 hover:border-slate-600 transition"
+                          title="Consulter l'inventaire complet et télémaintenance"
                         >
                           <Eye className="w-4 h-4" />
                         </Link>
 
-                        {/* Enable / Disable */}
-                        <button
-                          onClick={() =>
-                            toggleStatusMutation.mutate({ id: device.id, enabled: device.enabled })
-                          }
-                          className={`p-2 rounded-xl border transition ${
-                            device.enabled
-                              ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-                              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
-                          }`}
-                          title={device.enabled ? 'Désactiver la machine' : 'Activer la machine'}
-                        >
-                          <Power className="w-4 h-4" />
-                        </button>
+                        {/* Power Button (Extinction si en ligne / Allumage si hors ligne) */}
+                        {device.is_online ? (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Éteindre immédiatement la machine ${device.hostname} à distance ?`)) {
+                                powerShutdownMutation.mutate({ id: device.id, hostname: device.hostname });
+                              }
+                            }}
+                            disabled={powerShutdownMutation.isPending}
+                            className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/40 transition disabled:opacity-50"
+                            title="Éteindre la machine à distance (Arrêt forcé immédiat)"
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => wolSingleMutation.mutate(device.id)}
+                            disabled={wolSingleMutation.isPending}
+                            className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/40 transition disabled:opacity-50"
+                            title="Allumer la machine à distance (Wake-on-LAN)"
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                        )}
 
-                        {/* Delete */}
+                        {/* Delete with Agent Uninstall */}
                         <button
                           onClick={() => {
-                            if (confirm(`Confirmez-vous la suppression de la machine ${device.hostname} ?`)) {
-                              deleteMutation.mutate(device.id);
+                            if (
+                              confirm(
+                                `Supprimer la machine ${device.hostname} du parc ?\n\nUn script de désinstallation complète de l'agent MAPT sera automatiquement transmis à la machine.`
+                              )
+                            ) {
+                              deleteMutation.mutate({ id: device.id, hostname: device.hostname });
                             }
                           }}
-                          className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition"
-                          title="Supprimer la machine de la base"
+                          disabled={deleteMutation.isPending}
+                          className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/40 transition disabled:opacity-50"
+                          title="Désinstaller l'agent et supprimer la machine du parc"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -572,24 +733,24 @@ export const Devices: React.FC = () => {
 
               <div className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs text-slate-400">
                 <span className="font-semibold text-amber-400 block mb-1">⚡ Comment ça marche ?</span>
-                Le serveur MAPT émettra un datagramme UDP contenant le paquet magique (6x 0xFF suivis de 16x l'adresse MAC).
+                Le serveur MAPT émettra un datagramme UDP contenant le paquet magique (6x 0xFF suivis de 16x l'adresse MAC) sur les sous-réseaux locaux.
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowCustomWolModal(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition"
+                  className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  disabled={wolCustomMutation.isPending || !customMac.trim()}
-                  className="flex items-center space-x-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm shadow-lg shadow-amber-500/20 transition disabled:opacity-50"
+                  disabled={wolCustomMutation.isPending}
+                  className="flex items-center space-x-2 bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-amber-500/20 transition disabled:opacity-50"
                 >
                   <Send className="w-4 h-4" />
-                  <span>{wolCustomMutation.isPending ? 'Envoi...' : 'Émettre le paquet WoL'}</span>
+                  <span>{wolCustomMutation.isPending ? 'Émission...' : 'Diffuser le Paquet Magique'}</span>
                 </button>
               </div>
             </form>
