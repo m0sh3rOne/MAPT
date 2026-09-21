@@ -98,55 +98,65 @@ class DeviceService:
 
         # Si demandé et que l'agent a un token d'accès, on émet immédiatement un job de désinstallation propre
         if uninstall_agent and device.agent_token:
-            from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
-            uninstall_ps = (
-                "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "
-                "\"Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; "
-                "& 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; "
-                "sc.exe delete 'mapt-agent'; "
-                "Start-Sleep -Seconds 2; "
-                "Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; "
-                "Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\""
-            )
-            dep = Deployment(
-                name=f"🗑️ Désinstallation de l'agent - {device.hostname}",
-                description="Désinstallation propre de l'agent et suppression du service Windows avant retrait du parc",
-                deployment_type="command",
-                custom_command=uninstall_ps,
-                created_by=user_id,
-                target_all_devices=False,
-                target_device_ids=[device.id],
-                target_group_ids=[],
-                status=DeploymentStatus.RUNNING,
-                is_recurring=False,
-                schedule_type="immediate"
-            )
-            self.db.add(dep)
-            await self.db.flush()
+            try:
+                from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
+                uninstall_ps = (
+                    "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "
+                    "\"Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; "
+                    "& 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; "
+                    "sc.exe delete 'mapt-agent'; "
+                    "Start-Sleep -Seconds 2; "
+                    "Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; "
+                    "Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\""
+                )
+                dep = Deployment(
+                    name=f"🗑️ Désinstallation de l'agent - {device.hostname}",
+                    description="Désinstallation propre de l'agent et suppression du service Windows avant retrait du parc",
+                    deployment_type="command",
+                    custom_command=uninstall_ps,
+                    created_by=user_id,
+                    target_all_devices=False,
+                    target_device_ids=[str(device.id)],
+                    target_group_ids=[],
+                    status=DeploymentStatus.RUNNING,
+                    is_recurring=False,
+                    schedule_type="immediate"
+                )
+                self.db.add(dep)
+                await self.db.flush()
 
-            target = DeploymentTarget(
-                deployment_id=dep.id,
-                device_id=device.id,
-                status=TargetStatus.PENDING,
-                retry_count=0,
-                max_retries=1
-            )
-            self.db.add(target)
-            await self.db.commit()
+                target = DeploymentTarget(
+                    deployment_id=dep.id,
+                    device_id=device.id,
+                    status=TargetStatus.PENDING,
+                    retry_count=0,
+                    max_retries=1
+                )
+                self.db.add(target)
+            except Exception as e:
+                from app.core.logging import logger
+                logger.error(f"Erreur lors de la création du job de désinstallation pour {device.hostname}: {e}")
 
         # Soft delete (archivage pour masquer immédiatement de l'inventaire)
         device.is_archived = True
         device.updated_at = datetime.now(timezone.utc)
         await self.device_repo.update(device)
 
+        # Enregistrement garanti dans le Journal d'Audit
         await self.audit_repo.create(
             action=AuditAction.DEVICE_DELETED,
             entity_type="device",
             user_id=user_id,
             entity_id=device.id,
-            details={"hostname": device.hostname, "uninstalled_agent": uninstall_agent},
+            details={
+                "hostname": device.hostname,
+                "ip_address": device.ip_address,
+                "mac_address": getattr(device, "mac_address", None),
+                "uninstalled_agent": uninstall_agent
+            },
             ip_address=ip_address
         )
+        await self.db.commit()
 
     async def get_device_inventory(self, device_id: UUID) -> Optional[DeviceInventoryResponse]:
         from app.core.sanitizer import sanitize_data, sanitize_string
