@@ -149,21 +149,22 @@ class DeviceService:
         )
 
     async def get_device_inventory(self, device_id: UUID) -> Optional[DeviceInventoryResponse]:
+        from app.core.sanitizer import sanitize_data, sanitize_string
         inventory = await self.device_repo.get_inventory(device_id)
         if not inventory:
             return None
         return DeviceInventoryResponse(
             device_id=inventory.device_id,
-            cpu_model=inventory.cpu_model,
+            cpu_model=sanitize_string(inventory.cpu_model),
             cpu_cores=inventory.cpu_cores,
             total_memory_mb=inventory.total_memory_mb,
             disk_total_gb=inventory.disk_total_gb,
             disk_free_gb=inventory.disk_free_gb,
             mac_addresses=inventory.mac_addresses,
-            network_interfaces=inventory.network_interfaces,
-            current_user=inventory.current_user,
+            network_interfaces=sanitize_data(inventory.network_interfaces),
+            current_user=sanitize_string(inventory.current_user),
             last_boot_at=inventory.last_boot_at,
-            installed_software=inventory.installed_software,
-            local_users=inventory.local_users,
+            installed_software=sanitize_data(inventory.installed_software),
+            local_users=sanitize_data(inventory.local_users),
             updated_at=inventory.updated_at
         )

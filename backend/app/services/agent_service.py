@@ -207,4 +207,7 @@ class AgentService:
             await self.dep_repo.add_target_log(job_id, log.level, log.message, log.timestamp)
 
     async def update_inventory(self, device: Device, inventory_in: DeviceInventoryUpdate):
-        await self.device_repo.upsert_inventory(device.id, inventory_in.model_dump(exclude_unset=True))
+        from app.core.sanitizer import sanitize_data
+        raw_dict = inventory_in.model_dump(exclude_unset=True)
+        cleaned_dict = sanitize_data(raw_dict)
+        await self.device_repo.upsert_inventory(device.id, cleaned_dict)

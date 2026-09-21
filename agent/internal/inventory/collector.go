@@ -81,7 +81,9 @@ func collectWindowsAdvanced(data *InventoryData) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	psScript := `$res = @{}
+	psScript := `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+$OutputEncoding = [System.Text.Encoding]::UTF8;
+$res = @{}
 try {
     $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue
     $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
