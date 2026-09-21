@@ -375,6 +375,23 @@ export const DeviceDetail: React.FC = () => {
     });
   };
 
+  const getDetectedAdDomain = (currentUser?: string, hostname?: string): string => {
+    if (!currentUser || !currentUser.includes('\\')) return '';
+    const domainPart = currentUser.split('\\')[0].trim().toUpperCase();
+    const invalid = [
+      'WORKGROUP',
+      'WORKGÉROUP',
+      'WORKGROUPE',
+      'AUTORITE NT',
+      'AUTORITÉ NT',
+      'NT AUTHORITY',
+      'BUILTIN',
+      (hostname || '').trim().toUpperCase(),
+    ];
+    if (invalid.includes(domainPart)) return '';
+    return domainPart;
+  };
+
   const handleLogon = (e: React.FormEvent) => {
     e.preventDefault();
     const user = logonUsername.trim();
@@ -386,16 +403,93 @@ export const DeviceDetail: React.FC = () => {
     const domain = logonAccountType === 'domain' ? (logonDomain.trim() || '.') : '.';
     const targetLabel = logonAccountType === 'domain' ? `${domain}\\${user}` : `.\\${user}`;
 
-    const psScript = [
-      `$regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"`,
-      `Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String`,
-      `Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value "${user.replace(/"/g, '`"')}" -Type String`,
-      `Set-ItemProperty -Path $regPath -Name "DefaultDomainName" -Value "${domain.replace(/"/g, '`"')}" -Type String`,
-      `Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value "${logonPassword.replace(/"/g, '`"')}" -Type String`,
-      `Set-ItemProperty -Path $regPath -Name "ForceAutoLogon" -Value "1" -Type String`,
-      `Write-Output "AutoLogon configure avec succes pour ${targetLabel}"`,
-      logonRestartNow ? `shutdown.exe /r /t 3 /f /c "MAPT - Connexion automatique session: ${targetLabel}"` : ''
-    ].filter(Boolean).join('\r\n');
+    const psScript = `
+$targetDomain = "${domain.replace(/"/g, '`"')}"
+$targetUser = "${user.replace(/"/g, '`"')}"
+$targetPass = "${logonPassword.replace(/"/g, '`"')}"
+
+$regWinlogon = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+$regPolicies = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+
+# 1. Configuration des cles Winlogon principales
+Set-ItemProperty -Path $regWinlogon -Name "AutoAdminLogon" -Value "1" -Type String -Force
+Set-ItemProperty -Path $regWinlogon -Name "DefaultUserName" -Value $targetUser -Type String -Force
+Set-ItemProperty -Path $regWinlogon -Name "DefaultDomainName" -Value $targetDomain -Type String -Force
+Set-ItemProperty -Path $regWinlogon -Name "DefaultPassword" -Value $targetPass -Type String -Force
+Set-ItemProperty -Path $regWinlogon -Name "ForceAutoLogon" -Value "1" -Type String -Force
+Set-ItemProperty -Path $regWinlogon -Name "DisableCAD" -Value 1 -Type DWord -Force
+Set-ItemProperty -Path $regWinlogon -Name "IgnoreShiftOvrd" -Value "1" -Type String -Force
+Remove-ItemProperty -Path $regWinlogon -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+
+# 2. Desactivation des verrous de securite et invites Ctrl+Alt+Suppr
+if (Test-Path $regPolicies) {
+    Set-ItemProperty -Path $regPolicies -Name "DisableCAD" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path $regPolicies -Name "DontDisplayLastUserName" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $regPolicies -Name "LegalNoticeCaption" -Value "" -Type String -Force
+    Set-ItemProperty -Path $regPolicies -Name "LegalNoticeText" -Value "" -Type String -Force
+}
+
+# 3. Stockage dans le coffre LSA Secrets pour compatibilite Active Directory Windows 10/11
+try {
+    $csharp = @"
+using System;
+using System.Runtime.InteropServices;
+public class LsaHelper {
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LSA_UNICODE_STRING {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct LSA_OBJECT_ATTRIBUTES {
+        public int Length;
+        public IntPtr RootDirectory;
+        public IntPtr ObjectName;
+        public uint Attributes;
+        public IntPtr SecurityDescriptor;
+        public IntPtr SecurityQualityOfService;
+    }
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES ObjectAttributes, uint DesiredAccess, out IntPtr PolicyHandle);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint LsaStorePrivateData(IntPtr PolicyHandle, ref LSA_UNICODE_STRING KeyName, ref LSA_UNICODE_STRING PrivateData);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint LsaClose(IntPtr ObjectHandle);
+
+    public static bool SetSecret(string key, string value) {
+        LSA_OBJECT_ATTRIBUTES attr = new LSA_OBJECT_ATTRIBUTES();
+        IntPtr handle = IntPtr.Zero;
+        if (LsaOpenPolicy(IntPtr.Zero, ref attr, 0x00000020, out handle) != 0) return false;
+        try {
+            LSA_UNICODE_STRING k = new LSA_UNICODE_STRING();
+            k.Buffer = Marshal.StringToHGlobalUni(key);
+            k.Length = (ushort)(key.Length * 2);
+            k.MaximumLength = (ushort)(k.Length + 2);
+
+            LSA_UNICODE_STRING v = new LSA_UNICODE_STRING();
+            if (value != null) {
+                v.Buffer = Marshal.StringToHGlobalUni(value);
+                v.Length = (ushort)(value.Length * 2);
+                v.MaximumLength = (ushort)(v.Length + 2);
+            }
+            uint res = LsaStorePrivateData(handle, ref k, ref v);
+            Marshal.FreeHGlobal(k.Buffer);
+            if (v.Buffer != IntPtr.Zero) Marshal.FreeHGlobal(v.Buffer);
+            return res == 0;
+        } finally {
+            LsaClose(handle);
+        }
+    }
+}
+"@
+    Add-Type -TypeDefinition $csharp -ErrorAction SilentlyContinue
+    [LsaHelper]::SetSecret("DefaultPassword", $targetPass)
+} catch {}
+
+Write-Output "AutoLogon configure avec succes pour $targetDomain\\$targetUser"
+${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $targetDomain\\$targetUser"' : ''}
+`.trim();
 
     const utf16Bytes = new Uint8Array(psScript.length * 2);
     for (let i = 0; i < psScript.length; i++) {
@@ -1506,11 +1600,17 @@ export const DeviceDetail: React.FC = () => {
               {/* Card 7: Connecter un utilisateur (Domaine / Local) */}
               <div
                 onClick={() => {
-                  const detectedDomain = inventory?.current_user?.includes('\\')
-                    ? inventory.current_user.split('\\')[0]
-                    : '';
-                  if (!logonDomain && detectedDomain) {
+                  const detectedDomain = getDetectedAdDomain(inventory?.current_user, device.hostname);
+                  if (detectedDomain) {
                     setLogonDomain(detectedDomain);
+                    setLogonAccountType('domain');
+                  } else {
+                    if (logonDomain === 'WORKGROUP' || logonDomain === 'WORKGÉROUP' || logonDomain === 'AUTORITE NT' || logonDomain === 'NT AUTHORITY') {
+                      setLogonDomain('');
+                    }
+                    if (!logonDomain) {
+                      setLogonAccountType('local');
+                    }
                   }
                   setActiveModal('logon');
                 }}
@@ -2322,30 +2422,34 @@ export const DeviceDetail: React.FC = () => {
               </div>
 
               {/* Domaine (si sélectionné) */}
-              {logonAccountType === 'domain' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-slate-300 font-semibold">Nom du Domaine NetBIOS</label>
-                    {inventory?.current_user?.includes('\\') && (
-                      <button
-                        type="button"
-                        onClick={() => setLogonDomain(inventory.current_user.split('\\')[0])}
-                        className="text-[11px] text-cyan-400 hover:underline"
-                      >
-                        Utiliser {inventory.current_user.split('\\')[0]}
-                      </button>
-                    )}
+              {logonAccountType === 'domain' && (() => {
+                const detectedAd = getDetectedAdDomain(inventory?.current_user, device.hostname);
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-slate-300 font-semibold">Nom du Domaine NetBIOS</label>
+                      {detectedAd && (
+                        <button
+                          type="button"
+                          onClick={() => setLogonDomain(detectedAd)}
+                          className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1"
+                        >
+                          <Globe className="w-3 h-3" />
+                          <span>Utiliser {detectedAd}</span>
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={logonDomain}
+                      onChange={(e) => setLogonDomain(e.target.value.toUpperCase())}
+                      placeholder="ex: PEDAGO"
+                      required
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 uppercase placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    value={logonDomain}
-                    onChange={(e) => setLogonDomain(e.target.value)}
-                    placeholder="ex: PEDAGO, MON_DOMAINE..."
-                    required
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 uppercase placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
-                  />
-                </div>
-              )}
+                );
+              })()}
 
               {/* Nom d'utilisateur */}
               <div>
