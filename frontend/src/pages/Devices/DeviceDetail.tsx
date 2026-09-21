@@ -39,7 +39,11 @@ import {
   Sparkles,
   Filter,
   Wifi,
-  Globe
+  Globe,
+  UserCheck,
+  LogIn,
+  Lock,
+  KeyRound
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 
@@ -58,7 +62,7 @@ export const DeviceDetail: React.FC = () => {
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
-    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | null
+    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | null
   >(null);
 
   // Restart / Shutdown form state
@@ -85,6 +89,14 @@ export const DeviceDetail: React.FC = () => {
 
   // Package form state
   const [selectedPackageId, setSelectedPackageId] = useState('');
+
+  // Logon form state
+  const [logonAccountType, setLogonAccountType] = useState<'domain' | 'local'>('domain');
+  const [logonDomain, setLogonDomain] = useState('');
+  const [logonUsername, setLogonUsername] = useState('');
+  const [logonPassword, setLogonPassword] = useState('');
+  const [logonRestartNow, setLogonRestartNow] = useState(true);
+  const [logonShowPassword, setLogonShowPassword] = useState(false);
 
   // Logs inspection modal
   const [selectedActionForLogs, setSelectedActionForLogs] = useState<DeviceActionHistory | null>(null);
@@ -355,6 +367,54 @@ export const DeviceDetail: React.FC = () => {
       description: `Installation rapide du package ${pkg.name} (${pkg.latest_version.version})`,
       deployment_type: 'package',
       package_version_id: pkg.latest_version.id,
+      target_all_devices: false,
+      target_device_ids: [device.id],
+      target_group_ids: [],
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleLogon = (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = logonUsername.trim();
+    if (!user) {
+      alert("Veuillez renseigner un nom d'utilisateur.");
+      return;
+    }
+
+    const domain = logonAccountType === 'domain' ? (logonDomain.trim() || '.') : '.';
+    const targetLabel = logonAccountType === 'domain' ? `${domain}\\${user}` : `.\\${user}`;
+
+    const psScript = [
+      `$regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"`,
+      `Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String`,
+      `Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value "${user.replace(/"/g, '`"')}" -Type String`,
+      `Set-ItemProperty -Path $regPath -Name "DefaultDomainName" -Value "${domain.replace(/"/g, '`"')}" -Type String`,
+      `Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value "${logonPassword.replace(/"/g, '`"')}" -Type String`,
+      `Set-ItemProperty -Path $regPath -Name "ForceAutoLogon" -Value "1" -Type String`,
+      `Write-Output "AutoLogon configure avec succes pour ${targetLabel}"`,
+      logonRestartNow ? `shutdown.exe /r /t 3 /f /c "MAPT - Connexion automatique session: ${targetLabel}"` : ''
+    ].filter(Boolean).join('\r\n');
+
+    const utf16Bytes = new Uint8Array(psScript.length * 2);
+    for (let i = 0; i < psScript.length; i++) {
+      const code = psScript.charCodeAt(i);
+      utf16Bytes[i * 2] = code & 0xff;
+      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    let binary = '';
+    for (let i = 0; i < utf16Bytes.byteLength; i++) {
+      binary += String.fromCharCode(utf16Bytes[i]);
+    }
+    const base64Encoded = btoa(binary);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
+
+    createActionMutation.mutate({
+      name: `👤 Connexion utilisateur (${targetLabel}) - ${device.hostname}`,
+      description: `Configuration AutoLogon pour ${targetLabel}${logonRestartNow ? ' avec redémarrage immédiat' : ''}`,
+      deployment_type: 'command',
+      custom_command: cmd,
       target_all_devices: false,
       target_device_ids: [device.id],
       target_group_ids: [],
@@ -1442,6 +1502,33 @@ export const DeviceDetail: React.FC = () => {
                   Installe un logiciel du catalogue d'applications sur ce poste en mode silencieux.
                 </p>
               </div>
+
+              {/* Card 7: Connecter un utilisateur (Domaine / Local) */}
+              <div
+                onClick={() => {
+                  const detectedDomain = inventory?.current_user?.includes('\\')
+                    ? inventory.current_user.split('\\')[0]
+                    : '';
+                  if (!logonDomain && detectedDomain) {
+                    setLogonDomain(detectedDomain);
+                  }
+                  setActiveModal('logon');
+                }}
+                className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-cyan-950/20"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-110 transition">
+                    <UserCheck className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500 group-hover:text-cyan-400 transition flex items-center gap-1">
+                    Connecter <Play className="w-3 h-3 fill-current" />
+                  </span>
+                </div>
+                <h3 className="text-sm font-bold text-slate-100 mb-1">Connecter un utilisateur</h3>
+                <p className="text-xs text-slate-400">
+                  Ouvre à distance une session utilisateur (compte local ou domaine Active Directory).
+                </p>
+              </div>
             </div>
           </div>
 
@@ -2173,6 +2260,184 @@ export const DeviceDetail: React.FC = () => {
                   {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Lancer l'installation</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 7: CONNECT USER (AUTOLOGON DOMAIN / LOCAL)                          */}
+      {/* ========================================================================= */}
+      {activeModal === 'logon' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-cyan-400">
+                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+                  <UserCheck className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Connecter un utilisateur à distance</h3>
+                  <p className="text-xs text-slate-400">Cible : {device.hostname}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveModal(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLogon} className="space-y-4 text-xs">
+              {/* Type de compte */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Type de compte</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLogonAccountType('domain')}
+                    className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl border text-xs font-semibold transition ${
+                      logonAccountType === 'domain'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>Compte du Domaine (AD)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setLogonAccountType('local')}
+                    className={`flex items-center justify-center space-x-2 py-2 px-3 rounded-xl border text-xs font-semibold transition ${
+                      logonAccountType === 'local'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>Compte Local</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Domaine (si sélectionné) */}
+              {logonAccountType === 'domain' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-slate-300 font-semibold">Nom du Domaine NetBIOS</label>
+                    {inventory?.current_user?.includes('\\') && (
+                      <button
+                        type="button"
+                        onClick={() => setLogonDomain(inventory.current_user.split('\\')[0])}
+                        className="text-[11px] text-cyan-400 hover:underline"
+                      >
+                        Utiliser {inventory.current_user.split('\\')[0]}
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    value={logonDomain}
+                    onChange={(e) => setLogonDomain(e.target.value)}
+                    placeholder="ex: PEDAGO, MON_DOMAINE..."
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 uppercase placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                  />
+                </div>
+              )}
+
+              {/* Nom d'utilisateur */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Identifiant utilisateur (Login)</label>
+                <input
+                  type="text"
+                  value={logonUsername}
+                  onChange={(e) => setLogonUsername(e.target.value)}
+                  placeholder={logonAccountType === 'domain' ? "ex: eleve, prof, admin..." : "ex: Administrateur, user..."}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono"
+                />
+
+                {/* Suggestions pour compte local */}
+                {logonAccountType === 'local' && inventory?.local_users && inventory.local_users.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500">Utilisateurs détectés :</span>
+                    {inventory.local_users
+                      .filter((u) => u.enabled)
+                      .slice(0, 6)
+                      .map((u) => (
+                        <button
+                          key={u.name}
+                          type="button"
+                          onClick={() => setLogonUsername(u.name)}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-mono text-cyan-300 transition"
+                        >
+                          {u.name}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Mot de passe */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Mot de passe du compte</label>
+                <div className="relative">
+                  <input
+                    type={logonShowPassword ? 'text' : 'password'}
+                    value={logonPassword}
+                    onChange={(e) => setLogonPassword(e.target.value)}
+                    placeholder="Saisissez le mot de passe (ou vide si aucun)"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500 font-mono pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLogonShowPassword(!logonShowPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Le mot de passe est transmis chiffré et enregistré dans Winlogon (AutoLogon) sur la machine distante.
+                </p>
+              </div>
+
+              {/* Option de redémarrage immédiat */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={logonRestartNow}
+                    onChange={(e) => setLogonRestartNow(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Redémarrer immédiatement pour ouvrir la session</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      Déclenche un redémarrage instantané (3s) pour charger directement le profil et le bureau de l'utilisateur.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={createActionMutation.isPending || !logonUsername.trim()}
+                  className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-950/50 disabled:opacity-50"
+                >
+                  {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Connecter la session</span>
                 </button>
               </div>
             </form>
