@@ -100,15 +100,20 @@ class DeviceService:
         if uninstall_agent and device.agent_token:
             try:
                 from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
-                uninstall_ps = (
-                    "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "
-                    "\"Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; "
-                    "& 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; "
-                    "sc.exe delete 'mapt-agent'; "
-                    "Start-Sleep -Seconds 2; "
-                    "Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; "
-                    "Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\""
+                import base64
+                ps_script = (
+                    "$procArgs = @(\n"
+                    "    '-NoProfile',\n"
+                    "    '-NonInteractive',\n"
+                    "    '-ExecutionPolicy', 'Bypass',\n"
+                    "    '-Command',\n"
+                    "    \"Start-Sleep -Seconds 4; Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; & 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service stop; & 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; sc.exe delete 'mapt-agent'; Start-Sleep -Seconds 2; Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\"\n"
+                    ")\n"
+                    "Start-Process powershell.exe -ArgumentList $procArgs -WindowStyle Hidden\n"
+                    "Write-Host 'Ordre de désinstallation détaché initié avec succès.'\n"
                 )
+                b64_cmd = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
+                uninstall_ps = f"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {b64_cmd}"
                 dep = Deployment(
                     name=f"🗑️ Désinstallation de l'agent - {device.hostname}",
                     description="Désinstallation propre de l'agent et suppression du service Windows avant retrait du parc",

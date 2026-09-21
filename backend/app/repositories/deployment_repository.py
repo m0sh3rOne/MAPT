@@ -77,7 +77,7 @@ class DeploymentRepository:
             .where(
                 DeploymentTarget.device_id == device_id,
                 DeploymentTarget.status.in_([TargetStatus.PENDING, TargetStatus.OFFERED]),
-                Deployment.status.in_([DeploymentStatus.PENDING, DeploymentStatus.RUNNING]),
+                Deployment.status != DeploymentStatus.CANCELLED,
                 or_(Deployment.scheduled_at == None, Deployment.scheduled_at <= now)
             )
             .order_by(DeploymentTarget.created_at)

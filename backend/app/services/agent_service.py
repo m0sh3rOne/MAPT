@@ -90,8 +90,8 @@ class AgentService:
         device = await self.device_repo.get_by_token(agent_token)
         if not device:
             raise HTTPException(status_code=401, detail="Token d'agent invalide.")
-        if not device.enabled or device.is_archived:
-            raise HTTPException(status_code=403, detail="Agent désactivé ou révoqué.")
+        if not device.enabled:
+            raise HTTPException(status_code=403, detail="Agent désactivé administrativement.")
         return device
 
     async def process_heartbeat(self, device: Device, heartbeat_in: AgentHeartbeatRequest, ip_address: Optional[str] = None) -> AgentHeartbeatResponse:
