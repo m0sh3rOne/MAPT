@@ -228,3 +228,114 @@ docker compose restart
 ```bash
 docker exec -t mapt-postgres pg_dump -U mapt mapt > backup_mapt_$(date +%F).sql
 ```
+
+---
+
+## 7. Dépannage & Résolution des Erreurs Communes (FAQ / Troubleshooting)
+
+Ce document recense les erreurs communes rencontrées lors du déploiement du projet (clonage Git, configuration SSH, droits d'accès, et exécution de scripts) sur une machine virtuelle Ubuntu, ainsi que leurs résolutions.
+
+---
+
+### 1. Génération et ajout des clés SSH (Agent SSH)
+
+**Symptômes / Erreurs :**
+> `/home/user/.ssh/id_ed25519: No such file or directory`  
+> `/root/.ssh/id_ed25519: Permission denied`  
+> `Could not open a connection to your authentication agent.`
+
+**Cause :** 
+Générer une clé SSH avec `sudo` la place dans le dossier `/root`, la rendant inaccessible à l'utilisateur standard. L'utilisation de `sudo ssh-add` échoue car la commande `sudo` s'exécute dans un environnement isolé qui perd la variable d'environnement de l'agent SSH préalablement démarré.
+
+**Solution :**
+Toujours générer et configurer ses clés SSH en tant qu'utilisateur standard (sans `sudo`).
+
+```bash
+# 1. Générer la clé (appuyer sur Entrée pour les options par défaut)
+ssh-keygen -t ed25519 -C "votre_email@example.com"
+
+# 2. Démarrer l'agent SSH
+eval "$(ssh-agent -s)"
+
+# 3. Ajouter la clé à l'agent
+ssh-add ~/.ssh/id_ed25519
+```
+
+---
+
+### 2. Clonage Git dans des répertoires restreints
+
+**Symptôme / Erreur :**
+> `fatal: could not create work tree dir '/opt/MAPT': Permission denied`
+
+**Cause :**
+Un utilisateur standard n'a pas les droits pour créer des dossiers dans des répertoires système protégés comme `/opt/` ou à la racine de `/home/`.
+
+**Solution :**
+Créer le dossier cible avec les droits administrateur, puis en transférer la propriété (propriétaire et groupe) à l'utilisateur standard avant de lancer la commande `git clone`.
+
+```bash
+# 1. Créer le dossier
+sudo mkdir -p /opt/MAPT
+
+# 2. Donner la propriété à l'utilisateur (remplacer ubuntu par votre utilisateur)
+sudo chown ubuntu:ubuntu /opt/MAPT
+
+# 3. Cloner le dépôt (utiliser l'URL SSH de préférence)
+git clone git@github.com:m0sh3rOne/MAPT.git /opt/MAPT
+```
+
+---
+
+### 3. Échec du clonage HTTPS derrière un pare-feu / proxy
+
+**Symptôme / Erreur :**
+> `fatal: unable to access 'https://github.com/...': gnutls_handshake() failed: A packet with illegal or unsupported version was received.`
+
+**Cause :**
+Lors d'un clonage via `https://`, le proxy du réseau (fréquent en milieu scolaire ou d'entreprise) intercepte la connexion SSL/TLS. La bibliothèque de sécurité d'Ubuntu rejette le certificat du proxy et coupe la connexion.
+
+**Solution 1 (Recommandée) :**
+Utiliser l'URL SSH (`git@github.com:...`) au lieu de l'URL HTTPS. Le protocole SSH est souvent moins impacté par l'inspection TLS du réseau.
+
+**Solution 2 (Contournement Proxy HTTPS) :**
+Déclarer le proxy dans Git et désactiver temporairement la vérification SSL :
+
+```bash
+git config --global http.proxy http://IP_PROXY:PORT
+git config --global http.sslVerify false
+
+# Lancer le clone HTTPS
+git clone https://github.com/m0sh3rOne/MAPT.git /opt/MAPT
+
+# NETTOYAGE OBLIGATOIRE (pour des raisons de sécurité post-déploiement)
+git config --global --unset http.proxy
+git config --global --unset http.sslVerify
+```
+
+---
+
+### 4. Exécution de scripts Bash
+
+**Symptômes / Erreurs :**
+> `sudo: ./install-server-production.sh: command not found`  
+> `.install-server-production.sh: command not found`
+
+**Cause :**
+- Les fichiers récupérés via Git n'ont pas toujours les droits d'exécution par défaut.
+- Sous Linux, pour exécuter un script situé dans le dossier courant, il faut obligatoirement utiliser le préfixe `./` (et non un simple `.` qui désigne un fichier caché, ni taper le nom du fichier directement).
+
+**Solution :**
+Se placer dans le bon dossier, attribuer le droit d'exécution, puis lancer le script avec la bonne syntaxe :
+
+```bash
+# 1. Se placer dans le dossier contenant le script
+cd /opt/MAPT/scripts/
+
+# 2. Rendre le fichier exécutable
+chmod +x install-server-production.sh
+
+# 3. Exécuter le script en tant qu'administrateur
+sudo ./install-server-production.sh
+```
+
