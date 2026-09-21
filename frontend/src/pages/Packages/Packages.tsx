@@ -54,7 +54,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '/i',
     packageArgs: '/qn /norestart',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Windows Installer standard avec exécution silencieuse (/qn /norestart)'
   },
   {
@@ -66,7 +66,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '',
     packageArgs: '',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Exécutable standard Windows lancé directement. Arguments silencieux optionnels (/S, /silent, /qn, /verysilent, /quiet, etc.).'
   },
   {
@@ -78,7 +78,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '//nologo',
     packageArgs: '',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Script VBS exécuté via l\'interpréteur CScript Windows'
   },
   {
@@ -90,7 +90,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '-ExecutionPolicy Bypass -NoProfile -File',
     packageArgs: '',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Script PowerShell avec Bypass d\'ExecutionPolicy'
   },
   {
@@ -102,7 +102,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '/c',
     packageArgs: '',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Fichier de commandes Batch/CMD exécuté via cmd.exe /c'
   },
   {
@@ -114,7 +114,7 @@ const PRESETS: Preset[] = [
     runWithArgs: '',
     packageArgs: '',
     runAsAdmin: true,
-    destinationFolder: '%APPDATA%\\MAPT\\packages',
+    destinationFolder: '%ProgramData%\\MAPT\\packages',
     description: 'Archive compressée déployée et copiée sur les postes clients'
   },
 ];
@@ -250,7 +250,7 @@ export const Packages: React.FC = () => {
       setEditRunWithArgs(lv.run_with_args || '');
       setEditPackageArgs(lv.package_args || '');
       setEditRunAsAdmin(lv.run_as_admin ?? true);
-      setEditDestinationFolder(lv.destination_folder || '%APPDATA%\\MAPT\\packages');
+      setEditDestinationFolder(lv.destination_folder?.includes('APPDATA') ? '%ProgramData%\\MAPT\\packages' : (lv.destination_folder || '%ProgramData%\\MAPT\\packages'));
       setEditInstallCommand(lv.install_command || '');
     } else {
       const p = PRESETS.find(pr => pr.id === pkg.package_type) || PRESETS[0];
@@ -879,7 +879,7 @@ export const Packages: React.FC = () => {
                         type="text"
                         value={editDestinationFolder}
                         onChange={(e) => setEditDestinationFolder(e.target.value)}
-                        placeholder="%APPDATA%\MAPT\packages"
+                        placeholder="%ProgramData%\MAPT\packages"
                         className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-emerald-500 outline-none"
                       />
                       <p className="text-[10px] text-slate-500 mt-0.5">
@@ -1179,7 +1179,7 @@ export const Packages: React.FC = () => {
                         type="text"
                         value={destinationFolder}
                         onChange={(e) => setDestinationFolder(e.target.value)}
-                        placeholder="%APPDATA%\MAPT\packages"
+                        placeholder="%ProgramData%\MAPT\packages"
                         className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:border-emerald-500 outline-none"
                       />
                       <p className="text-[10px] text-slate-500 mt-0.5">
