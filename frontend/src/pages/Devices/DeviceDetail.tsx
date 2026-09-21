@@ -421,10 +421,13 @@ Remove-ItemProperty $w -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
 Remove-ItemProperty $w -Name "IgnoreShiftOvrd" -ErrorAction SilentlyContinue
 
 ${logonOneTime ? `
-# Mode usage unique : Windows consomme le compteur et desactive AutoAdminLogon des l'ouverture
+# Mode usage unique : RunOnce nettoie automatiquement des l'ouverture de la session
+$cleanupCmd = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 5; Set-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name AutoAdminLogon -Value ''0'' -Force; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name DefaultPassword -ErrorAction SilentlyContinue; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name ForceAutoLogon -ErrorAction SilentlyContinue; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name AutoLogonCount -ErrorAction SilentlyContinue; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce'' -Name ''MAPT_DisableAutoLogon'' -ErrorAction SilentlyContinue"'
+Set-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce" -Name "MAPT_DisableAutoLogon" -Value $cleanupCmd -Type String -Force
 Set-ItemProperty $w -Name "AutoLogonCount" -Value 1 -Type DWord -Force
 ` : `
 # Mode persistant : reconnexion permanente
+Remove-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce" -Name "MAPT_DisableAutoLogon" -ErrorAction SilentlyContinue
 Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force
 Remove-ItemProperty $w -Name "AutoLogonCount" -ErrorAction SilentlyContinue
 `}
@@ -464,6 +467,48 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
       schedule_type: 'immediate',
       is_recurring: false,
     });
+  };
+
+  const handleResetLogon = () => {
+    if (!confirm(`Désactiver immédiatement la connexion automatique (AutoLogon) sur ${device.hostname} ?`)) {
+      return;
+    }
+
+    const resetScript = `
+$w = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+Set-ItemProperty $w -Name "AutoAdminLogon" -Value "0" -Type String -Force
+Remove-ItemProperty $w -Name "DefaultPassword" -ErrorAction SilentlyContinue
+Remove-ItemProperty $w -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
+Remove-ItemProperty $w -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+Remove-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce" -Name "MAPT_DisableAutoLogon" -ErrorAction SilentlyContinue
+Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
+`.trim();
+
+    const utf16Bytes = new Uint8Array(resetScript.length * 2);
+    for (let i = 0; i < resetScript.length; i++) {
+      const code = resetScript.charCodeAt(i);
+      utf16Bytes[i * 2] = code & 0xff;
+      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    let binary = '';
+    for (let i = 0; i < utf16Bytes.byteLength; i++) {
+      binary += String.fromCharCode(utf16Bytes[i]);
+    }
+    const base64Encoded = btoa(binary);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
+
+    createActionMutation.mutate({
+      name: `🔒 Désactiver AutoLogon - ${device.hostname}`,
+      description: `Désactivation de la connexion automatique et purge des identifiants Winlogon`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_device_ids: [device.id],
+      target_group_ids: [],
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+    setActiveModal(null);
   };
 
   const getStatusBadge = (status: string) => {
@@ -2490,23 +2535,35 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                 </label>
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-2">
+              <div className="flex items-center justify-between pt-2 border-t border-slate-800/60">
                 <button
                   type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                  onClick={handleResetLogon}
+                  className="text-xs text-rose-400 hover:text-rose-300 font-medium hover:underline flex items-center gap-1.5"
+                  title="Supprime la connexion automatique et purge les identifiants enregistrés sur cette machine"
                 >
-                  Annuler
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Désactiver l'AutoLogon</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={createActionMutation.isPending || !logonUsername.trim()}
-                  className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-950/50 disabled:opacity-50"
-                >
-                  {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Connecter la session</span>
-                </button>
+
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createActionMutation.isPending || !logonUsername.trim()}
+                    className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-950/50 disabled:opacity-50"
+                  >
+                    {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Connecter la session</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
