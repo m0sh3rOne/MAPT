@@ -209,9 +209,7 @@ export const DeviceDetail: React.FC = () => {
   // Action Handlers
   const handleRestart = (e: React.FormEvent) => {
     e.preventDefault();
-    const reasonArg = powerMessage.trim() ? ` /d p:0:0 /c "${powerMessage.replace(/["\r\n]/g, '')}"` : '';
-    const forceArg = powerForce ? ' /f' : '';
-    const cmd = `shutdown.exe /r /t ${powerDelay}${forceArg}${reasonArg}`;
+    const cmd = `shutdown.exe /r /t ${powerDelay} /f`;
 
     createActionMutation.mutate({
       name: `🔄 Redémarrage - ${device.hostname}`,
@@ -228,9 +226,7 @@ export const DeviceDetail: React.FC = () => {
 
   const handleShutdown = (e: React.FormEvent) => {
     e.preventDefault();
-    const reasonArg = powerMessage.trim() ? ` /d p:0:0 /c "${powerMessage.replace(/["\r\n]/g, '')}"` : '';
-    const forceArg = powerForce ? ' /f' : '';
-    const cmd = `shutdown.exe /s /t ${powerDelay}${forceArg}${reasonArg}`;
+    const cmd = `shutdown.exe /s /t ${powerDelay} /f`;
 
     createActionMutation.mutate({
       name: `⚡ Arrêt - ${device.hostname}`,
