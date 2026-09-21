@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -18,7 +19,23 @@ func ExecuteCommand(ctx context.Context, commandStr string, timeoutSeconds int) 
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, "cmd.exe", "/c", commandStr)
+	var cmd *exec.Cmd
+	trimmed := strings.TrimSpace(commandStr)
+
+	// If command is long (> 500 chars) or contains newlines, execute via temporary script to avoid cmd.exe 8191-char limit
+	if len(trimmed) > 500 || strings.Contains(trimmed, "\n") {
+		tempDir := os.TempDir()
+		tempFile := filepath.Join(tempDir, fmt.Sprintf("mapt_cmd_%d.bat", time.Now().UnixNano()))
+		batContent := "@echo off\r\n" + trimmed + "\r\n"
+		if err := os.WriteFile(tempFile, []byte(batContent), 0600); err == nil {
+			defer os.Remove(tempFile)
+			cmd = exec.CommandContext(execCtx, "cmd.exe", "/c", tempFile)
+		}
+	}
+
+	if cmd == nil {
+		cmd = exec.CommandContext(execCtx, "cmd.exe", "/c", commandStr)
+	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf

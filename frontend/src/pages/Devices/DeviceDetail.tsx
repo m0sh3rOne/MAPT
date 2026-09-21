@@ -404,91 +404,31 @@ export const DeviceDetail: React.FC = () => {
     const targetLabel = logonAccountType === 'domain' ? `${domain}\\${user}` : `.\\${user}`;
 
     const psScript = `
-$targetDomain = "${domain.replace(/"/g, '`"')}"
-$targetUser = "${user.replace(/"/g, '`"')}"
-$targetPass = "${logonPassword.replace(/"/g, '`"')}"
+$d = "${domain.replace(/"/g, '`"')}"
+$u = "${user.replace(/"/g, '`"')}"
+$p = "${logonPassword.replace(/"/g, '`"')}"
 
-$regWinlogon = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
-$regPolicies = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+$w = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+$s = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
 
-# 1. Configuration des cles Winlogon principales
-Set-ItemProperty -Path $regWinlogon -Name "AutoAdminLogon" -Value "1" -Type String -Force
-Set-ItemProperty -Path $regWinlogon -Name "DefaultUserName" -Value $targetUser -Type String -Force
-Set-ItemProperty -Path $regWinlogon -Name "DefaultDomainName" -Value $targetDomain -Type String -Force
-Set-ItemProperty -Path $regWinlogon -Name "DefaultPassword" -Value $targetPass -Type String -Force
-Set-ItemProperty -Path $regWinlogon -Name "ForceAutoLogon" -Value "1" -Type String -Force
-Set-ItemProperty -Path $regWinlogon -Name "DisableCAD" -Value 1 -Type DWord -Force
-Set-ItemProperty -Path $regWinlogon -Name "IgnoreShiftOvrd" -Value "1" -Type String -Force
-Remove-ItemProperty -Path $regWinlogon -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+Set-ItemProperty $w -Name "AutoAdminLogon" -Value "1" -Type String -Force
+Set-ItemProperty $w -Name "DefaultUserName" -Value $u -Type String -Force
+Set-ItemProperty $w -Name "DefaultDomainName" -Value $d -Type String -Force
+Set-ItemProperty $w -Name "DefaultPassword" -Value $p -Type String -Force
+Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force
+Set-ItemProperty $w -Name "DisableCAD" -Value 1 -Type DWord -Force
+Set-ItemProperty $w -Name "IgnoreShiftOvrd" -Value "1" -Type String -Force
+Remove-ItemProperty $w -Name "AutoLogonCount" -ErrorAction SilentlyContinue
 
-# 2. Desactivation des verrous de securite et invites Ctrl+Alt+Suppr
-if (Test-Path $regPolicies) {
-    Set-ItemProperty -Path $regPolicies -Name "DisableCAD" -Value 1 -Type DWord -Force
-    Set-ItemProperty -Path $regPolicies -Name "DontDisplayLastUserName" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $regPolicies -Name "LegalNoticeCaption" -Value "" -Type String -Force
-    Set-ItemProperty -Path $regPolicies -Name "LegalNoticeText" -Value "" -Type String -Force
+if (Test-Path $s) {
+    Set-ItemProperty $s -Name "DisableCAD" -Value 1 -Type DWord -Force
+    Set-ItemProperty $s -Name "DontDisplayLastUserName" -Value 0 -Type DWord -Force
+    Set-ItemProperty $s -Name "LegalNoticeCaption" -Value "" -Type String -Force
+    Set-ItemProperty $s -Name "LegalNoticeText" -Value "" -Type String -Force
 }
 
-# 3. Stockage dans le coffre LSA Secrets pour compatibilite Active Directory Windows 10/11
-try {
-    $csharp = @"
-using System;
-using System.Runtime.InteropServices;
-public class LsaHelper {
-    [StructLayout(LayoutKind.Sequential)]
-    private struct LSA_UNICODE_STRING {
-        public ushort Length;
-        public ushort MaximumLength;
-        public IntPtr Buffer;
-    }
-    [StructLayout(LayoutKind.Sequential)]
-    private struct LSA_OBJECT_ATTRIBUTES {
-        public int Length;
-        public IntPtr RootDirectory;
-        public IntPtr ObjectName;
-        public uint Attributes;
-        public IntPtr SecurityDescriptor;
-        public IntPtr SecurityQualityOfService;
-    }
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern uint LsaOpenPolicy(IntPtr SystemName, ref LSA_OBJECT_ATTRIBUTES ObjectAttributes, uint DesiredAccess, out IntPtr PolicyHandle);
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern uint LsaStorePrivateData(IntPtr PolicyHandle, ref LSA_UNICODE_STRING KeyName, ref LSA_UNICODE_STRING PrivateData);
-    [DllImport("advapi32.dll", SetLastError = true)]
-    private static extern uint LsaClose(IntPtr ObjectHandle);
-
-    public static bool SetSecret(string key, string value) {
-        LSA_OBJECT_ATTRIBUTES attr = new LSA_OBJECT_ATTRIBUTES();
-        IntPtr handle = IntPtr.Zero;
-        if (LsaOpenPolicy(IntPtr.Zero, ref attr, 0x00000020, out handle) != 0) return false;
-        try {
-            LSA_UNICODE_STRING k = new LSA_UNICODE_STRING();
-            k.Buffer = Marshal.StringToHGlobalUni(key);
-            k.Length = (ushort)(key.Length * 2);
-            k.MaximumLength = (ushort)(k.Length + 2);
-
-            LSA_UNICODE_STRING v = new LSA_UNICODE_STRING();
-            if (value != null) {
-                v.Buffer = Marshal.StringToHGlobalUni(value);
-                v.Length = (ushort)(value.Length * 2);
-                v.MaximumLength = (ushort)(v.Length + 2);
-            }
-            uint res = LsaStorePrivateData(handle, ref k, ref v);
-            Marshal.FreeHGlobal(k.Buffer);
-            if (v.Buffer != IntPtr.Zero) Marshal.FreeHGlobal(v.Buffer);
-            return res == 0;
-        } finally {
-            LsaClose(handle);
-        }
-    }
-}
-"@
-    Add-Type -TypeDefinition $csharp -ErrorAction SilentlyContinue
-    [LsaHelper]::SetSecret("DefaultPassword", $targetPass)
-} catch {}
-
-Write-Output "AutoLogon configure avec succes pour $targetDomain\\$targetUser"
-${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $targetDomain\\$targetUser"' : ''}
+Write-Output "AutoLogon configure avec succes pour $d\\$u"
+${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
 `.trim();
 
     const utf16Bytes = new Uint8Array(psScript.length * 2);
