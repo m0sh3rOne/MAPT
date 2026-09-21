@@ -40,6 +40,7 @@ async def download_windows_agent():
     Téléchargement direct du binaire Windows mapt-agent.exe
     """
     candidate_paths = [
+        "/app/agent-windows/mapt-agent.exe",
         "/agent/mapt-agent.exe",
         "/app/agent/mapt-agent.exe",
         "/app/static/mapt-agent.exe",
