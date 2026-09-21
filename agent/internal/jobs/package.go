@@ -14,10 +14,16 @@ import (
 	"mapt-agent/internal/download"
 )
 
-// expandWindowsEnv expands Windows %ENV_VAR% patterns
+// expandWindowsEnv expands Windows %ENV_VAR% patterns and ensures safe directories
 func expandWindowsEnv(targetPath string) string {
-	if targetPath == "" {
-		return filepath.Join(os.TempDir(), "mapt_packages")
+	progData := os.Getenv("ProgramData")
+	if progData == "" {
+		progData = "C:\\ProgramData"
+	}
+
+	// Always redirect APPDATA in service context to ProgramData to avoid systemprofile locks
+	if targetPath == "" || strings.Contains(strings.ToUpper(targetPath), "APPDATA") {
+		return filepath.Join(progData, "MAPT", "packages")
 	}
 
 	re := regexp.MustCompile(`%([^%]+)%`)
@@ -25,13 +31,8 @@ func expandWindowsEnv(targetPath string) string {
 		varName := strings.Trim(m, "%")
 		val := os.Getenv(varName)
 		if val == "" {
-			if strings.EqualFold(varName, "APPDATA") {
-				// Fallback if running under SYSTEM context without APPDATA
-				progData := os.Getenv("ProgramData")
-				if progData != "" {
-					return filepath.Join(progData, "MAPT")
-				}
-				return filepath.Join(os.TempDir(), "MAPT")
+			if strings.EqualFold(varName, "ProgramData") {
+				return progData
 			}
 			return m
 		}
@@ -59,7 +60,7 @@ func ExecutePackage(
 		timeoutSeconds = 600
 	}
 
-	// 1. Déterminer le dossier de destination (avec expansion de %APPDATA%, %TEMP%, etc.)
+	// 1. Déterminer le dossier de destination (dans C:\ProgramData\MAPT\packages)
 	resolvedDestDir := expandWindowsEnv(destinationFolder)
 	_ = os.MkdirAll(resolvedDestDir, 0755)
 	destPath := filepath.Join(resolvedDestDir, filename)
@@ -68,7 +69,7 @@ func ExecutePackage(
 	if err := downloader.DownloadFile(downloadURL, token, destPath, expectedSHA256); err != nil {
 		return &ExecutionResult{
 			ExitCode: 1,
-			Error:    fmt.Sprintf("Download/verification failed: %v", err),
+			Error:    fmt.Sprintf("Échec du téléchargement/vérification SHA-256 : %v", err),
 		}, err
 	}
 
@@ -100,7 +101,7 @@ func ExecutePackage(
 		resolvedCmd := strings.ReplaceAll(installCommand, filename, destPath)
 		resolvedCmd = strings.ReplaceAll(resolvedCmd, "<file>", destPath)
 		resolvedCmd = strings.ReplaceAll(resolvedCmd, "{file}", destPath)
-		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", resolvedCmd)
+		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", resolvedCmd)
 	} else if ext == ".msi" {
 		// MSI standard via msiexec
 		args := []string{"/i", destPath}
@@ -119,7 +120,7 @@ func ExecutePackage(
 		cmd = exec.CommandContext(execCtx, "cscript.exe", args...)
 	} else if ext == ".ps1" {
 		// PowerShell script
-		args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", destPath}
+		args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", destPath}
 		if strings.TrimSpace(packageArgs) != "" {
 			args = append(args, strings.Fields(strings.TrimSpace(packageArgs))...)
 		}
@@ -147,6 +148,11 @@ func ExecutePackage(
 		cmd = exec.CommandContext(execCtx, destPath, args...)
 	}
 
+	// Définir le répertoire de travail dans le dossier du package (évite System32)
+	cmd.Dir = resolvedDestDir
+	// Contourner les alertes de zone de sécurité Windows SmartScreen sur les binaires téléchargés
+	cmd.Env = append(os.Environ(), "SEE_MASK_NOZONECHECKS=1")
+
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
@@ -164,15 +170,34 @@ func ExecutePackage(
 			exitCode = exitError.ExitCode()
 		} else if execCtx.Err() == context.DeadlineExceeded {
 			exitCode = -1
-			errMsg = fmt.Sprintf("Package installation timed out after %d seconds", timeoutSeconds)
+			errMsg = fmt.Sprintf("Délai d'installation dépassé après %d secondes (Timeout)", timeoutSeconds)
 		} else {
 			exitCode = 1
 			if errMsg == "" {
 				errMsg = runErr.Error()
 			}
 		}
-		if errMsg == "" && exitCode != 0 {
-			errMsg = fmt.Sprintf("Processus d'installation terminé avec le code d'erreur %d. Les installateurs exécutés par le service d'arrière-plan requièrent des arguments d'installation silencieuse (ex: /S, /quiet, /verysilent, /qn).", exitCode)
+
+		// Traitement du code 3010 (Succès avec redémarrage requis)
+		if exitCode == 3010 {
+			exitCode = 0
+			if output == "" {
+				output = "Installation réussie (Code 3010 : Redémarrage système requis)."
+			}
+			errMsg = ""
+		} else if errMsg == "" && exitCode != 0 {
+			switch exitCode {
+			case 1:
+				errMsg = "Code 1 : L'installateur a échoué. Vérifiez les arguments silencieux (/S, /qn, /verysilent)."
+			case 2:
+				errMsg = "Code 2 : Fichier introuvable ou application actuellement ouverte/verrouillée sur le poste."
+			case 1603:
+				errMsg = "Code 1603 : Erreur fatale Windows Installer. Une installation précédente est peut-être en attente de redémarrage."
+			case 1618:
+				errMsg = "Code 1618 : Une autre installation est déjà en cours sur ce poste."
+			default:
+				errMsg = fmt.Sprintf("Processus d'installation terminé avec le code d'erreur %d.", exitCode)
+			}
 		}
 	}
 
