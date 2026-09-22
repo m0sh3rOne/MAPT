@@ -69,7 +69,11 @@ class DeviceRepository:
         return device
 
     async def update_last_seen(self, device_id: UUID, ip_address: Optional[str] = None, agent_version: Optional[str] = None):
-        values = {"last_seen_at": datetime.now(timezone.utc)}
+        values = {
+            "last_seen_at": datetime.now(timezone.utc),
+            "is_archived": False,
+            "enabled": True
+        }
         if ip_address:
             values["ip_address"] = ip_address
         if agent_version:
