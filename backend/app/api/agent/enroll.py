@@ -90,7 +90,8 @@ try {{
 }}
 
 $serverUrl = "{base_url}/api/v1"
-$downloadUrl = "$serverUrl/agent/download/windows"
+$cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$downloadUrl = "$serverUrl/agent/download/windows?cb=$cacheBuster"
 $enrollToken = "{enroll_token}"
 $installDir = "$env:ProgramFiles\\MAPT"
 
@@ -121,7 +122,7 @@ if (-not (Test-Path -Path $installDir)) {{
 $agentExe = Join-Path $installDir "mapt-agent.exe"
 $configFile = Join-Path $installDir "mapt-agent-config.json"
 
-# 3. Arrêt du service existant s'il tourne déjà
+# 3. Arrêt complet du service existant et des processus résiduels
 try {{
     $existingService = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
     if ($existingService) {{
@@ -131,9 +132,9 @@ try {{
     }}
 }} catch {{}}
 
-# Tuer les processus orphelins résiduels si besoin
 try {{
     Get-Process -Name "mapt-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
 }} catch {{}}
 
 # 4. Téléchargement robuste multi-méthodes (WebClient / Invoke-WebRequest / curl / certutil)
@@ -223,11 +224,13 @@ if (-not (Test-Path $configFile)) {{
 Write-Host "[*] Configuration et enregistrement du service Windows..." -ForegroundColor Yellow
 try {{
     & "$agentExe" -service uninstall 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
 }} catch {{}}
 
 # Méthode 1: Agent auto-enregistrement
 try {{
     & "$agentExe" -service install -config "$configFile" -server "$serverUrl" -enroll-token "$enrollToken" 2>&1 | Out-Null
+    Start-Sleep -Seconds 1
 }} catch {{}}
 
 # Méthode 2: Fallback direct via sc.exe si le service n'est pas encore présent
@@ -235,19 +238,23 @@ $svc = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
 if (-not $svc) {{
     & sc.exe create "mapt-agent" binPath= "`"$agentExe`" -config `"$configFile`"" start= auto DisplayName= "MAPT Endpoint Agent" | Out-Null
     & sc.exe description "mapt-agent" "Service d'administration, d'inventaire et de telemetrie MAPT pour Windows" | Out-Null
+    Start-Sleep -Seconds 1
 }}
 
 Write-Host "[*] Démarrage du service Windows..." -ForegroundColor Yellow
-Start-Sleep -Seconds 1
 try {{
     Start-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+}} catch {{}}
+
+try {{
+    & "$agentExe" -service start 2>&1 | Out-Null
 }} catch {{}}
 
 try {{
     & sc.exe start "mapt-agent" 2>&1 | Out-Null
 }} catch {{}}
 
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 3
 
 $finalService = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
 if ($finalService -and $finalService.Status -eq "Running") {{

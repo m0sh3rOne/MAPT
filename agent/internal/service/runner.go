@@ -37,16 +37,23 @@ func (r *Runner) Run(ctx context.Context) error {
 	hostname, _ := os.Hostname()
 	primaryIP := inventory.GetPrimaryIP()
 
-	// 1. Enrôlement initial si nécessaire
-	if !r.cfg.IsEnrolled() {
+	// 1. Enrôlement initial si nécessaire (avec retry automatique sans couper le service)
+	for !r.cfg.IsEnrolled() {
 		r.logger.Info("Agent not enrolled yet. Initiating enrollment with server %s...", r.cfg.ServerURL)
 		err := r.client.Enroll(hostname, "Windows", runtime.GOOS, runtime.GOARCH, primaryIP)
 		if err != nil {
-			r.logger.Error("Enrollment failed: %v", err)
-			return err
+			r.logger.Warn("Enrollment attempt failed: %v. Retrying in 5 seconds...", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(5 * time.Second):
+				continue
+			}
 		}
 		r.logger.Info("Agent successfully enrolled! Agent token received and saved.")
-	} else {
+		break
+	}
+	if r.cfg.IsEnrolled() {
 		r.logger.Info("Agent is already enrolled.")
 	}
 
