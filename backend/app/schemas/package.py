@@ -16,6 +16,7 @@ class PackageVersionResponse(BaseModel):
     run_with_args: Optional[str] = None
     package_args: Optional[str] = None
     run_as_admin: bool = True
+    is_interactive: bool = False
     destination_folder: Optional[str] = "%APPDATA%\\MAPT\\packages"
     install_command: Optional[str] = None
     uninstall_command: Optional[str] = None
@@ -42,6 +43,7 @@ class PackageVersionUpdate(BaseModel):
     run_with_args: Optional[str] = None
     package_args: Optional[str] = None
     run_as_admin: Optional[bool] = None
+    is_interactive: Optional[bool] = None
     destination_folder: Optional[str] = None
     install_command: Optional[str] = None
     uninstall_command: Optional[str] = None

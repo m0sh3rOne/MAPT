@@ -49,6 +49,7 @@ func (e *Executor) Execute(ctx context.Context, job *JobPayload, serverURL strin
 		runAsAdmin, _ := job.Payload["run_as_admin"].(bool)
 		destFolder, _ := job.Payload["destination_folder"].(string)
 		installCmd, _ := job.Payload["install_command"].(string)
+		isInteractive, _ := job.Payload["is_interactive"].(bool)
 		downloadURL := fmt.Sprintf("%s/agent/packages/download/%s", serverURL, storageKey)
 
 		return ExecutePackage(
@@ -64,6 +65,7 @@ func (e *Executor) Execute(ctx context.Context, job *JobPayload, serverURL strin
 			runAsAdmin,
 			destFolder,
 			installCmd,
+			isInteractive,
 			job.TimeoutSeconds,
 		)
 

@@ -79,6 +79,7 @@ class PackageService:
         run_with_args: Optional[str] = None,
         package_args: Optional[str] = None,
         run_as_admin: bool = True,
+        is_interactive: bool = False,
         destination_folder: Optional[str] = "%APPDATA%\\MAPT\\packages",
         install_command: Optional[str] = None,
         uninstall_command: Optional[str] = None,
@@ -106,6 +107,7 @@ class PackageService:
             run_with_args=run_with_args,
             package_args=package_args,
             run_as_admin=run_as_admin,
+            is_interactive=is_interactive,
             destination_folder=destination_folder,
             install_command=install_command,
             uninstall_command=uninstall_command,
@@ -126,6 +128,7 @@ class PackageService:
         run_with_args: Optional[str] = None,
         package_args: Optional[str] = None,
         run_as_admin: bool = True,
+        is_interactive: bool = False,
         destination_folder: Optional[str] = "%APPDATA%\\MAPT\\packages",
         install_command: Optional[str] = None,
         uninstall_command: Optional[str] = None,
@@ -146,14 +149,13 @@ class PackageService:
                 run_with = "c:\\windows\\system32\\msiexec.exe"
                 if not run_with_args:
                     run_with_args = "/i"
-                if not package_args:
+                if not package_args and not is_interactive:
                     package_args = "/qn /norestart"
             elif ext.endswith(".vbs"):
                 run_with = "c:\\windows\\system32\\cscript.exe"
                 if not run_with_args:
                     run_with_args = "//nologo"
             elif ext.endswith(".exe"):
-                # Les exécutables ne forcent aucun argument silencieux par défaut (/S est optionnel)
                 pass
 
         version = PackageVersion(
@@ -167,6 +169,7 @@ class PackageService:
             run_with_args=run_with_args,
             package_args=package_args,
             run_as_admin=run_as_admin,
+            is_interactive=is_interactive,
             destination_folder=destination_folder or "%APPDATA%\\MAPT\\packages",
             install_command=install_command,
             uninstall_command=uninstall_command

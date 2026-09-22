@@ -143,7 +143,8 @@ export const Packages: React.FC = () => {
   const [runWithArgs, setRunWithArgs] = useState('/i');
   const [packageArgs, setPackageArgs] = useState('/qn /norestart');
   const [runAsAdmin, setRunAsAdmin] = useState(true);
-  const [destinationFolder, setDestinationFolder] = useState('%APPDATA%\\MAPT\\packages');
+  const [isInteractive, setIsInteractive] = useState(false);
+  const [destinationFolder, setDestinationFolder] = useState('%ProgramData%\\MAPT\\packages');
   const [installCommand, setInstallCommand] = useState('');
 
   // Form states - Edit Modal
@@ -154,7 +155,8 @@ export const Packages: React.FC = () => {
   const [editRunWithArgs, setEditRunWithArgs] = useState('');
   const [editPackageArgs, setEditPackageArgs] = useState('');
   const [editRunAsAdmin, setEditRunAsAdmin] = useState(true);
-  const [editDestinationFolder, setEditDestinationFolder] = useState('%APPDATA%\\MAPT\\packages');
+  const [editIsInteractive, setEditIsInteractive] = useState(false);
+  const [editDestinationFolder, setEditDestinationFolder] = useState('%ProgramData%\\MAPT\\packages');
   const [editInstallCommand, setEditInstallCommand] = useState('');
   const [editShowAdvanced, setEditShowAdvanced] = useState(false);
 
@@ -250,6 +252,7 @@ export const Packages: React.FC = () => {
       setEditRunWithArgs(lv.run_with_args || '');
       setEditPackageArgs(lv.package_args || '');
       setEditRunAsAdmin(lv.run_as_admin ?? true);
+      setEditIsInteractive(lv.is_interactive ?? false);
       setEditDestinationFolder(lv.destination_folder?.includes('APPDATA') ? '%ProgramData%\\MAPT\\packages' : (lv.destination_folder || '%ProgramData%\\MAPT\\packages'));
       setEditInstallCommand(lv.install_command || '');
     } else {
@@ -258,6 +261,7 @@ export const Packages: React.FC = () => {
       setEditRunWithArgs(p.runWithArgs);
       setEditPackageArgs(p.packageArgs);
       setEditRunAsAdmin(p.runAsAdmin);
+      setEditIsInteractive(false);
       setEditDestinationFolder(p.destinationFolder);
       setEditInstallCommand('');
     }
@@ -279,6 +283,7 @@ export const Packages: React.FC = () => {
         if (runWithArgs) formData.append('run_with_args', runWithArgs);
         if (packageArgs) formData.append('package_args', packageArgs);
         formData.append('run_as_admin', String(runAsAdmin));
+        formData.append('is_interactive', String(isInteractive));
         if (destinationFolder) formData.append('destination_folder', destinationFolder);
         if (installCommand) formData.append('install_command', installCommand);
         return api.createPackageWithFile(formData);
@@ -311,6 +316,7 @@ export const Packages: React.FC = () => {
           run_with_args: editRunWithArgs,
           package_args: editPackageArgs,
           run_as_admin: editRunAsAdmin,
+          is_interactive: editIsInteractive,
           destination_folder: editDestinationFolder,
           install_command: editInstallCommand,
         });
@@ -334,6 +340,7 @@ export const Packages: React.FC = () => {
       if (runWithArgs) formData.append('run_with_args', runWithArgs);
       if (packageArgs) formData.append('package_args', packageArgs);
       formData.append('run_as_admin', String(runAsAdmin));
+      formData.append('is_interactive', String(isInteractive));
       if (destinationFolder) formData.append('destination_folder', destinationFolder);
       if (installCommand) formData.append('install_command', installCommand);
       return api.uploadPackageVersion(selectedPackageForUpload.id, formData);
@@ -424,7 +431,9 @@ export const Packages: React.FC = () => {
     setRunWithArgs('/i');
     setPackageArgs('/qn /norestart');
     setRunAsAdmin(true);
-    setDestinationFolder('%APPDATA%\\MAPT\\packages');
+    setIsInteractive(false);
+    setEditIsInteractive(false);
+    setDestinationFolder('%ProgramData%\\MAPT\\packages');
     setInstallCommand('');
     setError(null);
     setShowAdvanced(false);
@@ -573,10 +582,18 @@ export const Packages: React.FC = () => {
                           </div>
                           <div className="flex items-center justify-between text-slate-400">
                             <span className="text-slate-500 flex items-center gap-1">
+                              <Monitor className="w-3 h-3 text-purple-400" /> Mode :
+                            </span>
+                            <span className={lv.is_interactive ? "text-purple-400 font-semibold" : "text-emerald-400"}>
+                              {lv.is_interactive ? "Interactif (GUI)" : "Silencieux"}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-slate-400">
+                            <span className="text-slate-500 flex items-center gap-1">
                               <Folder className="w-3 h-3 text-purple-400" /> Dossier :
                             </span>
-                            <span className="text-slate-300 truncate max-w-[130px]" title={lv.destination_folder || "%APPDATA%\\MAPT\\packages"}>
-                              {lv.destination_folder || "%APPDATA%\\MAPT"}
+                            <span className="text-slate-300 truncate max-w-[130px]" title={lv.destination_folder || "%ProgramData%\\MAPT\\packages"}>
+                              {lv.destination_folder || "%ProgramData%\\MAPT\\packages"}
                             </span>
                           </div>
                         </div>
@@ -855,6 +872,50 @@ export const Packages: React.FC = () => {
                         {opt.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Mode d'exécution : Silencieux vs Graphique Interactif */}
+                <div className="pt-1">
+                  <label className="text-xs font-medium text-slate-300 block mb-1.5">
+                    Mode d'exécution & visibilité :
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditIsInteractive(false)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        !editIsInteractive
+                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
+                        <Terminal className="w-3.5 h-3.5 opacity-70" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Installation invisible en tâche de fond (Session 0).
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditIsInteractive(true)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        editIsInteractive
+                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
+                        <Monitor className="w-3.5 h-3.5 opacity-70 text-blue-400" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Affiche l'assistant sur le bureau de l'utilisateur pour qu'il clique sur Suivant/Terminer.
+                      </p>
+                    </button>
                   </div>
                 </div>
 
@@ -1157,6 +1218,50 @@ export const Packages: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Mode d'exécution : Silencieux vs Graphique Interactif */}
+                <div className="pt-1">
+                  <label className="text-xs font-medium text-slate-300 block mb-1.5">
+                    Mode d'exécution & visibilité :
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsInteractive(false)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        !isInteractive
+                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
+                        <Terminal className="w-3.5 h-3.5 opacity-70" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Installation invisible en tâche de fond (Session 0).
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsInteractive(true)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        isInteractive
+                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
+                        <Monitor className="w-3.5 h-3.5 opacity-70 text-blue-400" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Affiche l'assistant sur le bureau de l'utilisateur pour qu'il clique sur Suivant/Terminer.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex items-center space-x-2 pt-1">
                   <input
                     type="checkbox"
@@ -1338,6 +1443,50 @@ export const Packages: React.FC = () => {
                         {opt.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+
+                {/* Mode d'exécution : Silencieux vs Graphique Interactif */}
+                <div className="pt-1">
+                  <label className="text-xs font-medium text-slate-300 block mb-1.5">
+                    Mode d'exécution & visibilité :
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsInteractive(false)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        !isInteractive
+                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
+                        <Terminal className="w-3.5 h-3.5 opacity-70" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Installation invisible en tâche de fond (Session 0).
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsInteractive(true)}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                        isInteractive
+                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
+                        <Monitor className="w-3.5 h-3.5 opacity-70 text-blue-400" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Affiche l'assistant sur le bureau de l'utilisateur pour qu'il clique sur Suivant/Terminer.
+                      </p>
+                    </button>
                   </div>
                 </div>
 
@@ -1556,6 +1705,12 @@ export const Packages: React.FC = () => {
                 </span>
               </div>
               <div className="flex items-center justify-between text-slate-400">
+                <span>Mode d'affichage :</span>
+                <span className={packageToDeploy.latest_version?.is_interactive ? "text-blue-400 font-semibold" : "text-slate-300"}>
+                  {packageToDeploy.latest_version?.is_interactive ? "Interactif (Écran Utilisateur)" : "Silencieux (Arrière-plan)"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-slate-400">
                 <span>Droits :</span>
                 <span className={packageToDeploy.latest_version?.run_as_admin ? "text-emerald-400" : "text-slate-400"}>
                   {packageToDeploy.latest_version?.run_as_admin ? "Administrateur (SYSTEM)" : "Utilisateur"}
@@ -1563,16 +1718,28 @@ export const Packages: React.FC = () => {
               </div>
             </div>
 
-            {(!packageToDeploy.latest_version?.package_args || packageToDeploy.latest_version?.package_args.trim() === '') && (packageToDeploy.latest_version?.filename?.toLowerCase().endsWith('.exe')) && (
-              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-3 rounded-2xl text-xs flex items-start space-x-2.5">
-                <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+            {packageToDeploy.latest_version?.is_interactive ? (
+              <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 p-3 rounded-2xl text-xs flex items-start space-x-2.5">
+                <Monitor className="w-4 h-4 mt-0.5 shrink-0 text-blue-400" />
                 <div className="space-y-1">
-                  <div className="font-semibold text-amber-300">Mode silencieux requis (Session 0)</div>
-                  <div className="text-slate-400 leading-relaxed">
-                    L'agent MAPT tourne en service système sans interface graphique. L'argument silencieux (<code>/S</code>) est appliqué automatiquement pour éviter tout blocage.
+                  <div className="font-semibold text-blue-300">Mode Interactif (Interface Graphique)</div>
+                  <div className="text-slate-300 leading-relaxed">
+                    L'installateur s'affichera directement sur l'écran de la session active de l'utilisateur distant. Ce dernier pourra suivre les étapes graphiques (Suivant, Installer, etc.) et finaliser l'installation.
                   </div>
                 </div>
               </div>
+            ) : (
+              (!packageToDeploy.latest_version?.package_args || packageToDeploy.latest_version?.package_args.trim() === '') && (packageToDeploy.latest_version?.filename?.toLowerCase().endsWith('.exe')) && (
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-3 rounded-2xl text-xs flex items-start space-x-2.5">
+                  <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                  <div className="space-y-1">
+                    <div className="font-semibold text-amber-300">Mode silencieux requis (Session 0)</div>
+                    <div className="text-slate-400 leading-relaxed">
+                      L'agent MAPT tourne en service système sans interface graphique. L'argument silencieux (<code>/S</code>) est appliqué automatiquement pour éviter tout blocage.
+                    </div>
+                  </div>
+                </div>
+              )
             )}
 
             <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">

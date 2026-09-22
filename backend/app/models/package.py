@@ -34,6 +34,7 @@ class PackageVersion(Base):
     run_with_args = Column(String(500), nullable=True)  # ex: /i
     package_args = Column(String(1000), nullable=True)  # ex: /qn /norestart, /S
     run_as_admin = Column(Boolean, default=True, nullable=False)
+    is_interactive = Column(Boolean, default=False, nullable=False)  # exécution graphique sur la session de l'utilisateur connecté
     destination_folder = Column(String(500), nullable=True, default="%APPDATA%\\MAPT\\packages")
     install_command = Column(Text, nullable=True)
     uninstall_command = Column(Text, nullable=True)

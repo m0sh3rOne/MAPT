@@ -26,7 +26,8 @@ import {
   Square,
   AlertTriangle,
   Sparkles,
-  Zap
+  Zap,
+  Monitor
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
 
@@ -698,13 +699,35 @@ export const Deployments: React.FC = () => {
                           <span>Arguments d'installation :</span>
                           <span className="text-slate-200 font-mono">{hasArgs ? lv.package_args : '(Aucun)'}</span>
                         </div>
-                        {isExe && !hasArgs && (
-                          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-start space-x-2 text-amber-300">
-                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                        <div className="flex justify-between text-slate-400">
+                          <span>Mode d'exécution :</span>
+                          <span className={lv.is_interactive ? "text-blue-400 font-semibold flex items-center gap-1" : "text-slate-300 font-medium"}>
+                            {lv.is_interactive ? (
+                              <>
+                                <Monitor className="w-3 h-3 text-blue-400 inline" />
+                                <span>Interactif (Interface Graphique)</span>
+                              </>
+                            ) : (
+                              "Silencieux (Arrière-plan)"
+                            )}
+                          </span>
+                        </div>
+                        {lv.is_interactive ? (
+                          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-start space-x-2 text-blue-300">
+                            <Monitor className="w-4 h-4 shrink-0 mt-0.5 text-blue-400" />
                             <span>
-                              <strong>Mode silencieux automatique :</strong> En Session 0 (service d'arrière-plan sans interface utilisateur), l'agent appliquera <code>/S</code> automatiquement pour éviter tout blocage.
+                              <strong>Mode graphique interactif :</strong> L'assistant d'installation s'affichera sur l'écran de l'utilisateur connecté sur chaque machine ciblée afin qu'il suive les étapes à l'écran.
                             </span>
                           </div>
+                        ) : (
+                          isExe && !hasArgs && (
+                            <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-start space-x-2 text-amber-300">
+                              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                              <span>
+                                <strong>Mode silencieux automatique :</strong> En Session 0 (service d'arrière-plan sans interface utilisateur), l'agent appliquera <code>/S</code> automatiquement pour éviter tout blocage.
+                              </span>
+                            </div>
+                          )
                         )}
                       </div>
                     );

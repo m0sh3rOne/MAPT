@@ -111,6 +111,7 @@ export interface PackageVersion {
   run_with_args?: string;
   package_args?: string;
   run_as_admin?: boolean;
+  is_interactive?: boolean;
   destination_folder?: string;
   install_command?: string;
   uninstall_command?: string;

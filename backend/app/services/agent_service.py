@@ -123,6 +123,9 @@ class AgentService:
             if dep.deployment_type == "package" and dep.package_version:
                 pv = dep.package_version
                 job_type = "package"
+                is_interactive = bool(getattr(pv, "is_interactive", False))
+                if is_interactive:
+                    timeout = 1800  # 30 minutes pour permettre à l'utilisateur de suivre l'assistant graphique
                 dest_folder = pv.destination_folder or "%ProgramData%\\MAPT\\packages"
                 if "APPDATA" in dest_folder.upper():
                     dest_folder = "%ProgramData%\\MAPT\\packages"
@@ -136,6 +139,7 @@ class AgentService:
                     "run_with_args": pv.run_with_args,
                     "package_args": pv.package_args,
                     "run_as_admin": pv.run_as_admin,
+                    "is_interactive": is_interactive,
                     "destination_folder": dest_folder,
                     "install_command": pv.install_command,
                     "package_type": pv.package.package_type if pv.package else "msi"

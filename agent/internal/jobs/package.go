@@ -54,6 +54,7 @@ func ExecutePackage(
 	runAsAdmin bool,
 	destinationFolder string,
 	installCommand string,
+	isInteractive bool,
 	timeoutSeconds int,
 ) (*ExecutionResult, error) {
 	if timeoutSeconds <= 0 {
@@ -66,7 +67,7 @@ func ExecutePackage(
 	destPath := filepath.Join(resolvedDestDir, filename)
 	ext := strings.ToLower(filepath.Ext(filename))
 
-	// 1b. Si un processus utilisant ce binaire est resté bloqué en arrière-plan (Session 0), le tuer pour libérer le verrou
+	// 1b. Si un processus utilisant ce binaire est resté bloqué en arrière-plan, le tuer pour libérer le verrou
 	if ext == ".exe" {
 		_ = exec.Command("taskkill", "/F", "/IM", filename).Run()
 	}
@@ -88,11 +89,44 @@ func ExecutePackage(
 		}
 	}
 
-	// 3. Préparation du contexte avec Timeout
+	// 3. Mode Graphique Interactif (affiché sur la session de l'utilisateur connecté)
+	if isInteractive {
+		var interactiveArgs []string
+		trimmedArgs := strings.TrimSpace(packageArgs)
+		if trimmedArgs != "" {
+			interactiveArgs = strings.Fields(trimmedArgs)
+		}
+
+		appToRun := destPath
+		if strings.TrimSpace(runWith) != "" {
+			appToRun = expandWindowsEnv(runWith)
+			var combined []string
+			if strings.TrimSpace(runWithArgs) != "" {
+				combined = append(combined, strings.Fields(strings.TrimSpace(runWithArgs))...)
+			}
+			combined = append(combined, destPath)
+			combined = append(combined, interactiveArgs...)
+			interactiveArgs = combined
+		} else if ext == ".msi" {
+			appToRun = "msiexec.exe"
+			interactiveArgs = append([]string{"/i", destPath}, interactiveArgs...)
+		}
+
+		return ExecuteInteractiveProcess(
+			ctx,
+			appToRun,
+			interactiveArgs,
+			resolvedDestDir,
+			runAsAdmin,
+			timeoutSeconds,
+		)
+	}
+
+	// 4. Préparation du contexte avec Timeout
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
-	// 4. Construction de la commande (Exécution directe et propre sous Windows)
+	// 5. Construction de la commande (Exécution directe et propre sous Windows en Session 0)
 	var cmd *exec.Cmd
 
 	if strings.TrimSpace(runWith) != "" {
