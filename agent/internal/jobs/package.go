@@ -67,11 +67,6 @@ func ExecutePackage(
 	destPath := filepath.Join(resolvedDestDir, filename)
 	ext := strings.ToLower(filepath.Ext(filename))
 
-	// 1b. Si un processus utilisant ce binaire est resté bloqué en arrière-plan, le tuer pour libérer le verrou
-	if ext == ".exe" {
-		_ = exec.Command("taskkill", "/F", "/IM", filename).Run()
-	}
-
 	// 2. Téléchargement ou vérification de l'intégrité SHA-256 locale existante
 	needDownload := true
 	if fi, err := os.Stat(destPath); err == nil && fi.Size() > 0 && expectedSHA256 != "" {
@@ -81,6 +76,13 @@ func ExecutePackage(
 	}
 
 	if needDownload {
+		// Si un processus utilisant ce binaire est resté bloqué en arrière-plan, le tuer pour
+		// libérer le verrou sur le fichier. Uniquement avant un réel téléchargement : en mode
+		// interactif, l'assistant est peut-être en cours d'utilisation par l'utilisateur.
+		if ext == ".exe" {
+			_ = exec.Command("taskkill", "/F", "/IM", filename).Run()
+		}
+
 		if err := downloader.DownloadFile(downloadURL, token, destPath, expectedSHA256); err != nil {
 			return &ExecutionResult{
 				ExitCode: 1,
@@ -89,7 +91,9 @@ func ExecutePackage(
 		}
 	}
 
-	// 3. Mode Graphique Interactif (affiché sur la session de l'utilisateur connecté)
+	// 3. Mode Graphique Interactif : le binaire est copié sur le poste puis lancé sur le
+	// bureau de l'utilisateur connecté. Le job est validé dès le lancement, l'installation
+	// étant ensuite déroulée manuellement par l'utilisateur.
 	if isInteractive {
 		var interactiveArgs []string
 		trimmedArgs := strings.TrimSpace(packageArgs)
@@ -118,7 +122,6 @@ func ExecutePackage(
 			interactiveArgs,
 			resolvedDestDir,
 			runAsAdmin,
-			timeoutSeconds,
 		)
 	}
 
@@ -180,26 +183,11 @@ func ExecutePackage(
 		}
 		cmd = exec.Command("cmd.exe", args...)
 	} else {
-		// Exécutable binaire direct (.exe)
+		// Exécutable binaire direct (.exe) : aucun argument forcé par défaut
 		var args []string
 		trimmedArgs := strings.TrimSpace(packageArgs)
 		if trimmedArgs != "" {
 			args = strings.Fields(trimmedArgs)
-		} else {
-			// Détection automatique intelligente des installateurs connus requérant un switch silencieux en Session 0
-			lowerFile := strings.ToLower(filename)
-			if strings.Contains(lowerFile, "npp") || strings.Contains(lowerFile, "notepad") {
-				args = []string{"/S"}
-			} else if strings.Contains(lowerFile, "prnclient") || strings.Contains(lowerFile, "papercut") {
-				args = []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"}
-			} else if strings.Contains(lowerFile, "7z") || strings.Contains(lowerFile, "7-zip") {
-				args = []string{"/S"}
-			} else if strings.Contains(lowerFile, "vlc") || strings.Contains(lowerFile, "chrome") || strings.Contains(lowerFile, "firefox") {
-				args = []string{"/S"}
-			} else {
-				// Par défaut pour tout installateur en Session 0
-				args = []string{"/S"}
-			}
 		}
 		cmd = exec.Command(destPath, args...)
 	}
