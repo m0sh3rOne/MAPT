@@ -64,13 +64,28 @@ func ExecutePackage(
 	resolvedDestDir := expandWindowsEnv(destinationFolder)
 	_ = os.MkdirAll(resolvedDestDir, 0755)
 	destPath := filepath.Join(resolvedDestDir, filename)
+	ext := strings.ToLower(filepath.Ext(filename))
 
-	// 2. Téléchargement et vérification de l'intégrité SHA-256
-	if err := downloader.DownloadFile(downloadURL, token, destPath, expectedSHA256); err != nil {
-		return &ExecutionResult{
-			ExitCode: 1,
-			Error:    fmt.Sprintf("Échec du téléchargement/vérification SHA-256 : %v", err),
-		}, err
+	// 1b. Si un processus utilisant ce binaire est resté bloqué en arrière-plan (Session 0), le tuer pour libérer le verrou
+	if ext == ".exe" {
+		_ = exec.Command("taskkill", "/F", "/IM", filename).Run()
+	}
+
+	// 2. Téléchargement ou vérification de l'intégrité SHA-256 locale existante
+	needDownload := true
+	if fi, err := os.Stat(destPath); err == nil && fi.Size() > 0 && expectedSHA256 != "" {
+		if valid, _ := download.VerifySHA256(destPath, expectedSHA256); valid {
+			needDownload = false
+		}
+	}
+
+	if needDownload {
+		if err := downloader.DownloadFile(downloadURL, token, destPath, expectedSHA256); err != nil {
+			return &ExecutionResult{
+				ExitCode: 1,
+				Error:    fmt.Sprintf("Échec du téléchargement/vérification SHA-256 : %v", err),
+			}, err
+		}
 	}
 
 	// 3. Préparation du contexte avec Timeout
@@ -79,8 +94,6 @@ func ExecutePackage(
 
 	// 4. Construction de la commande (Exécution directe et propre sous Windows)
 	var cmd *exec.Cmd
-
-	ext := strings.ToLower(filepath.Ext(filename))
 
 	if strings.TrimSpace(runWith) != "" {
 		// Cas Snapin FOG : Run With (ex: msiexec.exe, cscript.exe, powershell.exe)
@@ -95,13 +108,13 @@ func ExecutePackage(
 			args = append(args, strings.Fields(strings.TrimSpace(packageArgs))...)
 		}
 
-		cmd = exec.CommandContext(execCtx, runWithExpanded, args...)
+		cmd = exec.Command(runWithExpanded, args...)
 	} else if strings.TrimSpace(installCommand) != "" {
 		// Commande personnalisée exécutée via PowerShell
 		resolvedCmd := strings.ReplaceAll(installCommand, filename, destPath)
 		resolvedCmd = strings.ReplaceAll(resolvedCmd, "<file>", destPath)
 		resolvedCmd = strings.ReplaceAll(resolvedCmd, "{file}", destPath)
-		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", resolvedCmd)
+		cmd = exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", resolvedCmd)
 	} else if ext == ".msi" {
 		// MSI standard via msiexec
 		args := []string{"/i", destPath}
@@ -110,28 +123,28 @@ func ExecutePackage(
 		} else {
 			args = append(args, "/qn", "/norestart")
 		}
-		cmd = exec.CommandContext(execCtx, "msiexec.exe", args...)
+		cmd = exec.Command("msiexec.exe", args...)
 	} else if ext == ".vbs" || ext == ".vb" {
 		// VBScript standard via cscript
 		args := []string{"//nologo", destPath}
 		if strings.TrimSpace(packageArgs) != "" {
 			args = append(args, strings.Fields(strings.TrimSpace(packageArgs))...)
 		}
-		cmd = exec.CommandContext(execCtx, "cscript.exe", args...)
+		cmd = exec.Command("cscript.exe", args...)
 	} else if ext == ".ps1" {
 		// PowerShell script
 		args := []string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", destPath}
 		if strings.TrimSpace(packageArgs) != "" {
 			args = append(args, strings.Fields(strings.TrimSpace(packageArgs))...)
 		}
-		cmd = exec.CommandContext(execCtx, "powershell.exe", args...)
+		cmd = exec.Command("powershell.exe", args...)
 	} else if ext == ".bat" || ext == ".cmd" {
 		// Script Batch via cmd.exe /c
 		args := []string{"/c", destPath}
 		if strings.TrimSpace(packageArgs) != "" {
 			args = append(args, strings.Fields(strings.TrimSpace(packageArgs))...)
 		}
-		cmd = exec.CommandContext(execCtx, "cmd.exe", args...)
+		cmd = exec.Command("cmd.exe", args...)
 	} else {
 		// Exécutable binaire direct (.exe)
 		var args []string
@@ -143,9 +156,18 @@ func ExecutePackage(
 			lowerFile := strings.ToLower(filename)
 			if strings.Contains(lowerFile, "npp") || strings.Contains(lowerFile, "notepad") {
 				args = []string{"/S"}
+			} else if strings.Contains(lowerFile, "prnclient") || strings.Contains(lowerFile, "papercut") {
+				args = []string{"/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"}
+			} else if strings.Contains(lowerFile, "7z") || strings.Contains(lowerFile, "7-zip") {
+				args = []string{"/S"}
+			} else if strings.Contains(lowerFile, "vlc") || strings.Contains(lowerFile, "chrome") || strings.Contains(lowerFile, "firefox") {
+				args = []string{"/S"}
+			} else {
+				// Par défaut pour tout installateur en Session 0
+				args = []string{"/S"}
 			}
 		}
-		cmd = exec.CommandContext(execCtx, destPath, args...)
+		cmd = exec.Command(destPath, args...)
 	}
 
 	// Définir le répertoire de travail dans le dossier du package (évite System32)
@@ -158,7 +180,29 @@ func ExecutePackage(
 	cmd.Stderr = &stderrBuf
 
 	start := time.Now()
-	runErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return &ExecutionResult{
+			ExitCode: 1,
+			Error:    fmt.Sprintf("Échec du lancement du processus : %v", err),
+			Duration: time.Since(start),
+		}, err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	var runErr error
+	select {
+	case <-execCtx.Done():
+		if cmd.Process != nil {
+			// Tuer récursivement tout l'arbre de processus sous Windows (/T /F)
+			_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", cmd.Process.Pid)).Run()
+		}
+		runErr = execCtx.Err()
+	case runErr = <-done:
+	}
 	duration := time.Since(start)
 
 	output := stdoutBuf.String()

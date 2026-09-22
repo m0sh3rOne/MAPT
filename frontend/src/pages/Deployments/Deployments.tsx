@@ -657,27 +657,58 @@ export const Deployments: React.FC = () => {
 
               {/* Package Selection */}
               {deploymentType === 'package' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Sélectionner la version de package
-                  </label>
-                  <select
-                    required
-                    value={packageVersionId}
-                    onChange={(e) => setPackageVersionId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-emerald-500"
-                  >
-                    <option value="">-- Choisir un package --</option>
-                    {packages.map((pkg) => (
-                      <optgroup key={pkg.id} label={`${pkg.name} (${pkg.package_type})`}>
-                        {pkg.latest_version && (
-                          <option value={pkg.latest_version.id}>
-                            {pkg.name} — Version {pkg.latest_version.version} ({pkg.latest_version.filename})
-                          </option>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Sélectionner la version de package
+                    </label>
+                    <select
+                      required
+                      value={packageVersionId}
+                      onChange={(e) => setPackageVersionId(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl px-3 py-2.5 outline-none focus:border-emerald-500"
+                    >
+                      <option value="">-- Choisir un package --</option>
+                      {packages.map((pkg) => (
+                        <optgroup key={pkg.id} label={`${pkg.name} (${pkg.package_type})`}>
+                          {pkg.latest_version && (
+                            <option value={pkg.latest_version.id}>
+                              {pkg.name} — Version {pkg.latest_version.version} ({pkg.latest_version.filename})
+                            </option>
+                          )}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  {(() => {
+                    const selPkg = packages.find(p => p.latest_version?.id === packageVersionId);
+                    if (!selPkg || !selPkg.latest_version) return null;
+                    const lv = selPkg.latest_version;
+                    const isExe = lv.filename?.toLowerCase().endsWith('.exe');
+                    const hasArgs = !!lv.package_args && lv.package_args.trim() !== '';
+
+                    return (
+                      <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 text-xs space-y-1.5">
+                        <div className="flex justify-between text-slate-400">
+                          <span>Fichier cible :</span>
+                          <span className="text-cyan-400 font-mono">{lv.filename}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-400">
+                          <span>Arguments d'installation :</span>
+                          <span className="text-slate-200 font-mono">{hasArgs ? lv.package_args : '(Aucun)'}</span>
+                        </div>
+                        {isExe && !hasArgs && (
+                          <div className="mt-2 pt-2 border-t border-slate-800/80 flex items-start space-x-2 text-amber-300">
+                            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                            <span>
+                              <strong>Mode silencieux automatique :</strong> En Session 0 (service d'arrière-plan sans interface utilisateur), l'agent appliquera <code>/S</code> automatiquement pour éviter tout blocage.
+                            </span>
+                          </div>
                         )}
-                      </optgroup>
-                    ))}
-                  </select>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

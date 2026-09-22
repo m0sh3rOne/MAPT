@@ -1563,6 +1563,18 @@ export const Packages: React.FC = () => {
               </div>
             </div>
 
+            {(!packageToDeploy.latest_version?.package_args || packageToDeploy.latest_version?.package_args.trim() === '') && (packageToDeploy.latest_version?.filename?.toLowerCase().endsWith('.exe')) && (
+              <div className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-3 rounded-2xl text-xs flex items-start space-x-2.5">
+                <Info className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <div className="space-y-1">
+                  <div className="font-semibold text-amber-300">Mode silencieux requis (Session 0)</div>
+                  <div className="text-slate-400 leading-relaxed">
+                    L'agent MAPT tourne en service système sans interface graphique. L'argument silencieux (<code>/S</code>) est appliqué automatiquement pour éviter tout blocage.
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
               <button
                 type="button"

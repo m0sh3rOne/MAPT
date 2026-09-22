@@ -328,7 +328,7 @@ class DeploymentService:
         dep.status = DeploymentStatus.CANCELLED
         dep.completed_at = datetime.now(timezone.utc)
         for t in dep.targets:
-            if t.status in [TargetStatus.PENDING, TargetStatus.OFFERED]:
+            if t.status in [TargetStatus.PENDING, TargetStatus.OFFERED, TargetStatus.ACKED, TargetStatus.RUNNING]:
                 t.status = TargetStatus.CANCELLED
                 t.completed_at = datetime.now(timezone.utc)
 

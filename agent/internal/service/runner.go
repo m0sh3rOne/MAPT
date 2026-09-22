@@ -73,13 +73,43 @@ func (r *Runner) Run(ctx context.Context) error {
 		inventoryInterval = 3600 * time.Second
 	}
 
-	heartbeatTicker := time.NewTicker(heartbeatInterval)
-	pollTicker := time.NewTicker(pollInterval)
-	inventoryTicker := time.NewTicker(inventoryInterval)
+	// 1. Goroutine dédiée au Heartbeat périodique
+	// Crucial : Le heartbeat ne doit JAMAIS être bloqué par un déploiement long, un téléchargement ou un script
+	go func() {
+		hbTicker := time.NewTicker(heartbeatInterval)
+		defer hbTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hbTicker.C:
+				currIP := inventory.GetPrimaryIP()
+				if err := r.client.Heartbeat(currIP); err != nil {
+					r.logger.Warn("Heartbeat failed: %v", err)
+				}
+			}
+		}
+	}()
 
-	defer heartbeatTicker.Stop()
+	// 2. Goroutine dédiée à l'inventaire périodique
+	go func() {
+		invTicker := time.NewTicker(inventoryInterval)
+		defer invTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-invTicker.C:
+				r.logger.Info("Collecting periodic system inventory...")
+				inv := inventory.CollectInventory()
+				_ = r.client.SendInventory(inv)
+			}
+		}
+	}()
+
+	// 3. Boucle principale de scrutation et exécution des jobs
+	pollTicker := time.NewTicker(pollInterval)
 	defer pollTicker.Stop()
-	defer inventoryTicker.Stop()
 
 	// Exécuter une première recherche de jobs immédiatement
 	r.pollAndExecuteJobs(ctx)
@@ -89,17 +119,6 @@ func (r *Runner) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			r.logger.Info("Stopping MAPT Agent runner (context cancelled)...")
 			return nil
-
-		case <-heartbeatTicker.C:
-			currIP := inventory.GetPrimaryIP()
-			if err := r.client.Heartbeat(currIP); err != nil {
-				r.logger.Warn("Heartbeat failed: %v", err)
-			}
-
-		case <-inventoryTicker.C:
-			r.logger.Info("Collecting periodic system inventory...")
-			inv := inventory.CollectInventory()
-			_ = r.client.SendInventory(inv)
 
 		case <-pollTicker.C:
 			r.pollAndExecuteJobs(ctx)

@@ -177,6 +177,8 @@ class AgentService:
         target = await self.dep_repo.get_target_by_id(job_id)
         if not target or target.device_id != device.id:
             raise HTTPException(status_code=404, detail="Job introuvable pour cet agent.")
+        if target.status == TargetStatus.CANCELLED:
+            return
         await self.dep_repo.update_target_status(job_id, TargetStatus.RUNNING)
         if message:
             await self.dep_repo.add_target_log(job_id, "INFO", f"[{progress}%] {message}")
@@ -185,6 +187,8 @@ class AgentService:
         target = await self.dep_repo.get_target_by_id(job_id)
         if not target or target.device_id != device.id:
             raise HTTPException(status_code=404, detail="Job introuvable pour cet agent.")
+        if target.status == TargetStatus.CANCELLED:
+            return
         await self.dep_repo.update_target_status(job_id, TargetStatus.SUCCEEDED, exit_code=exit_code)
         msg = f"Job terminé avec succès (code {exit_code})."
         if duration_seconds:
@@ -197,6 +201,8 @@ class AgentService:
         target = await self.dep_repo.get_target_by_id(job_id)
         if not target or target.device_id != device.id:
             raise HTTPException(status_code=404, detail="Job introuvable pour cet agent.")
+        if target.status == TargetStatus.CANCELLED:
+            return
         await self.dep_repo.update_target_status(job_id, TargetStatus.FAILED, exit_code=exit_code, error_message=error)
         await self.dep_repo.add_target_log(job_id, "ERROR", f"Échec du job (code {exit_code}): {error}")
         if output:
