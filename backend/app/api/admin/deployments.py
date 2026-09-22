@@ -122,6 +122,19 @@ async def cancel_deployment(
     return await service.cancel_deployment(deployment_id, current_user.id, client_ip)
 
 
+@router.post("/{deployment_id}/targets/{target_id}/cancel", response_model=DeploymentTargetResponse)
+async def cancel_deployment_target(
+    deployment_id: UUID,
+    target_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = DeploymentService(db)
+    client_ip = request.client.host if request.client else None
+    return await service.cancel_target(deployment_id, target_id, current_user.id, client_ip)
+
+
 @router.post("/{deployment_id}/targets/{target_id}/retry", response_model=DeploymentTargetResponse)
 async def retry_deployment_target(
     deployment_id: UUID,

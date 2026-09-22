@@ -119,6 +119,7 @@ if (-not (Test-Path -Path $installDir)) {{
 }}
 
 $agentExe = Join-Path $installDir "mapt-agent.exe"
+$configFile = Join-Path $installDir "mapt-agent-config.json"
 
 # 3. Arrêt du service existant s'il tourne déjà
 try {{
@@ -130,7 +131,12 @@ try {{
     }}
 }} catch {{}}
 
-# 4. Téléchargement robuste multi-méthodes (WebClient / Invoke-WebRequest / curl / certutil / BITS)
+# Tuer les processus orphelins résiduels si besoin
+try {{
+    Get-Process -Name "mapt-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}} catch {{}}
+
+# 4. Téléchargement robuste multi-méthodes (WebClient / Invoke-WebRequest / curl / certutil)
 Write-Host "[*] Téléchargement de l'agent depuis $downloadUrl..." -ForegroundColor Yellow
 $downloadSuccess = $false
 
@@ -184,17 +190,63 @@ if (-not $downloadSuccess -or -not (Test-Path $agentExe)) {{
 $fileSize = (Get-Item $agentExe).Length
 Write-Host "[+] Binaire téléchargé avec succès ($fileSize octets)" -ForegroundColor Green
 
-# 5. Enregistrement et Démarrage du Service Windows
+# 5. Création / Mise à jour du fichier de configuration mapt-agent-config.json
+Write-Host "[*] Écriture de la configuration..." -ForegroundColor Yellow
+$configContent = @'
+{{
+  "server_url": "__SERVER_URL__",
+  "enrollment_token": "__ENROLL_TOKEN__",
+  "agent_token": "",
+  "device_uuid": "",
+  "log_level": "info",
+  "heartbeat_interval_seconds": 30,
+  "job_poll_interval_seconds": 15,
+  "inventory_interval_seconds": 3600
+}}
+'@
+$configContent = $configContent.Replace("__SERVER_URL__", $serverUrl).Replace("__ENROLL_TOKEN__", $enrollToken)
+
+if (-not (Test-Path $configFile)) {{
+    [System.IO.File]::WriteAllText($configFile, $configContent, [System.Text.Encoding]::UTF8)
+}} else {{
+    try {{
+        $existingCfg = Get-Content $configFile -Raw | ConvertFrom-Json
+        $existingCfg.server_url = $serverUrl
+        if ($enrollToken) {{ $existingCfg.enrollment_token = $enrollToken }}
+        ($existingCfg | ConvertTo-Json -Depth 5) | Set-Content $configFile -Encoding UTF8
+    }} catch {{
+        [System.IO.File]::WriteAllText($configFile, $configContent, [System.Text.Encoding]::UTF8)
+    }}
+}}
+
+# 6. Enregistrement et Démarrage du Service Windows
 Write-Host "[*] Configuration et enregistrement du service Windows..." -ForegroundColor Yellow
 try {{
     & "$agentExe" -service uninstall 2>&1 | Out-Null
 }} catch {{}}
 
-& "$agentExe" -service install -server "$serverUrl" -enroll-token "$enrollToken"
-Start-Sleep -Seconds 2
+# Méthode 1: Agent auto-enregistrement
+try {{
+    & "$agentExe" -service install -config "$configFile" -server "$serverUrl" -enroll-token "$enrollToken" 2>&1 | Out-Null
+}} catch {{}}
+
+# Méthode 2: Fallback direct via sc.exe si le service n'est pas encore présent
+$svc = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+if (-not $svc) {{
+    & sc.exe create "mapt-agent" binPath= "`"$agentExe`" -config `"$configFile`"" start= auto DisplayName= "MAPT Endpoint Agent" | Out-Null
+    & sc.exe description "mapt-agent" "Service d'administration, d'inventaire et de telemetrie MAPT pour Windows" | Out-Null
+}}
 
 Write-Host "[*] Démarrage du service Windows..." -ForegroundColor Yellow
-& "$agentExe" -service start
+Start-Sleep -Seconds 1
+try {{
+    Start-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+}} catch {{}}
+
+try {{
+    & sc.exe start "mapt-agent" 2>&1 | Out-Null
+}} catch {{}}
+
 Start-Sleep -Seconds 2
 
 $finalService = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
@@ -237,6 +289,7 @@ set "DOWNLOAD_URL=%SERVER_URL%/agent/download/windows"
 set "ENROLL_TOKEN={enroll_token}"
 set "INSTALL_DIR=%ProgramFiles%\\MAPT"
 set "AGENT_EXE=%INSTALL_DIR%\\mapt-agent.exe"
+set "CONFIG_FILE=%INSTALL_DIR%\\mapt-agent-config.json"
 
 if not exist "%INSTALL_DIR%" (
     mkdir "%INSTALL_DIR%"
@@ -256,12 +309,13 @@ if not exist "%AGENT_EXE%" (
     exit /b 1
 )
 
-echo [*] Enregistrement du service Windows...
-"%AGENT_EXE%" -service uninstall >nul 2>&1
-"%AGENT_EXE%" -service install -server "%SERVER_URL%" -enroll-token "%ENROLL_TOKEN%"
-
-echo [*] Demarrage du service Windows...
-"%AGENT_EXE%" -service start
+echo [*] Enregistrement et demarrage du service Windows...
+sc stop mapt-agent >nul 2>&1
+sc delete mapt-agent >nul 2>&1
+"%AGENT_EXE%" -service install -server "%SERVER_URL%" -enroll-token "%ENROLL_TOKEN%" >nul 2>&1
+sc create "mapt-agent" binPath= "\"%AGENT_EXE%\" -config \"%CONFIG_FILE%\"" start= auto DisplayName= "MAPT Endpoint Agent" >nul 2>&1
+sc description "mapt-agent" "Service d'administration, d'inventaire et de telemetrie MAPT pour Windows" >nul 2>&1
+net start mapt-agent
 
 echo [OK] Agent MAPT installe et operationnel.
 exit /b 0

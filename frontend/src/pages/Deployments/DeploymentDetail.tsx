@@ -13,6 +13,8 @@ import {
   AlertTriangle,
   Loader2,
   Terminal,
+  Ban,
+  Trash2,
   X
 } from 'lucide-react';
 
@@ -50,6 +52,24 @@ export const DeploymentDetail: React.FC = () => {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: () => api.cancelDeployment(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deployment-targets', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployment', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+  });
+
+  const cancelTargetMutation = useMutation({
+    mutationFn: (targetId: string) => api.cancelDeploymentTarget(id!, targetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deployment-targets', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployment', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+  });
+
   if (loadingDep || !deployment) {
     return <div className="py-12 text-center text-slate-500">Chargement du déploiement...</div>;
   }
@@ -73,6 +93,8 @@ export const DeploymentDetail: React.FC = () => {
                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                   : deployment.status === 'RUNNING'
                   ? 'bg-purple-500/10 text-purple-400 border-purple-500/20 animate-pulse'
+                  : deployment.status === 'CANCELLED'
+                  ? 'bg-slate-800 text-slate-500 border-slate-700'
                   : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
               }`}>
                 {deployment.status}
@@ -83,6 +105,23 @@ export const DeploymentDetail: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Global Cancel / Interrupt Action */}
+        {deployment.status !== 'COMPLETED' && deployment.status !== 'CANCELLED' && (
+          <button
+            onClick={() => cancelMutation.mutate()}
+            disabled={cancelMutation.isPending}
+            className="flex items-center space-x-2 px-4 py-2 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-bold transition shadow-lg shadow-rose-950/40"
+            title="Interrompre et annuler toutes les cibles en attente ou en cours"
+          >
+            {cancelMutation.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Ban className="w-4 h-4 text-rose-400" />
+            )}
+            <span>Interrompre / Annuler le Déploiement</span>
+          </button>
+        )}
       </div>
 
       {/* KPI Overview */}
@@ -186,6 +225,18 @@ export const DeploymentDetail: React.FC = () => {
                         >
                           <RotateCw className="w-4 h-4" />
                           <span>Relancer</span>
+                        </button>
+                      )}
+
+                      {['PENDING', 'OFFERED', 'ACKED', 'RUNNING'].includes(target.status) && (
+                        <button
+                          onClick={() => cancelTargetMutation.mutate(target.id)}
+                          disabled={cancelTargetMutation.isPending}
+                          className="flex items-center space-x-1 p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition text-xs font-semibold"
+                          title="Interrompre cette cible"
+                        >
+                          <Ban className="w-4 h-4" />
+                          <span>Interrompre</span>
                         </button>
                       )}
                     </div>

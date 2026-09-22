@@ -331,8 +331,9 @@ class DeploymentService:
             if t.status in [TargetStatus.PENDING, TargetStatus.OFFERED, TargetStatus.ACKED, TargetStatus.RUNNING]:
                 t.status = TargetStatus.CANCELLED
                 t.completed_at = datetime.now(timezone.utc)
+                t.error_message = "Tâche interrompue manuellement par l'administrateur"
 
-        await self.db.flush()
+        await self.db.commit()
 
         await self.audit_repo.create(
             action=AuditAction.DEPLOYMENT_CANCELLED,
@@ -343,6 +344,37 @@ class DeploymentService:
             ip_address=ip_address
         )
         return self._map_to_response(dep)
+
+    async def cancel_target(self, deployment_id: UUID, target_id: UUID, user_id: UUID, ip_address: Optional[str] = None) -> DeploymentTargetResponse:
+        target = await self.dep_repo.get_target_by_id(target_id)
+        if not target or target.deployment_id != deployment_id:
+            raise HTTPException(status_code=404, detail="Cible de déploiement introuvable.")
+
+        target.status = TargetStatus.CANCELLED
+        target.completed_at = datetime.now(timezone.utc)
+        target.error_message = "Tâche interrompue manuellement par l'administrateur"
+
+        dep = await self.dep_repo.get_by_id(deployment_id)
+        if dep:
+            active_targets = [
+                t for t in dep.targets
+                if t.id != target.id and t.status in [TargetStatus.PENDING, TargetStatus.OFFERED, TargetStatus.ACKED, TargetStatus.RUNNING]
+            ]
+            if not active_targets:
+                dep.status = DeploymentStatus.CANCELLED
+                dep.completed_at = datetime.now(timezone.utc)
+
+        await self.db.commit()
+
+        await self.audit_repo.create(
+            action=AuditAction.DEPLOYMENT_CANCELLED,
+            entity_type="deployment_target",
+            user_id=user_id,
+            entity_id=target.id,
+            details={"deployment_id": str(deployment_id), "device_id": str(target.device_id), "action": "cancel_target"},
+            ip_address=ip_address
+        )
+        return self._map_target_to_response(target)
 
     async def retry_target(self, deployment_id: UUID, target_id: UUID, user_id: UUID, ip_address: Optional[str] = None) -> DeploymentTargetResponse:
         target = await self.dep_repo.get_target_by_id(target_id)

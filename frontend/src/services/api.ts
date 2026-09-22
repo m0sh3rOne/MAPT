@@ -246,6 +246,10 @@ export const api = {
     const res = await apiClient.post(`/admin/deployments/${id}/cancel`);
     return res.data;
   },
+  cancelDeploymentTarget: async (deploymentId: string, targetId: string): Promise<DeploymentTarget> => {
+    const res = await apiClient.post(`/admin/deployments/${deploymentId}/targets/${targetId}/cancel`);
+    return res.data;
+  },
   deleteDeployment: async (id: string): Promise<{ success: boolean; count: number; message: string }> => {
     const res = await apiClient.delete(`/admin/deployments/${id}`);
     return res.data;
