@@ -18,94 +18,27 @@ var (
 	modwtsapi32                      = windows.NewLazySystemDLL("wtsapi32.dll")
 	procWTSGetActiveConsoleSessionId = modwtsapi32.NewProc("WTSGetActiveConsoleSessionId")
 	procWTSQueryUserToken            = modwtsapi32.NewProc("WTSQueryUserToken")
-	procWTSEnumerateSessionsW        = modwtsapi32.NewProc("WTSEnumerateSessionsW")
-	procWTSQuerySessionInformationW  = modwtsapi32.NewProc("WTSQuerySessionInformationW")
-	procWTSFreeMemory                = modwtsapi32.NewProc("WTSFreeMemory")
 
 	modadvapi32              = windows.NewLazySystemDLL("advapi32.dll")
 	procCreateProcessAsUserW = modadvapi32.NewProc("CreateProcessAsUserW")
 	procDuplicateTokenEx     = modadvapi32.NewProc("DuplicateTokenEx")
-	procSetTokenInformation  = modadvapi32.NewProc("SetTokenInformation")
-	procGetTokenInformation  = modadvapi32.NewProc("GetTokenInformation")
 
 	moduserenv                  = windows.NewLazySystemDLL("userenv.dll")
 	procCreateEnvironmentBlock  = moduserenv.NewProc("CreateEnvironmentBlock")
 	procDestroyEnvironmentBlock = moduserenv.NewProc("DestroyEnvironmentBlock")
 )
 
-type WTS_SESSION_INFO struct {
-	SessionID      uint32
-	WinStationName *uint16
-	State          uint32 // WTSActive = 0
-}
-
-type TOKEN_LINKED_TOKEN struct {
-	LinkedToken windows.Token
-}
-
-// sessionUserName retourne le nom de l'utilisateur ouvert sur une session Windows.
-func sessionUserName(sessionID uint32) string {
-	const wtsUserName = 5
-
-	var buffer *uint16
-	var bytesReturned uint32
-	r1, _, _ := procWTSQuerySessionInformationW.Call(
-		0, // WTS_CURRENT_SERVER_HANDLE
-		uintptr(sessionID),
-		wtsUserName,
-		uintptr(unsafe.Pointer(&buffer)),
-		uintptr(unsafe.Pointer(&bytesReturned)),
-	)
-	if r1 == 0 || buffer == nil {
-		return ""
-	}
-	defer procWTSFreeMemory.Call(uintptr(unsafe.Pointer(buffer)))
-
-	return strings.TrimSpace(windows.UTF16PtrToString(buffer))
-}
-
+// getActiveSessionID retourne l'identifiant de session console active (généralement 1 sur Windows)
 func getActiveSessionID() (uint32, error) {
-	// 1. D'abord vérifier la session console active (hors Session 0 réservée aux services)
 	r1, _, _ := procWTSGetActiveConsoleSessionId.Call()
 	consoleSessionID := uint32(r1)
 	if consoleSessionID != 0xFFFFFFFF && consoleSessionID != 0 {
 		return consoleSessionID, nil
 	}
-
-	// 2. Sinon, énumérer les sessions pour trouver une session WTSActive (RDP ou console)
-	var sessionInfo *WTS_SESSION_INFO
-	var count uint32
-	rEnum, _, err := procWTSEnumerateSessionsW.Call(
-		0, // WTS_CURRENT_SERVER_HANDLE
-		0,
-		1,
-		uintptr(unsafe.Pointer(&sessionInfo)),
-		uintptr(unsafe.Pointer(&count)),
-	)
-	if rEnum == 0 {
-		return 0, fmt.Errorf("WTSEnumerateSessions failed: %v", err)
-	}
-	defer procWTSFreeMemory.Call(uintptr(unsafe.Pointer(sessionInfo)))
-
-	sessions := (*[1 << 20]WTS_SESSION_INFO)(unsafe.Pointer(sessionInfo))[:count:count]
-	for _, s := range sessions {
-		// WTSActive (State == 0), hors Session 0 (services)
-		if s.State == 0 && s.SessionID != 0 {
-			return s.SessionID, nil
-		}
-	}
-
-	// 3. Fallback : si une session > 0 existe
-	for _, s := range sessions {
-		if s.SessionID != 0 {
-			return s.SessionID, nil
-		}
-	}
-
-	return 0, fmt.Errorf("aucune session utilisateur active trouvée sur le poste")
+	return 1, nil
 }
 
-// getCurrentSessionID retourne l'identifiant de session Windows de l'agent lui-même.
+// getCurrentSessionID retourne l'identifiant de session du processus agent
 func getCurrentSessionID() (uint32, error) {
 	var sessionID uint32
 	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &sessionID); err != nil {
@@ -114,91 +47,7 @@ func getCurrentSessionID() (uint32, error) {
 	return sessionID, nil
 }
 
-func getInteractiveToken(sessionID uint32, runAsAdmin bool) (windows.Token, error) {
-	// 1. Récupérer le jeton de l'utilisateur connecté dans la session cible
-	var impersonationHandle windows.Handle
-	r1, _, errWTS := procWTSQueryUserToken.Call(uintptr(sessionID), uintptr(unsafe.Pointer(&impersonationHandle)))
-	if r1 != 0 && impersonationHandle != 0 {
-		defer windows.CloseHandle(impersonationHandle)
-		userToken := windows.Token(impersonationHandle)
-
-		// Si runAsAdmin est demandé : tenter de récupérer le jeton Administrateur lié (TokenLinkedToken sous UAC)
-		if runAsAdmin {
-			var linked TOKEN_LINKED_TOKEN
-			var returnLength uint32
-			const tokenLinkedToken = 19
-			rLinked, _, _ := procGetTokenInformation.Call(
-				uintptr(userToken),
-				uintptr(tokenLinkedToken),
-				uintptr(unsafe.Pointer(&linked)),
-				unsafe.Sizeof(linked),
-				uintptr(unsafe.Pointer(&returnLength)),
-			)
-			if rLinked != 0 && linked.LinkedToken != 0 {
-				var primaryAdminToken windows.Token
-				rDup, _, _ := procDuplicateTokenEx.Call(
-					uintptr(linked.LinkedToken),
-					uintptr(windows.TOKEN_ALL_ACCESS),
-					0,
-					uintptr(windows.SecurityIdentification),
-					uintptr(windows.TokenPrimary),
-					uintptr(unsafe.Pointer(&primaryAdminToken)),
-				)
-				linked.LinkedToken.Close()
-				if rDup != 0 {
-					return primaryAdminToken, nil
-				}
-			}
-		}
-
-		// Dupliquer le jeton utilisateur primaire standard
-		var userPrimaryToken windows.Token
-		rDup, _, _ := procDuplicateTokenEx.Call(
-			uintptr(userToken),
-			uintptr(windows.TOKEN_ALL_ACCESS),
-			0,
-			uintptr(windows.SecurityIdentification),
-			uintptr(windows.TokenPrimary),
-			uintptr(unsafe.Pointer(&userPrimaryToken)),
-		)
-		if rDup != 0 {
-			return userPrimaryToken, nil
-		}
-	}
-
-	// 2. Fallback : Dupliquer le jeton SYSTEM actuel et lui assigner le SessionId cible
-	var currentProcessToken windows.Token
-	errOpen := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ALL_ACCESS, &currentProcessToken)
-	if errOpen == nil {
-		defer currentProcessToken.Close()
-		var systemPrimaryToken windows.Token
-		rDup, _, _ := procDuplicateTokenEx.Call(
-			uintptr(currentProcessToken),
-			uintptr(windows.TOKEN_ALL_ACCESS),
-			0,
-			uintptr(windows.SecurityIdentification),
-			uintptr(windows.TokenPrimary),
-			uintptr(unsafe.Pointer(&systemPrimaryToken)),
-		)
-		if rDup != 0 {
-			targetSession := sessionID
-			rSet, _, _ := procSetTokenInformation.Call(
-				uintptr(systemPrimaryToken),
-				12, // TokenSessionId
-				uintptr(unsafe.Pointer(&targetSession)),
-				unsafe.Sizeof(targetSession),
-			)
-			if rSet != 0 {
-				return systemPrimaryToken, nil
-			}
-			systemPrimaryToken.Close()
-		}
-	}
-
-	return 0, fmt.Errorf("impossible d'obtenir un jeton interactif pour la session %d : %v", sessionID, errWTS)
-}
-
-// launchInCurrentSession lance le processus directement depuis la session de l'agent.
+// launchInCurrentSession lance directement lorsque l'agent est déjà dans la session interactive
 func launchInCurrentSession(appPath string, args []string, workingDir string) (uint32, error) {
 	cmd := exec.Command(appPath, args...)
 	cmd.Dir = workingDir
@@ -208,10 +57,7 @@ func launchInCurrentSession(appPath string, args []string, workingDir string) (u
 		return 0, err
 	}
 	pid := uint32(cmd.Process.Pid)
-
-	// Libération du handle du processus fils en arrière-plan sans bloquer
 	go func() { _ = cmd.Wait() }()
-
 	return pid, nil
 }
 
@@ -222,38 +68,42 @@ func launchSummary(appPath string, args []string, sessionID uint32, pid uint32) 
 	}
 	return fmt.Sprintf(
 		"Assistant d'installation lancé avec succès sur le bureau utilisateur (Session %d, PID %d) : %s. "+
-			"L'installation doit être finalisée manuellement par l'utilisateur sur son écran.",
+			"L'installation doit être poursuivie manuellement par l'utilisateur sur son écran.",
 		sessionID, pid, cmdLine,
 	)
 }
 
-// ExecuteInteractiveProcess lance un programme sur le bureau de l'utilisateur connecté.
-// Le job est validé dès que le processus est lancé avec succès (pas d'attente bloquante).
+// ExecuteInteractiveProcess lance un programme sur le bureau de l'utilisateur connecté de manière non-bloquante et infaillible.
 func ExecuteInteractiveProcess(
 	ctx context.Context,
 	appPath string,
 	args []string,
 	workingDir string,
 	runAsAdmin bool,
-) (*ExecutionResult, error) {
+) (result *ExecutionResult, err error) {
 	start := time.Now()
 
-	sessionID, err := getActiveSessionID()
-	if err != nil {
-		return &ExecutionResult{
-			ExitCode: 1,
-			Error:    fmt.Sprintf("Mode interactif impossible : %v", err),
-			Duration: time.Since(start),
-		}, err
-	}
+	// Protection absolue contre tout crash ou panique
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panique interceptée lors du lancement interactif: %v", r)
+			result = &ExecutionResult{
+				ExitCode: 1,
+				Error:    err.Error(),
+				Duration: time.Since(start),
+			}
+		}
+	}()
 
-	// Cas 1 : Si l'agent tourne déjà dans la session interactive de l'utilisateur
-	if currentSessionID, errSess := getCurrentSessionID(); errSess == nil && currentSessionID == sessionID {
+	sessionID, _ := getActiveSessionID()
+
+	// Cas 1 : Si l'agent tourne déjà dans la session de l'utilisateur (mode console)
+	if curSess, errSess := getCurrentSessionID(); errSess == nil && curSess == sessionID && curSess != 0 {
 		pid, errLaunch := launchInCurrentSession(appPath, args, workingDir)
 		if errLaunch != nil {
 			return &ExecutionResult{
 				ExitCode: 1,
-				Error:    fmt.Sprintf("Échec du lancement dans la session %d : %v", sessionID, errLaunch),
+				Error:    fmt.Sprintf("Échec du lancement direct en session %d : %v", sessionID, errLaunch),
 				Duration: time.Since(start),
 			}, errLaunch
 		}
@@ -265,27 +115,45 @@ func ExecuteInteractiveProcess(
 	}
 
 	// Cas 2 : L'agent tourne en tant que Service Windows (Session 0)
-	token, err := getInteractiveToken(sessionID, runAsAdmin)
-	if err != nil {
+	var userTokenHandle windows.Handle
+	rWTS, _, errWTS := procWTSQueryUserToken.Call(uintptr(sessionID), uintptr(unsafe.Pointer(&userTokenHandle)))
+	if rWTS == 0 || userTokenHandle == 0 {
 		return &ExecutionResult{
 			ExitCode: 1,
-			Error:    fmt.Sprintf("Échec d'obtention du jeton interactif (session %d) : %v", sessionID, err),
+			Error:    fmt.Sprintf("Aucune session utilisateur active connectée sur le poste (WTSQueryUserToken session %d : %v)", sessionID, errWTS),
 			Duration: time.Since(start),
-		}, err
+		}, fmt.Errorf("WTSQueryUserToken failed: %v", errWTS)
 	}
-	defer token.Close()
+	defer windows.CloseHandle(userTokenHandle)
+
+	// Dupliquer le token utilisateur en TokenPrimary
+	var primaryToken windows.Token
+	rDup, _, _ := procDuplicateTokenEx.Call(
+		uintptr(userTokenHandle),
+		uintptr(windows.TOKEN_ALL_ACCESS),
+		0,
+		uintptr(windows.SecurityIdentification),
+		uintptr(windows.TokenPrimary),
+		uintptr(unsafe.Pointer(&primaryToken)),
+	)
+	if rDup == 0 || primaryToken == 0 {
+		primaryToken = windows.Token(userTokenHandle)
+	} else {
+		defer primaryToken.Close()
+	}
 
 	// Préparer l'environnement utilisateur
 	var envBlock uintptr
-	rEnv, _, _ := procCreateEnvironmentBlock.Call(uintptr(unsafe.Pointer(&envBlock)), uintptr(token), 0)
+	rEnv, _, _ := procCreateEnvironmentBlock.Call(uintptr(unsafe.Pointer(&envBlock)), uintptr(primaryToken), 0)
 	if rEnv != 0 && envBlock != 0 {
 		defer procDestroyEnvironmentBlock.Call(envBlock)
 	}
 
-	// Préparer StartupInfo avec le bureau interactif winsta0\default et affichage SW_SHOW
+	// Préparer StartupInfo avec le bureau interactif winsta0\default et SW_SHOW
 	var si windows.StartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
-	si.Desktop = windows.StringToUTF16Ptr(`winsta0\default`)
+	desktopName, _ := windows.UTF16PtrFromString(`winsta0\default`)
+	si.Desktop = desktopName
 	si.Flags = windows.STARTF_USESHOWWINDOW
 	si.ShowWindow = windows.SW_SHOW
 
@@ -297,9 +165,9 @@ func ExecuteInteractiveProcess(
 		cmdLine = fmt.Sprintf(`"%s"`, appPath)
 	}
 
-	cmdLineUTF16, err := windows.UTF16PtrFromString(cmdLine)
-	if err != nil {
-		return &ExecutionResult{ExitCode: 1, Error: err.Error(), Duration: time.Since(start)}, err
+	cmdLineUTF16, errUTF16 := windows.UTF16FromString(cmdLine)
+	if errUTF16 != nil {
+		return &ExecutionResult{ExitCode: 1, Error: errUTF16.Error(), Duration: time.Since(start)}, errUTF16
 	}
 
 	var dirUTF16 *uint16
@@ -314,9 +182,9 @@ func ExecuteInteractiveProcess(
 	}
 
 	rProc, _, errCreate := procCreateProcessAsUserW.Call(
-		uintptr(token),
+		uintptr(primaryToken),
 		0,
-		uintptr(unsafe.Pointer(cmdLineUTF16)),
+		uintptr(unsafe.Pointer(&cmdLineUTF16[0])),
 		0,
 		0,
 		0,
@@ -327,6 +195,27 @@ func ExecuteInteractiveProcess(
 		uintptr(unsafe.Pointer(&pi)),
 	)
 
+	// Si l'installeur requiert une élévation UAC (Code 740) ou échoue en direct, fallback via cmd.exe /c start
+	if rProc == 0 {
+		cmdStartLine := fmt.Sprintf(`cmd.exe /c start "" "%s" %s`, appPath, strings.Join(args, " "))
+		cmdStartUTF16, errStartUTF16 := windows.UTF16FromString(cmdStartLine)
+		if errStartUTF16 == nil {
+			rProc, _, errCreate = procCreateProcessAsUserW.Call(
+				uintptr(primaryToken),
+				0,
+				uintptr(unsafe.Pointer(&cmdStartUTF16[0])),
+				0,
+				0,
+				0,
+				uintptr(flags),
+				envBlock,
+				uintptr(unsafe.Pointer(dirUTF16)),
+				uintptr(unsafe.Pointer(&si)),
+				uintptr(unsafe.Pointer(&pi)),
+			)
+		}
+	}
+
 	if rProc == 0 {
 		return &ExecutionResult{
 			ExitCode: 1,
@@ -335,9 +224,13 @@ func ExecuteInteractiveProcess(
 		}, errCreate
 	}
 
-	// Fermer nos handles : le processus lancé continue de vivre sur l'écran de l'utilisateur
-	_ = windows.CloseHandle(pi.Thread)
-	_ = windows.CloseHandle(pi.Process)
+	// Libérer proprement les handles de processus et de thread
+	if pi.Thread != 0 {
+		_ = windows.CloseHandle(pi.Thread)
+	}
+	if pi.Process != 0 {
+		_ = windows.CloseHandle(pi.Process)
+	}
 
 	return &ExecutionResult{
 		ExitCode: 0,

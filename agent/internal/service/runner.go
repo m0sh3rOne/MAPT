@@ -152,6 +152,15 @@ func (r *Runner) pollAndExecuteJobs(ctx context.Context) {
 }
 
 func (r *Runner) executeSingleJob(ctx context.Context, job *jobs.JobPayload) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.logger.Error("PANIC interceptée lors de l'exécution du job %s: %v", job.JobID, rec)
+			logs := r.logger.FlushBuffer()
+			_ = r.client.SendLogs(job.JobID, logs)
+			_ = r.client.FailJob(job.JobID, 1, fmt.Sprintf("Erreur inattendue de l'agent : %v", rec), "")
+		}
+	}()
+
 	r.logger.Info("Processing Job ID: %s (Type: %s)", job.JobID, job.Type)
 
 	// 1. ACK

@@ -125,7 +125,9 @@ class AgentService:
                 job_type = "package"
                 is_interactive = bool(getattr(pv, "is_interactive", False))
                 if is_interactive:
-                    timeout = 1800  # 30 minutes pour permettre à l'utilisateur de suivre l'assistant graphique
+                    # En mode graphique l'agent ne couvre que la copie du binaire : le job est validé
+                    # dès le lancement de l'assistant, que l'utilisateur déroule ensuite manuellement.
+                    timeout = 900
                 dest_folder = pv.destination_folder or "%ProgramData%\\MAPT\\packages"
                 if "APPDATA" in dest_folder.upper():
                     dest_folder = "%ProgramData%\\MAPT\\packages"

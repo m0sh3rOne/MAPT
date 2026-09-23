@@ -48,8 +48,34 @@ export const Navbar: React.FC = () => {
   const enrollCommand = `.\\mapt-agent.exe -server "${serverUrl}" -enroll-token "${enrollToken}"`;
   const serviceCommand = `.\\mapt-agent.exe -service install -server "${serverUrl}" -enroll-token "${enrollToken}" && .\\mapt-agent.exe -service start`;
 
-  const copyToClipboard = (text: string, type: 'auto' | 'cmd' | 'enroll' | 'service') => {
-    navigator.clipboard.writeText(text);
+  const copyToClipboard = async (text: string, type: 'auto' | 'cmd' | 'enroll' | 'service') => {
+    let success = false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch (e) {
+        // fallback
+      }
+    }
+    if (!success) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch (e) {
+        console.error('Copy failed:', e);
+      }
+    }
+
     if (type === 'auto') {
       setCopiedAuto(true);
       setTimeout(() => setCopiedAuto(false), 2500);
@@ -216,7 +242,6 @@ export const Navbar: React.FC = () => {
                     <Download className="w-4 h-4 text-emerald-400" />
                     <span className="text-xs">mapt-agent.exe</span>
                   </div>
-                  <span className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded">~6,7 Mo</span>
                 </a>
               </div>
 
