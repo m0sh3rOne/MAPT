@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	modwtsapi32                      = windows.NewLazySystemDLL("wtsapi32.dll")
-	procWTSGetActiveConsoleSessionId = modwtsapi32.NewProc("WTSGetActiveConsoleSessionId")
-	procWTSQueryUserToken            = modwtsapi32.NewProc("WTSQueryUserToken")
+	modkernel32                      = windows.NewLazySystemDLL("kernel32.dll")
+	procWTSGetActiveConsoleSessionId = modkernel32.NewProc("WTSGetActiveConsoleSessionId")
+
+	modwtsapi32           = windows.NewLazySystemDLL("wtsapi32.dll")
+	procWTSQueryUserToken = modwtsapi32.NewProc("WTSQueryUserToken")
 
 	modadvapi32              = windows.NewLazySystemDLL("advapi32.dll")
 	procCreateProcessAsUserW = modadvapi32.NewProc("CreateProcessAsUserW")
