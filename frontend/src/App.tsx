@@ -13,6 +13,7 @@ import { Packages } from './pages/Packages/Packages';
 import { Scripts } from './pages/Scripts/Scripts';
 import { Groups } from './pages/Groups/Groups';
 import { Audit } from './pages/Audit/Audit';
+import { Users } from './pages/Users/Users';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -66,6 +67,7 @@ export const App: React.FC = () => {
               <Route path="scripts" element={<Scripts />} />
               <Route path="groups" element={<Groups />} />
               <Route path="audit" element={<Audit />} />
+              <Route path="users" element={<Users />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

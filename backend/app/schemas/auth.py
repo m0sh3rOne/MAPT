@@ -1,5 +1,6 @@
 from typing import Optional
 from uuid import UUID
+from datetime import datetime
 from pydantic import BaseModel, EmailStr
 
 
@@ -21,14 +22,24 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class UpdateProfileRequest(BaseModel):
+    email: Optional[EmailStr] = None
+
+
 class UserCreate(BaseModel):
     username: str
-    email: EmailStr
     password: str
-    role: str = "viewer"
+    email: Optional[EmailStr] = None
+    role: str = "operator"
 
 
 class UserUpdate(BaseModel):
+    username: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
     role: Optional[str] = None
@@ -41,6 +52,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     is_active: bool
+    created_at: Optional[datetime] = None
     last_login_at: Optional[str] = None
 
     class Config:

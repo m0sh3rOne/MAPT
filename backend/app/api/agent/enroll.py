@@ -93,7 +93,8 @@ $serverUrl = "{base_url}/api/v1"
 $cacheBuster = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 $downloadUrl = "$serverUrl/agent/download/windows?cb=$cacheBuster"
 $enrollToken = "{enroll_token}"
-$installDir = "$env:ProgramFiles\\MAPT"
+$programFilesDir = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+$installDir = Join-Path $programFilesDir "MAPT"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "  MAPT - Installation Automatisée de l'Agent Windows       " -ForegroundColor Cyan
@@ -101,122 +102,146 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Vérification des droits Administrateur
 $isAdmin = $false
-try {{
+try {
     $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     $isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}} catch {{
+} catch {
     $isAdmin = $true
-}}
+}
 
-if (-not $isAdmin) {{
+if (-not $isAdmin) {
     Write-Host "[!] ERREUR : Ce script doit être exécuté dans une invite PowerShell Administrateur." -ForegroundColor Red
     exit 1
-}}
+}
 
 # 2. Création du dossier d'installation
-if (-not (Test-Path -Path $installDir)) {{
+if (-not (Test-Path -Path $installDir)) {
     Write-Host "[*] Création du dossier $installDir..." -ForegroundColor Yellow
     [System.IO.Directory]::CreateDirectory($installDir) | Out-Null
-}}
+}
 
 $agentExe = Join-Path $installDir "mapt-agent.exe"
 $configFile = Join-Path $installDir "mapt-agent-config.json"
 
 # 3. Arrêt complet du service existant et des processus résiduels
-try {{
+try {
     $existingService = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
-    if ($existingService) {{
+    if ($existingService) {
         Write-Host "[*] Arrêt du service MAPT existant..." -ForegroundColor Yellow
         Stop-Service -Name "mapt-agent" -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
-    }}
-}} catch {{}}
+    }
+} catch {}
 
-try {{
+try {
     Get-Process -Name "mapt-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
-}} catch {{}}
+} catch {}
 
 # 4. Téléchargement robuste multi-méthodes (WebClient / Invoke-WebRequest / curl / certutil)
 Write-Host "[*] Téléchargement de l'agent depuis $downloadUrl..." -ForegroundColor Yellow
 $downloadSuccess = $false
 
 # Méthode A : System.Net.WebClient (Universal .NET 2.0+)
-if (-not $downloadSuccess) {{
-    try {{
+if (-not $downloadSuccess) {
+    try {
         $wc = New-Object System.Net.WebClient
         $wc.Headers.Add("User-Agent", "MAPT-Bootstrap-Installer")
         $wc.DownloadFile($downloadUrl, $agentExe)
-        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {{
+        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {
             $downloadSuccess = $true
-        }}
-    }} catch {{}}
-}}
+        }
+    } catch {}
+}
 
 # Méthode B : Invoke-WebRequest
-if (-not $downloadSuccess) {{
-    try {{
+if (-not $downloadSuccess) {
+    try {
         Invoke-WebRequest -Uri $downloadUrl -OutFile $agentExe -UseBasicParsing -ErrorAction Stop
-        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {{
+        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {
             $downloadSuccess = $true
-        }}
-    }} catch {{}}
-}}
+        }
+    } catch {}
+}
 
 # Méthode C : curl.exe
-if (-not $downloadSuccess) {{
-    try {{
+if (-not $downloadSuccess) {
+    try {
         & curl.exe -s -L -o "$agentExe" "$downloadUrl"
-        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {{
+        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {
             $downloadSuccess = $true
-        }}
-    }} catch {{}}
-}}
+        }
+    } catch {}
+}
 
 # Méthode D : certutil.exe
-if (-not $downloadSuccess) {{
-    try {{
+if (-not $downloadSuccess) {
+    try {
         & certutil.exe -urlcache -split -f "$downloadUrl" "$agentExe" | Out-Null
-        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {{
+        if ((Test-Path $agentExe) -and ((Get-Item $agentExe).Length -gt 1000000)) {
             $downloadSuccess = $true
-        }}
-    }} catch {{}}
-}}
+        }
+    } catch {}
+}
 
-if (-not $downloadSuccess -or -not (Test-Path $agentExe)) {{
+if (-not $downloadSuccess -or -not (Test-Path $agentExe)) {
     Write-Host "[!] Échec du téléchargement du binaire mapt-agent.exe depuis $downloadUrl" -ForegroundColor Red
     exit 1
-}}
+}
 
 $fileSize = (Get-Item $agentExe).Length
 Write-Host "[+] Binaire téléchargé avec succès ($fileSize octets)" -ForegroundColor Green
 
 # 5. Création / Mise à jour du fichier de configuration mapt-agent-config.json
-Write-Host "[*] Écriture de la configuration..." -ForegroundColor Yellow
+Write-Host "[*] Configuration de l'identifiant machine persistant..." -ForegroundColor Yellow
+$deviceUuid = ""
+if (Test-Path $configFile) {
+    try {
+        $existingCfg = Get-Content $configFile -Raw | ConvertFrom-Json
+        if ($existingCfg.device_uuid) { $deviceUuid = $existingCfg.device_uuid }
+    } catch {}
+}
+if (-not $deviceUuid) {
+    try {
+        $deviceUuid = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
+    } catch {}
+}
+if (-not $deviceUuid) {
+    try {
+        $deviceUuid = (Get-CimInstance -Class Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
+    } catch {}
+}
+if (-not $deviceUuid) {
+    $deviceUuid = [Guid]::NewGuid().ToString()
+}
+
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $configContent = @'
 {{
   "server_url": "__SERVER_URL__",
   "enrollment_token": "__ENROLL_TOKEN__",
   "agent_token": "",
-  "device_uuid": "",
+  "device_uuid": "__DEVICE_UUID__",
   "log_level": "info",
   "heartbeat_interval_seconds": 30,
   "job_poll_interval_seconds": 15,
   "inventory_interval_seconds": 3600
 }}
 '@
-$configContent = $configContent.Replace("__SERVER_URL__", $serverUrl).Replace("__ENROLL_TOKEN__", $enrollToken)
+$configContent = $configContent.Replace("__SERVER_URL__", $serverUrl).Replace("__ENROLL_TOKEN__", $enrollToken).Replace("__DEVICE_UUID__", $deviceUuid)
 
 if (-not (Test-Path $configFile)) {{
-    [System.IO.File]::WriteAllText($configFile, $configContent, [System.Text.Encoding]::UTF8)
+    [System.IO.File]::WriteAllText($configFile, $configContent, $utf8NoBom)
 }} else {{
     try {{
         $existingCfg = Get-Content $configFile -Raw | ConvertFrom-Json
         $existingCfg.server_url = $serverUrl
         if ($enrollToken) {{ $existingCfg.enrollment_token = $enrollToken }}
-        ($existingCfg | ConvertTo-Json -Depth 5) | Set-Content $configFile -Encoding UTF8
+        if (-not $existingCfg.device_uuid) {{ $existingCfg.device_uuid = $deviceUuid }}
+        $jsonStr = $existingCfg | ConvertTo-Json -Depth 5
+        [System.IO.File]::WriteAllText($configFile, $jsonStr, $utf8NoBom)
     }} catch {{
-        [System.IO.File]::WriteAllText($configFile, $configContent, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($configFile, $configContent, $utf8NoBom)
     }}
 }}
 
@@ -294,7 +319,11 @@ echo ==========================================================
 set "SERVER_URL={base_url}/api/v1"
 set "DOWNLOAD_URL=%SERVER_URL%/agent/download/windows"
 set "ENROLL_TOKEN={enroll_token}"
-set "INSTALL_DIR=%ProgramFiles%\\MAPT"
+if defined ProgramW6432 (
+    set "INSTALL_DIR=%ProgramW6432%\\MAPT"
+) else (
+    set "INSTALL_DIR=%ProgramFiles%\\MAPT"
+)
 set "AGENT_EXE=%INSTALL_DIR%\\mapt-agent.exe"
 set "CONFIG_FILE=%INSTALL_DIR%\\mapt-agent-config.json"
 

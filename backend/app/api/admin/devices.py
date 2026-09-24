@@ -1,6 +1,6 @@
 from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.device import (
@@ -9,7 +9,8 @@ from app.schemas.device import (
     DeviceTargetHistoryResponse,
     WolBatchRequest,
     WolCustomRequest,
-    WolResultResponse
+    WolResultResponse,
+    ActionCountResponse
 )
 from app.core.security import UserRole
 from app.services.device_service import DeviceService
@@ -47,14 +48,6 @@ async def get_device_inventory(
 ):
     service = DeviceService(db)
     return await service.get_device_inventory(device_id)
-
-
-from app.schemas.device import (
-    DeviceResponse,
-    DeviceInventoryResponse,
-    DeviceTargetHistoryResponse,
-    ActionCountResponse
-)
 
 
 @router.get("/{device_id}/actions", response_model=List[DeviceTargetHistoryResponse])

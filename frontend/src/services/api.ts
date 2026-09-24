@@ -34,7 +34,7 @@ apiClient.interceptors.response.use(
 );
 
 export const api = {
-  // Auth
+  // Auth & Profile
   login: async (username: string, password: string) => {
     const res = await apiClient.post('/auth/login', { username, password });
     return res.data;
@@ -43,8 +43,38 @@ export const api = {
     const res = await apiClient.get('/auth/me');
     return res.data;
   },
+  updateProfile: async (data: { email?: string }): Promise<User> => {
+    const res = await apiClient.put('/auth/profile', data);
+    return res.data;
+  },
+  changePassword: async (current_password: string, new_password: string): Promise<{ message: string }> => {
+    const res = await apiClient.post('/auth/change-password', { current_password, new_password });
+    return res.data;
+  },
   getEnrollmentToken: async (): Promise<{ enrollment_token: string }> => {
     const res = await apiClient.get('/auth/enrollment-token');
+    return res.data;
+  },
+
+  // Users Management (Admin / Super Admin)
+  getUsers: async (): Promise<User[]> => {
+    const res = await apiClient.get('/auth/users');
+    return res.data;
+  },
+  getUser: async (id: string): Promise<User> => {
+    const res = await apiClient.get(`/auth/users/${id}`);
+    return res.data;
+  },
+  createUser: async (data: { username: string; password: string; email?: string; role?: string }): Promise<User> => {
+    const res = await apiClient.post('/auth/users', data);
+    return res.data;
+  },
+  updateUser: async (id: string, data: { username?: string; email?: string; password?: string; role?: string; is_active?: boolean }): Promise<User> => {
+    const res = await apiClient.put(`/auth/users/${id}`, data);
+    return res.data;
+  },
+  deleteUser: async (id: string): Promise<{ message: string }> => {
+    const res = await apiClient.delete(`/auth/users/${id}`);
     return res.data;
   },
 

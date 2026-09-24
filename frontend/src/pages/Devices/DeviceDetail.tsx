@@ -1007,13 +1007,28 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                           iface.description?.toLowerCase().includes('wi-fi') ||
                           iface.description?.toLowerCase().includes('wireless');
 
-                        const gateways = Array.isArray(iface.default_gateways)
+                        const formatNetItem = (val: any): string => {
+                          if (!val) return '';
+                          if (typeof val === 'string') return val;
+                          if (typeof val === 'object') {
+                            return val.ip_address || val.ip || val.address || val.server || JSON.stringify(val);
+                          }
+                          return String(val);
+                        };
+
+                        const rawGateways = Array.isArray(iface.default_gateways)
                           ? iface.default_gateways
                           : iface.default_gateways
                           ? [iface.default_gateways]
                           : [];
+                        const gateways = rawGateways.map(formatNetItem).filter(Boolean);
 
-                        const dnsList = Array.isArray(iface.dns_servers) ? iface.dns_servers : [];
+                        const rawDns = Array.isArray(iface.dns_servers)
+                          ? iface.dns_servers
+                          : iface.dns_servers
+                          ? [iface.dns_servers]
+                          : [];
+                        const dnsList = rawDns.map(formatNetItem).filter(Boolean);
 
                         return (
                           <tr key={idx} className="hover:bg-slate-850/60 transition">

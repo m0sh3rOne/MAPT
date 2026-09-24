@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { Shield, User as UserIcon, LogOut, Activity, Download, Terminal, Copy, Check, X, Laptop, Zap, Sparkles } from 'lucide-react';
+import { Shield, User as UserIcon, LogOut, Activity, Download, Terminal, Copy, Check, X, Laptop, Zap, Sparkles, KeyRound, ChevronDown } from 'lucide-react';
+import { ProfileModal } from '../profile/ProfileModal';
 
 export const Navbar: React.FC = () => {
   const { user, logout } = useAuth();
   const [showAgentModal, setShowAgentModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [copiedAuto, setCopiedAuto] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copiedEnroll, setCopiedEnroll] = useState(false);
@@ -111,15 +113,22 @@ export const Navbar: React.FC = () => {
             <span>Déployer l'Agent Windows</span>
           </button>
 
-          <div className="flex items-center space-x-3 bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-1.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm">
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="flex items-center space-x-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 hover:border-emerald-500/40 rounded-xl px-3 py-1.5 transition text-left group"
+            title="Gérer mon profil et changer mon mot de passe"
+          >
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition">
               {user?.username?.charAt(0).toUpperCase() || 'A'}
             </div>
-            <div className="text-left">
-              <div className="text-sm font-semibold text-slate-200">{user?.username}</div>
+            <div className="text-left pr-1">
+              <div className="text-sm font-semibold text-slate-200 group-hover:text-emerald-300 transition flex items-center space-x-1.5">
+                <span>{user?.username}</span>
+                <KeyRound className="w-3 h-3 text-slate-500 group-hover:text-emerald-400" />
+              </div>
               <div className="text-xs text-emerald-400 capitalize">{user?.role?.replace('_', ' ')}</div>
             </div>
-          </div>
+          </button>
 
           <button
             onClick={logout}
@@ -131,6 +140,9 @@ export const Navbar: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* Modal Mon Profil / Changement de mot de passe */}
+      <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
 
       {/* Modal Téléchargement & Déploiement Agent Windows */}
       {showAgentModal && (

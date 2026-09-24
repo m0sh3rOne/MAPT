@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import {
   LayoutDashboard,
   Monitor,
@@ -8,7 +9,9 @@ import {
   Code2,
   Rocket,
   ShieldAlert,
-  Server
+  Server,
+  Users as UsersIcon,
+  ShieldCheck
 } from 'lucide-react';
 
 const navItems = [
@@ -22,6 +25,9 @@ const navItems = [
 ];
 
 export const Sidebar: React.FC = () => {
+  const { user } = useAuth();
+  const isSuperAdminOrAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen sticky top-0">
       {/* Brand Header */}
@@ -59,6 +65,27 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           );
         })}
+
+        {isSuperAdminOrAdmin && (
+          <>
+            <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-3 pt-4 mb-2">
+              Administration
+            </div>
+            <NavLink
+              to="/users"
+              className={({ isActive }) =>
+                `flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition duration-150 ${
+                  isActive
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                }`
+              }
+            >
+              <UsersIcon className="w-4 h-4" />
+              <span>Utilisateurs</span>
+            </NavLink>
+          </>
+        )}
       </nav>
 
       {/* Footer Info */}

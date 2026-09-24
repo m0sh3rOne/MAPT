@@ -42,6 +42,17 @@ class DeviceRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_hostname(self, hostname: str) -> Optional[Device]:
+        result = await self.db.execute(
+            select(Device)
+            .options(
+                selectinload(Device.inventory),
+                selectinload(Device.group_memberships)
+            )
+            .where(func.lower(Device.hostname) == hostname.lower(), Device.is_archived == False)
+        )
+        return result.scalar_one_or_none()
+
     async def get_all(self, skip: int = 0, limit: int = 500, enabled_only: bool = False) -> List[Device]:
         query = (
             select(Device)

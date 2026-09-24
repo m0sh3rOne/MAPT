@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -55,8 +56,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
+	}
+	if cfg.DeviceUUID == "" {
+		cfg.DeviceUUID = uuid.New().String()
+		_ = cfg.Save()
 	}
 	cfg.configPath = path
 	return cfg, nil

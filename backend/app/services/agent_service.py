@@ -39,6 +39,11 @@ class AgentService:
         now = datetime.now(timezone.utc)
 
         device = await self.device_repo.get_by_uuid(enroll_in.device_uuid)
+        if not device and enroll_in.hostname:
+            device = await self.device_repo.get_by_hostname(enroll_in.hostname)
+            if device:
+                device.device_uuid = enroll_in.device_uuid
+
         if not device:
             device = Device(
                 device_uuid=enroll_in.device_uuid,

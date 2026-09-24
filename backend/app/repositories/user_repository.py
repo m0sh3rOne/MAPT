@@ -36,6 +36,11 @@ class UserRepository:
         await self.db.refresh(user)
         return user
 
+    async def delete(self, user: User) -> bool:
+        await self.db.delete(user)
+        await self.db.flush()
+        return True
+
     async def count(self) -> int:
         result = await self.db.execute(select(func.count(User.id)))
         return result.scalar() or 0

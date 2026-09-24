@@ -72,29 +72,102 @@ Cette méthode permet de pousser l'agent MAPT sur des centaines de postes (ou au
 
 ---
 
-### Option B : Snapin PowerShell (Téléchargement dynamique + Service + Démarrage)
-Idéal pour garantir que la dernière version est toujours téléchargée directement depuis MAPT :
+### Option B : Snapin PowerShell FOG (Recommandé - Autonome et Robuste)
+Idéal pour garantir que la dernière version est toujours téléchargée directement depuis MAPT avec configuration automatique :
 
-1. Dans FOG, créez un fichier `deploy-mapt-agent.ps1` contenant :
+1. Dans FOG, créez un fichier `install-MAPT.ps1` contenant le script suivant :
    ```powershell
-   $serverUrl = "http://<IP_SERVEUR>/api/v1"
-   $enrollToken = "<VOTRE_ENROLL_TOKEN>"
-   $installDir = "C:\Program Files\MAPT"
+   [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]'Tls12,Tls11,Tls'
+   $serverBase = "http://192.168.224.236"
+   $serverApi = "$serverBase/api/v1"
+   $enrollToken = "mapt-enroll-n044u01jvgtbwkbr"
 
-   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-   $agentPath = Join-Path $installDir "mapt-agent.exe"
+   # 1. Dossier d'installation 64-bit même sous processus 32-bit (FOG Client)
+   $progFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+   $installDir = Join-Path $progFiles "MAPT"
+   if (-not (Test-Path $installDir)) {
+       [System.IO.Directory]::CreateDirectory($installDir) | Out-Null
+   }
 
-   # Téléchargement
-   Invoke-WebRequest -Uri "$serverUrl/agent/download/windows" -OutFile $agentPath -UseBasicParsing
+   $agentExe = Join-Path $installDir "mapt-agent.exe"
+   $configFile = Join-Path $installDir "mapt-agent-config.json"
 
-   # Installation et démarrage en tant que Service Windows
-   Start-Process -FilePath $agentPath -ArgumentList "-service install -server `"$serverUrl`" -enroll-token `"$enrollToken`"" -Wait -NoNewWindow
-   Start-Process -FilePath $agentPath -ArgumentList "-service start" -Wait -NoNewWindow
+   # 2. Arrêt des services et processus existants
+   Stop-Service -Name "mapt-agent" -Force -ErrorAction SilentlyContinue
+   Get-Process -Name "mapt-agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+   Start-Sleep -Seconds 1
+
+   # 3. Téléchargement du binaire agent
+   $downloadUrl = "$serverApi/agent/download/windows"
+   $wc = New-Object System.Net.WebClient
+   $wc.Headers.Add("User-Agent", "FOG-Snapin-Installer")
+   $wc.DownloadFile($downloadUrl, $agentExe)
+
+   # 4. Identification machine persistante (évite tout doublon) et écriture configuration
+   $deviceUuid = ""
+   if (Test-Path $configFile) {
+       try {
+           $existingCfg = Get-Content $configFile -Raw | ConvertFrom-Json
+           if ($existingCfg.device_uuid) { $deviceUuid = $existingCfg.device_uuid }
+       } catch {}
+   }
+   if (-not $deviceUuid) {
+       try {
+           $deviceUuid = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
+       } catch {}
+   }
+   if (-not $deviceUuid) {
+       try {
+           $deviceUuid = (Get-CimInstance -Class Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
+       } catch {}
+   }
+   if (-not $deviceUuid) {
+       $deviceUuid = [Guid]::NewGuid().ToString()
+   }
+
+   $configJson = @"
+   {
+     "server_url": "$serverApi",
+     "enrollment_token": "$enrollToken",
+     "device_uuid": "$deviceUuid",
+     "agent_token": "",
+     "poll_interval_seconds": 30,
+     "heartbeat_interval_seconds": 30,
+     "inventory_interval_seconds": 3600,
+     "agent_version": "1.0.0"
+   }
+   "@
+
+   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+   [System.IO.File]::WriteAllText($configFile, $configJson, $utf8NoBom)
+
+   # 5. Enregistrement et Démarrage du Service Windows (sans suppression pour éviter l'erreur Windows 1072)
+   $svc = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+
+   if (-not $svc) {
+       & "$agentExe" -service install 2>&1 | Out-Null
+       Start-Sleep -Seconds 1
+       $svc = Get-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+   }
+
+   if (-not $svc) {
+       & sc.exe create "mapt-agent" binPath= "`"$agentExe`"" start= auto DisplayName= "MAPT Endpoint Agent" | Out-Null
+       & sc.exe description "mapt-agent" "Service d'administration, d'inventaire et de telemetrie MAPT pour Windows" | Out-Null
+       Start-Sleep -Seconds 1
+   } else {
+       & sc.exe config "mapt-agent" binPath= "`"$agentExe`"" start= auto | Out-Null
+   }
+
+   # 6. Démarrage du service
+   Start-Service -Name "mapt-agent" -ErrorAction SilentlyContinue
+   Start-Sleep -Seconds 2
+   & sc.exe start "mapt-agent" 2>&1 | Out-Null
    ```
 2. Dans FOG ➡️ **Snapin Management** :
+   - **Snapin Name** : `MAPT-Agent`
    - **Snapin Run With** : `powershell.exe`
    - **Snapin Run With Args** : `-ExecutionPolicy Bypass -NoProfile -File`
-   - **Snapin File** : `deploy-mapt-agent.ps1`
+   - **Snapin File** : `install-MAPT.ps1`
 
 ---
 
