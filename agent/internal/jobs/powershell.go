@@ -25,10 +25,18 @@ func ExecutePowerShell(ctx context.Context, scriptContent string, timeoutSeconds
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
-	// Écriture du script dans un fichier temporaire
+	// Écriture du script dans un fichier temporaire avec BOM UTF-8 (requis par Windows PowerShell 5.1)
 	tempDir := os.TempDir()
 	scriptFile := filepath.Join(tempDir, fmt.Sprintf("mapt_script_%d.ps1", time.Now().UnixNano()))
-	if err := os.WriteFile(scriptFile, []byte(scriptContent), 0600); err != nil {
+	
+	var contentBytes []byte
+	if !bytes.HasPrefix([]byte(scriptContent), []byte{0xEF, 0xBB, 0xBF}) {
+		contentBytes = append([]byte{0xEF, 0xBB, 0xBF}, []byte(scriptContent)...)
+	} else {
+		contentBytes = []byte(scriptContent)
+	}
+
+	if err := os.WriteFile(scriptFile, contentBytes, 0600); err != nil {
 		return nil, fmt.Errorf("failed to write temp powershell script: %w", err)
 	}
 	defer os.Remove(scriptFile)
