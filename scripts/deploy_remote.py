@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 import paramiko
 
 EXCLUDE_DIRS = {'.git', 'node_modules', 'venv', '.venv', '__pycache__', '.agents', '.vscode', '.idea'}
@@ -25,7 +26,6 @@ def sftp_upload_dir(sftp, local_dir, remote_dir):
             if ext in EXCLUDE_EXTS:
                 continue
             
-            # Check if file needs update by comparing size
             should_upload = True
             try:
                 remote_stat = sftp.stat(remote_path)
@@ -44,6 +44,14 @@ def deploy():
     password = "***REDACTED***"
     remote_base = "/opt/MAPT"
     local_base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    print("[*] Compilation du frontend en local...")
+    frontend_dir = os.path.join(local_base, "frontend")
+    build_res = subprocess.run("npm run build", shell=True, cwd=frontend_dir)
+    if build_res.returncode != 0:
+        print("[!] Échec du build frontend local.")
+        sys.exit(1)
+    print("[+] Build frontend local réussi.")
 
     print(f"[*] Connexion SSH à la VM Proxmox ({host}) en tant que '{user}'...")
     ssh = paramiko.SSHClient()
@@ -71,7 +79,7 @@ def deploy():
         ]
         
         full_command = " && ".join(commands)
-        print("[*] Recompilation de l'Agent Windows et redémarrage des conteneurs Docker...")
+        print("[*] Recompilation de l'Agent Windows et reconstruction des conteneurs Docker sur la VM...")
         stdin, stdout, stderr = ssh.exec_command(full_command)
         
         out = stdout.read().decode('utf-8', errors='replace')
@@ -80,12 +88,11 @@ def deploy():
         print("=== ÉTAT DES CONTENEURS DOCKER ===")
         print(out)
         
-        err_lines = [l for l in err.splitlines() if "[sudo]" not in l and "Building" not in l and "Created" not in l]
-        if any("error" in l.lower() for l in err_lines):
+        if "error" in err.lower() and "unsupported protocol" in err.lower():
             print("=== LOGS D'ERREUR ===")
-            print("\n".join(err_lines))
+            print(err)
         
-        print("[OK] Deploiement distant sur la VM Proxmox termine avec succes !")
+        print("\n[OK] Déploiement distant sur la VM Proxmox terminé avec succès !")
     except Exception as e:
         print(f"[!] Erreur lors du déploiement : {e}")
         sys.exit(1)

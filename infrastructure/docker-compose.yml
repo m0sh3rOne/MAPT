@@ -49,6 +49,10 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-http://192.168.224.245:3128}
+        HTTPS_PROXY: ${HTTPS_PROXY:-http://192.168.224.245:3128}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,192.168.224.236,192.168.224.245,192.168.224.0/20,mapt.local,backend,caddy,frontend,postgres,redis,minio}
     container_name: mapt-backend
     restart: unless-stopped
     depends_on:
@@ -85,6 +89,10 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-http://192.168.224.245:3128}
+        HTTPS_PROXY: ${HTTPS_PROXY:-http://192.168.224.245:3128}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,192.168.224.236,192.168.224.245,192.168.224.0/20,mapt.local,backend,caddy,frontend,postgres,redis,minio}
     container_name: mapt-worker
     restart: unless-stopped
     command: python -m app.workers.deployment_worker
