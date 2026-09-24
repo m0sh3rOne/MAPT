@@ -86,11 +86,19 @@ def deploy():
         err = stderr.read().decode('utf-8', errors='replace')
         
         print("=== ÉTAT DES CONTENEURS DOCKER ===")
-        print(out)
+        try:
+            print(out)
+        except UnicodeEncodeError:
+            print(out.encode('ascii', errors='replace').decode('ascii'))
         
-        if "error" in err.lower() and "unsupported protocol" in err.lower():
-            print("=== LOGS D'ERREUR ===")
-            print(err)
+        if err:
+            err_clean = "\n".join([l for l in err.splitlines() if "[sudo]" not in l])
+            if err_clean.strip():
+                print("=== LOGS / SORTIE D'ERREUR ===")
+                try:
+                    print(err_clean)
+                except UnicodeEncodeError:
+                    print(err_clean.encode('ascii', errors='replace').decode('ascii'))
         
         print("\n[OK] Déploiement distant sur la VM Proxmox terminé avec succès !")
     except Exception as e:
