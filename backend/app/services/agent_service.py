@@ -117,10 +117,22 @@ class AgentService:
         job_payloads = []
 
         for target in targets:
+            dep = target.deployment
+            if not dep:
+                continue
+
+            # Concurrency rate-limiting (rolling deployment in waves)
+            if target.status == TargetStatus.PENDING:
+                max_concurrency = getattr(dep, "max_concurrency", 8) or 8
+                if max_concurrency > 0:
+                    active_count = await self.dep_repo.get_active_targets_count_for_deployment(dep.id)
+                    if active_count >= max_concurrency:
+                        # Concurrency limit reached for this wave, keep PENDING and wait for next poll
+                        continue
+
             # Passer à l'état OFFERED
             await self.dep_repo.update_target_status(target.id, TargetStatus.OFFERED)
 
-            dep = target.deployment
             payload_data: Dict[str, Any] = {}
             job_type = dep.deployment_type
             timeout = 300

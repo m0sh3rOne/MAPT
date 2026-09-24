@@ -71,6 +71,9 @@ class DeploymentCreate(BaseModel):
     # Wake-on-LAN
     wake_on_lan: bool = False
 
+    # Concurrency limit (simultaneous target machines, default: 8, 0=unlimited)
+    max_concurrency: Optional[int] = 8
+
 
 class DeploymentResponse(BaseModel):
     id: UUID
@@ -85,6 +88,9 @@ class DeploymentResponse(BaseModel):
     
     # Wake-on-LAN
     wake_on_lan: bool = False
+    
+    # Concurrency limit
+    max_concurrency: Optional[int] = 8
     
     # Scheduling & Recurrence fields
     is_recurring: bool = False

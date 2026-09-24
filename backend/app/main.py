@@ -19,6 +19,11 @@ async def lifespan(app: FastAPI):
     # Création des tables si nécessaire (mode direct/dev)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        from sqlalchemy import text
+        try:
+            await conn.execute(text("ALTER TABLE deployments ADD COLUMN IF NOT EXISTS max_concurrency INTEGER DEFAULT 8;"))
+        except Exception as e:
+            logger.warning(f"Note on column check: {e}")
 
     # Initialisation du bucket MinIO
     ensure_bucket_exists()

@@ -185,6 +185,7 @@ export interface Deployment {
   custom_command?: string;
   created_by?: string;
   wake_on_lan?: boolean;
+  max_concurrency?: number;
   
   // Scheduling & Recurrence
   is_recurring?: boolean;

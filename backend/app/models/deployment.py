@@ -61,6 +61,9 @@ class Deployment(Base):
     # Wake-on-LAN option
     wake_on_lan = Column(Boolean, default=False, nullable=False)
 
+    # Concurrency limit (maximum simultaneous target machines)
+    max_concurrency = Column(Integer, default=8, nullable=False)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)

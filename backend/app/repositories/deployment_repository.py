@@ -84,6 +84,20 @@ class DeploymentRepository:
         )
         return list(result.scalars().all())
 
+    async def get_active_targets_count_for_deployment(self, deployment_id: UUID) -> int:
+        """
+        Compte le nombre de cibles actuellement actives (OFFERED, ACKED, RUNNING)
+        pour un déploiement donné, afin de réguler la concurrence.
+        """
+        result = await self.db.execute(
+            select(func.count(DeploymentTarget.id))
+            .where(
+                DeploymentTarget.deployment_id == deployment_id,
+                DeploymentTarget.status.in_([TargetStatus.OFFERED, TargetStatus.ACKED, TargetStatus.RUNNING])
+            )
+        )
+        return result.scalar() or 0
+
     async def update_target_status(
         self,
         target_id: UUID,

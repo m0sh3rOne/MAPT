@@ -54,6 +54,7 @@ export const Deployments: React.FC = () => {
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [wakeOnLan, setWakeOnLan] = useState(false);
+  const [maxConcurrency, setMaxConcurrency] = useState<number>(8);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
     is_recurring: false,
     schedule_type: 'immediate',
@@ -178,6 +179,7 @@ export const Deployments: React.FC = () => {
     setSelectedDeviceIds([]);
     setSelectedGroupIds([]);
     setWakeOnLan(false);
+    setMaxConcurrency(8);
     setScheduleConfig({
       is_recurring: false,
       schedule_type: 'immediate',
@@ -207,6 +209,7 @@ export const Deployments: React.FC = () => {
       target_device_ids: selectedDeviceIds,
       target_group_ids: selectedGroupIds,
       wake_on_lan: wakeOnLan,
+      max_concurrency: maxConcurrency,
       is_recurring: scheduleConfig.is_recurring,
       schedule_type: scheduleConfig.schedule_type,
       scheduled_at: scheduleConfig.scheduled_at ? new Date(scheduleConfig.scheduled_at).toISOString() : undefined,
@@ -467,6 +470,12 @@ export const Deployments: React.FC = () => {
                             <span className="inline-flex items-center space-x-1 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                               <CalendarClock className="w-2.5 h-2.5" />
                               <span>{scheduleSummary}</span>
+                            </span>
+                          )}
+                          {dep.max_concurrency !== undefined && dep.max_concurrency > 0 && (
+                            <span className="inline-flex items-center space-x-1 bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[10px] font-semibold px-2 py-0.5 rounded-md" title={`Déploiement régulé : max ${dep.max_concurrency} machines simultanées`}>
+                              <Layers className="w-2.5 h-2.5 text-purple-400" />
+                              <span>{dep.max_concurrency}/vague</span>
                             </span>
                           )}
                         </div>
@@ -885,6 +894,62 @@ export const Deployments: React.FC = () => {
                   />
                   <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
+              </div>
+
+              {/* Concurrency Limit (Vagues de déploiement) */}
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0">
+                      <Layers className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                        <span>Régulation de Concurrence (Déploiement par vagues)</span>
+                        <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                          {maxConcurrency === 0 ? 'Illimité' : `Max ${maxConcurrency} simultanés`}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Limite le nombre de machines téléchargeant et exécutant en même temps afin d'éviter de saturer le serveur et le réseau.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {[
+                    { label: '2 machines', value: 2 },
+                    { label: '4 machines', value: 4 },
+                    { label: '8 (Recommandé)', value: 8 },
+                    { label: '16 machines', value: 16 },
+                    { label: 'Illimité', value: 0 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setMaxConcurrency(preset.value)}
+                      className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                        maxConcurrency === preset.value
+                          ? 'bg-purple-600 text-white border-purple-500 shadow-sm shadow-purple-900/40'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  <div className="flex items-center space-x-1.5 ml-auto">
+                    <span className="text-xs text-slate-500">Personnalisé :</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      value={maxConcurrency}
+                      onChange={(e) => setMaxConcurrency(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-16 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200 text-center font-mono focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Schedule and Recurrence Selector */}
