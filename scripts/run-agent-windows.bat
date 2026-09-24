@@ -11,8 +11,13 @@ if exist "mapt-agent.new.exe" (
 )
 
 if not exist "mapt-agent.exe" (
-    echo Compilation de l'agent...
-    wsl -d Ubuntu -u UBUNTU bash -c "cd /mnt/c/Users/Admin/Documents/Github/MAPT/agent && GOOS=windows GOARCH=amd64 go build -o /mnt/c/Users/Admin/Documents/Github/MAPT/agent/mapt-agent.exe ./cmd/agent"
+    echo Compilation de l'agent Go...
+    where go >nul 2>&1
+    if %errorLevel% equ 0 (
+        go build -ldflags="-s -w" -o mapt-agent.exe ./cmd/agent
+    ) else (
+        wsl bash -c "cd '%~dp0/../agent' && GOOS=windows GOARCH=amd64 go build -ldflags='-s -w' -o mapt-agent.exe ./cmd/agent"
+    )
 )
 
 echo.

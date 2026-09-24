@@ -27,7 +27,7 @@ ssh utilisateur@<IP_VM_PROXMOX>
 
 ```bash
 sudo mkdir -p /opt/MAPT
-sudo chown ubuntu:ubuntu /opt/MAPT
+sudo chown $USER:$USER /opt/MAPT
 git clone https://github.com/m0sh3rOne/MAPT.git /opt/MAPT
 cd /opt/MAPT
 ```
@@ -278,8 +278,8 @@ Créer le dossier cible avec les droits administrateur, puis en transférer la p
 # 1. Créer le dossier
 sudo mkdir -p /opt/MAPT
 
-# 2. Donner la propriété à l'utilisateur (remplacer ubuntu par votre utilisateur)
-sudo chown ubuntu:ubuntu /opt/MAPT
+# 2. Donner la propriété à l'utilisateur
+sudo chown $USER:$USER /opt/MAPT
 
 # 3. Cloner le dépôt (utiliser l'URL SSH de préférence)
 git clone git@github.com:m0sh3rOne/MAPT.git /opt/MAPT

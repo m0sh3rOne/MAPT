@@ -770,7 +770,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
               </div>
               <div>
                 <div className="text-xs text-slate-400 uppercase font-bold">Utilisateur Connecté</div>
-                <div className="text-base font-semibold text-slate-100">{inventory?.current_user || 'UBUNTU'}</div>
+                <div className="text-base font-semibold text-slate-100">{inventory?.current_user || 'N/A'}</div>
               </div>
             </div>
             <div className="text-xs text-slate-500">

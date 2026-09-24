@@ -93,7 +93,7 @@ Exécutez le script de démarrage global :
 ```
 Ou lancez-le directement depuis PowerShell :
 ```powershell
-wsl -d Ubuntu -u UBUNTU bash -c "/mnt/c/Users/Admin/Documents/Github/MAPT/scripts/start-all.sh"
+wsl bash -c "./scripts/start-all.sh"
 ```
 **Services démarrés :**
 - **API REST FastAPI** : [http://localhost:8088/api/v1](http://localhost:8088/api/v1)
@@ -125,7 +125,7 @@ cd agent
 #### 5. Validation rapide avec le test End-to-End automatisé
 Pour vérifier toute la chaîne (Auth $\rightarrow$ Flotte $\rightarrow$ Inventaire $\rightarrow$ Script $\rightarrow$ Déploiement $\rightarrow$ Complétion) :
 ```bash
-wsl -d Ubuntu -u UBUNTU bash -c "python3 /mnt/c/Users/Admin/Documents/Github/MAPT/scripts/test_flow.py"
+python3 scripts/test_flow.py
 ```
 
 ### Option C — Téléchargement et Enrôlement de l'Agent Windows sur un poste client

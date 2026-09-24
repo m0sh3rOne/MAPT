@@ -7,7 +7,11 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 cd "$DIR/infrastructure"
 
 echo "Démarrage du service Docker..."
-echo 'Em%.02H' | sudo -S service docker start || true
+if [ -n "$SUDO_PASS" ]; then
+    echo "$SUDO_PASS" | sudo -S service docker start || true
+else
+    sudo service docker start || true
+fi
 
 echo "Lancement des conteneurs via Docker Compose..."
 docker compose up -d --build

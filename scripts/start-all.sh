@@ -6,15 +6,24 @@ echo "=========================================================="
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 
+# Helper sudo function
+run_sudo() {
+    if [ -n "$SUDO_PASS" ]; then
+        echo "$SUDO_PASS" | sudo -S "$@"
+    else
+        sudo "$@"
+    fi
+}
+
 # 1. Services système
 echo "[1/4] Démarrage de PostgreSQL et Redis..."
-echo 'Em%.02H' | sudo -S service postgresql start
-echo 'Em%.02H' | sudo -S service redis-server start
+run_sudo service postgresql start
+run_sudo service redis-server start
 
-echo 'Em%.02H' | sudo -S -u postgres psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mapt') THEN CREATE USER mapt WITH PASSWORD 'mapt_db_pass_2026'; END IF; END \$\$;" 2>/dev/null || true
-echo 'Em%.02H' | sudo -S -u postgres createdb -O mapt mapt 2>/dev/null || true
-echo 'Em%.02H' | sudo -S -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mapt TO mapt;" 2>/dev/null || true
-echo 'Em%.02H' | sudo -S -u postgres psql -d mapt -c "GRANT ALL ON SCHEMA public TO mapt; ALTER SCHEMA public OWNER TO mapt;" 2>/dev/null || true
+run_sudo -u postgres psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mapt') THEN CREATE USER mapt WITH PASSWORD 'mapt_db_pass_2026'; END IF; END \$\$;" 2>/dev/null || true
+run_sudo -u postgres createdb -O mapt mapt 2>/dev/null || true
+run_sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mapt TO mapt;" 2>/dev/null || true
+run_sudo -u postgres psql -d mapt -c "GRANT ALL ON SCHEMA public TO mapt; ALTER SCHEMA public OWNER TO mapt;" 2>/dev/null || true
 
 # 2. MinIO
 echo "[2/4] Démarrage de MinIO S3..."

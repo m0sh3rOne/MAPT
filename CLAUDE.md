@@ -18,7 +18,7 @@ Three deployable components: `backend/` (FastAPI + PostgreSQL + Redis + MinIO), 
 
 Starts PostgreSQL, Redis, MinIO, uvicorn on **port 8088**, and the worker. Logs go to `/tmp/mapt_backend.log` and `/tmp/mapt_worker.log`. First-time setup is `./scripts/setup-wsl-environment.sh`.
 
-From PowerShell: `wsl -d Ubuntu -u UBUNTU bash -c "/mnt/c/Users/Admin/Documents/Github/MAPT/scripts/start-all.sh"`
+From PowerShell: `wsl bash -c "./scripts/start-all.sh"`
 
 Run backend pieces manually (from `backend/`, with `venv` activated):
 
@@ -48,7 +48,7 @@ Run it: `scripts\run-agent-windows.bat` (self-elevates, rebuilds if needed) or `
 There is no unit test suite. The only automated check is an end-to-end script that hits a running backend on 8088 (auth, fleet, inventory, script, deployment, completion):
 
 ```bash
-wsl -d Ubuntu -u UBUNTU bash -c "python3 /mnt/c/Users/Admin/Documents/Github/MAPT/scripts/test_flow.py"
+python3 scripts/test_flow.py
 ```
 
 ### Production / Docker

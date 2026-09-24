@@ -3,16 +3,25 @@ set -e
 
 echo "=== [MAPT] Configuration et Initialisation du Serveur sous WSL2 Ubuntu ==="
 
+# Helper sudo function
+run_sudo() {
+    if [ -n "$SUDO_PASS" ]; then
+        echo "$SUDO_PASS" | sudo -S "$@"
+    else
+        sudo "$@"
+    fi
+}
+
 # 1. Démarrage PostgreSQL & Redis
 echo "[1/4] Démarrage des services PostgreSQL et Redis..."
-echo 'Em%.02H' | sudo -S service postgresql start
-echo 'Em%.02H' | sudo -S service redis-server start
+run_sudo service postgresql start
+run_sudo service redis-server start
 
 # 2. Configuration utilisateur & base PostgreSQL
 echo "[2/4] Configuration de la base de données PostgreSQL..."
-echo 'Em%.02H' | sudo -S -u postgres psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mapt') THEN CREATE USER mapt WITH PASSWORD 'mapt_db_pass_2026'; END IF; END \$\$;" || true
-echo 'Em%.02H' | sudo -S -u postgres createdb -O mapt mapt 2>/dev/null || true
-echo 'Em%.02H' | sudo -S -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mapt TO mapt;" || true
+run_sudo -u postgres psql -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'mapt') THEN CREATE USER mapt WITH PASSWORD 'mapt_db_pass_2026'; END IF; END \$\$;" || true
+run_sudo -u postgres createdb -O mapt mapt 2>/dev/null || true
+run_sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE mapt TO mapt;" || true
 
 # 3. Installation du binaire MinIO si absent
 echo "[3/4] Vérification de MinIO..."

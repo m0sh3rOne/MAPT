@@ -38,12 +38,43 @@ def sftp_upload_dir(sftp, local_dir, remote_dir):
             if should_upload:
                 sftp.put(local_path, remote_path)
 
+def load_deploy_config():
+    config = {
+        "host": os.getenv("PROXMOX_HOST"),
+        "user": os.getenv("PROXMOX_USER"),
+        "password": os.getenv("PROXMOX_PASSWORD"),
+        "remote_base": os.getenv("PROXMOX_BASE_PATH", "/opt/MAPT")
+    }
+    
+    # Try reading .env.deploy if present
+    env_deploy = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env.deploy"))
+    if os.path.exists(env_deploy):
+        with open(env_deploy, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip()
+                    if k == "PROXMOX_HOST" and not config["host"]: config["host"] = v
+                    elif k == "PROXMOX_USER" and not config["user"]: config["user"] = v
+                    elif k == "PROXMOX_PASSWORD" and not config["password"]: config["password"] = v
+                    elif k == "PROXMOX_BASE_PATH" and config["remote_base"] == "/opt/MAPT": config["remote_base"] = v
+    
+    return config
+
 def deploy():
-    host = "192.168.224.236"
-    user = "ubuntu"
-    password = "***REDACTED***"
-    remote_base = "/opt/MAPT"
+    config = load_deploy_config()
+    host = config["host"]
+    user = config["user"]
+    password = config["password"]
+    remote_base = config["remote_base"]
     local_base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    if not host or not user or not password:
+        print("[!] Erreur: Identifiants de déploiement manquants.")
+        print("    Veuillez créer le fichier .env.deploy (voir .env.deploy.example)")
+        print("    ou renseigner les variables d'environnement PROXMOX_HOST, PROXMOX_USER, PROXMOX_PASSWORD.")
+        sys.exit(1)
 
     print("[*] Compilation du frontend en local...")
     frontend_dir = os.path.join(local_base, "frontend")
@@ -61,7 +92,7 @@ def deploy():
         ssh.connect(host, username=user, password=password, timeout=15)
         print("[+] Connexion SSH établie.")
         
-        # Ensure ubuntu owns /opt/MAPT
+        # Ensure remote user owns remote directory
         stdin, stdout, stderr = ssh.exec_command(f"echo '{password}' | sudo -S chown -R {user}:{user} {remote_base}")
         stdout.channel.recv_exit_status()
         
