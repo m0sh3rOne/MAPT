@@ -90,6 +90,8 @@ try {
     $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
     $drive = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
 
+    $activeUser = if ($cs.UserName) { $cs.UserName } else { "" }
+    if ($activeUser) { $res['current_user'] = $activeUser }
     if ($proc) { $res['cpu_model'] = $proc.Name }
     if ($cs.TotalPhysicalMemory) { $res['total_memory_mb'] = [int]($cs.TotalPhysicalMemory / 1MB) }
     if ($drive) {
@@ -110,19 +112,84 @@ try {
     if ($adminGroup) {
         $adminMembers = $adminGroup | ForEach-Object { $_.Name.Split('\')[-1] }
     }
-    $users = Get-LocalUser -ErrorAction Stop | ForEach-Object {
-        $isAdm = $adminMembers -contains $_.Name
-        [PSCustomObject]@{
-            name = $_.Name
-            full_name = $_.FullName
-            description = $_.Description
-            enabled = [bool]$_.Enabled
-            privilege = if ($isAdm) { 'Administrateur' } else { 'Utilisateur standard' }
-            is_admin = $isAdm
-            last_logon = if ($_.LastLogon) { $_.LastLogon.ToString('o') } else { $null }
+
+    $computerName = $env:COMPUTERNAME
+    $userDict = @{}
+
+    # 1. Comptes locaux SAM (Get-LocalUser)
+    try {
+        Get-LocalUser -ErrorAction SilentlyContinue | ForEach-Object {
+            $isAdm = $adminMembers -contains $_.Name
+            $isLogged = $activeUser -and ($activeUser.Split('\')[-1] -ieq $_.Name)
+            $userDict[$_.Name.ToLower()] = [PSCustomObject]@{
+                name = $_.Name
+                domain = $computerName
+                account_type = 'Local'
+                full_name = $_.FullName
+                description = $_.Description
+                enabled = [bool]$_.Enabled
+                privilege = if ($isAdm) { 'Administrateur' } else { 'Utilisateur standard' }
+                is_admin = $isAdm
+                is_logged_in = [bool]$isLogged
+                last_logon = if ($_.LastLogon) { $_.LastLogon.ToString('o') } else { $null }
+            }
         }
-    }
-    $res['local_users'] = @($users)
+    } catch {}
+
+    # 2. Profils utilisateurs de la machine (inclus comptes de Domaine / Active Directory)
+    try {
+        Get-CimInstance Win32_UserProfile -ErrorAction SilentlyContinue | Where-Object { -not $_.Special -and $_.LocalPath -notmatch 'defaultuser0|ServiceProfiles' } | ForEach-Object {
+            $sid = $_.SID
+            $ntAccount = ""
+            try {
+                $ntAccount = (New-Object System.Security.Principal.SecurityIdentifier($sid)).Translate([System.Security.Principal.NTAccount]).Value
+            } catch {
+                $ntAccount = Split-Path $_.LocalPath -Leaf
+            }
+
+            $dom = ""
+            $uname = $ntAccount
+            if ($ntAccount -match '\\') {
+                $parts = $ntAccount.Split('\')
+                $dom = $parts[0]
+                $uname = $parts[1]
+            }
+
+            $isDomain = $dom -and ($dom -inotmatch "^$computerName$" -and $dom -inotmatch "^BUILTIN$" -and $dom -inotmatch "^NT AUTHORITY$")
+            $accountType = if ($isDomain) { 'Domaine' } else { 'Local' }
+            $isAdm = $adminMembers -contains $uname -or $adminMembers -contains $ntAccount
+            $isLogged = [bool]$_.Loaded -or ($activeUser -and ($activeUser -ieq $ntAccount -or $activeUser.Split('\')[-1] -ieq $uname))
+
+            $lastLogonStr = if ($_.LastUseTime) { $_.LastUseTime.ToString('o') } else { $null }
+            $key = $uname.ToLower()
+
+            if ($userDict.ContainsKey($key)) {
+                if ($isLogged) { $userDict[$key].is_logged_in = $true }
+                if ($isDomain) {
+                    $userDict[$key].account_type = 'Domaine'
+                    $userDict[$key].domain = $dom
+                }
+                if (-not $userDict[$key].last_logon -and $lastLogonStr) {
+                    $userDict[$key].last_logon = $lastLogonStr
+                }
+            } else {
+                $userDict[$key] = [PSCustomObject]@{
+                    name = $uname
+                    domain = if ($dom) { $dom } else { if ($isDomain) { 'Domaine' } else { $computerName } }
+                    account_type = $accountType
+                    full_name = if ($dom) { "$dom\$uname" } else { $uname }
+                    description = "Profil utilisateur ($($_.LocalPath))"
+                    enabled = $true
+                    privilege = if ($isAdm) { 'Administrateur' } else { 'Utilisateur standard' }
+                    is_admin = $isAdm
+                    is_logged_in = [bool]$isLogged
+                    last_logon = $lastLogonStr
+                }
+            }
+        }
+    } catch {}
+
+    $res['local_users'] = @($userDict.Values)
 } catch {}
 
 try {
@@ -182,6 +249,7 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	var parsed struct {
+		CurrentUser       string                   `json:"current_user"`
 		CPUModel          string                   `json:"cpu_model"`
 		TotalMemoryMB     int                      `json:"total_memory_mb"`
 		DiskTotalGB       float64                  `json:"disk_total_gb"`
@@ -193,6 +261,9 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &parsed); err == nil {
+		if parsed.CurrentUser != "" {
+			data.CurrentUser = parsed.CurrentUser
+		}
 		if parsed.CPUModel != "" {
 			data.CPUModel = parsed.CPUModel
 		}

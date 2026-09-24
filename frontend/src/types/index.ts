@@ -28,11 +28,14 @@ export interface Device {
 
 export interface LocalUser {
   name: string;
+  domain?: string;
+  account_type?: 'Domaine' | 'Local' | string;
   full_name?: string;
   description?: string;
   enabled: boolean;
   privilege: string;
   is_admin: boolean;
+  is_logged_in?: boolean;
   last_logon?: string | null;
 }
 

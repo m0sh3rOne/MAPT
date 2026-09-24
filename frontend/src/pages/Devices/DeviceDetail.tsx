@@ -58,7 +58,9 @@ export const DeviceDetail: React.FC = () => {
 
   // Users search & filter state
   const [userSearch, setUserSearch] = useState('');
-  const [userFilterRole, setUserFilterRole] = useState<'all' | 'active' | 'admin' | 'standard'>('all');
+  const [userFilterRole, setUserFilterRole] = useState<
+    'all' | 'domain' | 'local' | 'connected' | 'active' | 'admin' | 'standard'
+  >('all');
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
@@ -1207,20 +1209,27 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
         );
       })()}
 
-      {/* Tab 3: General Info & Local Users (NEW!) */}
+      {/* Tab 3: General Info & Local/Domain Users (NEW!) */}
       {activeTab === 'general' && (() => {
-        const localUsers = inventory?.local_users || [];
-        const totalUsers = localUsers.length;
-        const activeUsersCount = localUsers.filter((u) => u.enabled).length;
-        const adminUsersCount = localUsers.filter((u) => u.is_admin).length;
+        const userList = inventory?.local_users || [];
+        const totalUsers = userList.length;
+        const domainUsersCount = userList.filter((u) => u.account_type?.toLowerCase() === 'domaine' || (u.domain && u.domain !== device.hostname)).length;
+        const localUsersCount = totalUsers - domainUsersCount;
+        const loggedInUsersCount = userList.filter((u) => u.is_logged_in).length;
+        const activeUsersCount = userList.filter((u) => u.enabled).length;
+        const adminUsersCount = userList.filter((u) => u.is_admin).length;
 
-        const filteredUsers = localUsers.filter((u) => {
+        const filteredUsers = userList.filter((u) => {
           const matchSearch =
             !userSearch.trim() ||
             u.name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+            u.domain?.toLowerCase().includes(userSearch.toLowerCase()) ||
             u.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
             u.description?.toLowerCase().includes(userSearch.toLowerCase());
           if (!matchSearch) return false;
+          if (userFilterRole === 'domain') return u.account_type?.toLowerCase() === 'domaine' || (u.domain && u.domain !== device.hostname);
+          if (userFilterRole === 'local') return u.account_type?.toLowerCase() !== 'domaine' && (!u.domain || u.domain === device.hostname);
+          if (userFilterRole === 'connected') return u.is_logged_in;
           if (userFilterRole === 'active') return u.enabled;
           if (userFilterRole === 'admin') return u.is_admin;
           if (userFilterRole === 'standard') return !u.is_admin;
@@ -1261,7 +1270,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
               </div>
             </div>
 
-            {/* Local Users Table (net user) */}
+            {/* Users Table (Local & Domain Users) */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center space-x-3">
@@ -1269,12 +1278,12 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                     <Users className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-base font-bold text-slate-100">
-                      Comptes Utilisateurs du Poste{' '}
-                      <span className="font-mono text-xs text-slate-500 font-normal">(net user)</span>
+                    <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                      <span>Comptes Utilisateurs du Poste & Domaine</span>
+                      <span className="font-mono text-xs text-slate-500 font-normal">(SAM & Active Directory)</span>
                     </h2>
                     <p className="text-xs text-slate-400">
-                      État d'activation, niveau de privilège (Admin / Standard) et dernière connexion
+                      Détection des comptes locaux, des profils de domaine connectés et état des sessions en temps réel
                     </p>
                   </div>
                 </div>
@@ -1283,9 +1292,17 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   <span className="px-3 py-1 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
                     Total : <strong className="text-slate-100">{totalUsers}</strong>
                   </span>
-                  <span className="px-3 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
-                    Actifs : <strong>{activeUsersCount}</strong>
-                  </span>
+                  {domainUsersCount > 0 && (
+                    <span className="px-3 py-1 rounded-xl bg-purple-950/60 border border-purple-800/60 text-purple-300">
+                      Domaine : <strong>{domainUsersCount}</strong>
+                    </span>
+                  )}
+                  {loggedInUsersCount > 0 && (
+                    <span className="px-3 py-1 rounded-xl bg-emerald-950/80 border border-emerald-800/80 text-emerald-300 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Connecté(s) : <strong>{loggedInUsersCount}</strong>
+                    </span>
+                  )}
                   <span className="px-3 py-1 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-300">
                     Admins : <strong>{adminUsersCount}</strong>
                   </span>
@@ -1298,7 +1315,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Filtrer un compte utilisateur..."
+                    placeholder="Filtrer par identifiant, nom, domaine (ex: ECOLE\prof)..."
                     value={userSearch}
                     onChange={(e) => setUserSearch(e.target.value)}
                     className="w-full pl-10 pr-10 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
@@ -1313,7 +1330,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold">
+                <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold">
                   <button
                     onClick={() => setUserFilterRole('all')}
                     className={`px-3 py-1.5 rounded-lg transition ${
@@ -1324,16 +1341,40 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   >
                     Tous ({totalUsers})
                   </button>
+                  {domainUsersCount > 0 && (
+                    <button
+                      onClick={() => setUserFilterRole('domain')}
+                      className={`px-3 py-1.5 rounded-lg transition ${
+                        userFilterRole === 'domain'
+                          ? 'bg-purple-950 text-purple-300 border border-purple-800/60'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Domaine ({domainUsersCount})
+                    </button>
+                  )}
                   <button
-                    onClick={() => setUserFilterRole('active')}
+                    onClick={() => setUserFilterRole('local')}
                     className={`px-3 py-1.5 rounded-lg transition ${
-                      userFilterRole === 'active'
-                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                      userFilterRole === 'local'
+                        ? 'bg-teal-950 text-teal-300 border border-teal-800/60'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    Actifs ({activeUsersCount})
+                    Locaux ({localUsersCount})
                   </button>
+                  {loggedInUsersCount > 0 && (
+                    <button
+                      onClick={() => setUserFilterRole('connected')}
+                      className={`px-3 py-1.5 rounded-lg transition ${
+                        userFilterRole === 'connected'
+                          ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Connectés ({loggedInUsersCount})
+                    </button>
+                  )}
                   <button
                     onClick={() => setUserFilterRole('admin')}
                     className={`px-3 py-1.5 rounded-lg transition ${
@@ -1364,24 +1405,34 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-slate-900/90 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                         <tr>
-                          <th className="py-3 px-4">Nom de compte</th>
+                          <th className="py-3 px-4">Compte Utilisateur</th>
+                          <th className="py-3 px-4">Origine / Type</th>
                           <th className="py-3 px-4">Nom complet & Description</th>
-                          <th className="py-3 px-4">Statut</th>
+                          <th className="py-3 px-4">Statut de Session</th>
                           <th className="py-3 px-4">Niveau de Privilège</th>
                           <th className="py-3 px-4 text-right">Dernière connexion</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-sm">
                         {filteredUsers.map((u, idx) => {
-                          const isCurrent =
-                            currentUsername && u.name.toLowerCase() === currentUsername.toLowerCase();
+                          const isDomain = u.account_type?.toLowerCase() === 'domaine' || (u.domain && u.domain.toLowerCase() !== device.hostname?.toLowerCase());
+                          const isConnected = Boolean(
+                            u.is_logged_in ||
+                            (currentUsername && u.name?.toLowerCase() === currentUsername.toLowerCase())
+                          );
+
                           return (
-                            <tr key={idx} className="hover:bg-slate-900/50 transition">
+                            <tr key={idx} className={`hover:bg-slate-900/50 transition ${isConnected ? 'bg-emerald-950/20' : ''}`}>
+                              {/* User name & session badge */}
                               <td className="py-3.5 px-4">
                                 <div className="flex items-center space-x-3">
                                   <div
-                                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
-                                      u.is_admin
+                                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                                      isConnected
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        : isDomain
+                                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                                        : u.is_admin
                                         ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                                         : 'bg-teal-500/10 text-teal-400 border border-teal-500/20'
                                     }`}
@@ -1391,16 +1442,36 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                                   <div>
                                     <div className="flex items-center space-x-2">
                                       <span className="font-bold text-slate-100">{u.name}</span>
-                                      {isCurrent && (
-                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-950/80 text-teal-300 border border-teal-800/60">
-                                          Session active
+                                      {isConnected && (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                          Connecté
                                         </span>
                                       )}
                                     </div>
+                                    {u.domain && (
+                                      <span className="text-[11px] font-mono text-slate-500">
+                                        {u.domain}\{u.name}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </td>
 
+                              {/* Account Type (Domaine vs Local) */}
+                              <td className="py-3.5 px-4">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${
+                                    isDomain
+                                      ? 'bg-purple-950/60 text-purple-300 border-purple-800/60'
+                                      : 'bg-slate-900 text-slate-300 border-slate-800'
+                                  }`}
+                                >
+                                  {isDomain ? '🌐 Domaine' : '💻 Local'}
+                                </span>
+                              </td>
+
+                              {/* Description & Full Name */}
                               <td className="py-3.5 px-4 text-xs text-slate-400">
                                 {u.full_name || u.description ? (
                                   <div>
@@ -1412,20 +1483,27 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                                 )}
                               </td>
 
+                              {/* Session Status */}
                               <td className="py-3.5 px-4">
-                                {u.enabled ? (
+                                {isConnected ? (
                                   <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Actif</span>
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    <span>Session active</span>
+                                  </span>
+                                ) : u.enabled !== false ? (
+                                  <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-slate-900 text-slate-400 border border-slate-800">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Inactif (Déconnecté)</span>
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-slate-900 text-slate-400 border border-slate-800">
+                                  <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-slate-900 text-slate-500 border border-slate-800">
                                     <XCircle className="w-3.5 h-3.5" />
                                     <span>Désactivé</span>
                                   </span>
                                 )}
                               </td>
 
+                              {/* Privilege Level */}
                               <td className="py-3.5 px-4">
                                 {u.is_admin ? (
                                   <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-rose-950/80 text-rose-300 border border-rose-800/60">
@@ -1440,6 +1518,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                                 )}
                               </td>
 
+                              {/* Last Logon */}
                               <td className="py-3.5 px-4 text-right font-mono text-xs text-slate-400">
                                 {u.last_logon ? (
                                   new Date(u.last_logon).toLocaleString()
@@ -1458,7 +1537,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                     <Users className="w-10 h-10 mx-auto mb-2 text-slate-700 stroke-1" />
                     <p className="text-sm font-medium text-slate-400">
                       {totalUsers === 0
-                        ? "Aucun compte utilisateur local n'a encore été rapporté par l'agent."
+                        ? "Aucun compte utilisateur n'a encore été rapporté par l'agent."
                         : 'Aucun utilisateur ne correspond à ce filtre.'}
                     </p>
                   </div>
