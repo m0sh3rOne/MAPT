@@ -638,6 +638,42 @@ export const Scripts: React.FC = () => {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                  Timeout d'exécution (secondes)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min={10}
+                    max={86400}
+                    required
+                    value={timeoutSeconds}
+                    onChange={(e) => setTimeoutSeconds(parseInt(e.target.value) || 300)}
+                    className="w-36 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500 font-mono"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {[60, 300, 600, 900, 1200, 1800].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setTimeoutSeconds(t)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-mono font-medium transition ${
+                          timeoutSeconds === t
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {t >= 60 ? `${t / 60}m` : `${t}s`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Temps maximum alloué à l'agent client avant arrêt (par défaut : 300s / 5 min).
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Code Initial</label>
                 <textarea
                   rows={8}
@@ -697,6 +733,42 @@ export const Scripts: React.FC = () => {
               }}
               className="space-y-4"
             >
+              <div>
+                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                  Timeout d'exécution (secondes)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min={10}
+                    max={86400}
+                    required
+                    value={versionTimeout}
+                    onChange={(e) => setVersionTimeout(parseInt(e.target.value) || 300)}
+                    className="w-36 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500 font-mono"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {[60, 300, 600, 900, 1200, 1800].map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setVersionTimeout(t)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-mono font-medium transition ${
+                          versionTimeout === t
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                        }`}
+                      >
+                        {t >= 60 ? `${t / 60}m` : `${t}s`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Temps maximum alloué à l'agent client pour cette version (ex: 900s / 15m ou 1200s / 20m pour les installations winget).
+                </p>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Code du Script</label>
                 <textarea
