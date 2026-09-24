@@ -52,3 +52,10 @@ Tous les moteurs de script de l'agent doivent s'exécuter de façon non interact
 
 - **Assistant Interactif** : Les scripts de déploiement d'infrastructure (ex: `install-server-production.sh`) doivent comporter un assistant interactif invitant l'administrateur à définir ses identifiants (nom d'utilisateur, mot de passe masqué avec confirmation) et la passphrase du jeton d'enrôlement (`$enrollToken`).
 - **Secrets & Sécurité** : Générer une clé JWT aléatoire robuste et stocker les variables d'environnement dans un fichier `.env` avec permissions strictes (`0600`).
+
+---
+
+## 6. Déploiement Automatique vers la VM Proxmox (Production)
+
+- **Cible distante** : VM Proxmox Ubuntu accessible en SSH sur `192.168.224.236` (`ubuntu:***REDACTED***`).
+- **Procédure systématique** : À chaque livraison ou modification de code validée, pousser les changements sur `origin main` et exécuter le déploiement distant via `python scripts/deploy_remote.py` afin que le serveur de production, les conteneurs Docker Compose et l'agent Windows (`mapt-agent.exe`) soient immédiatement à jour.
