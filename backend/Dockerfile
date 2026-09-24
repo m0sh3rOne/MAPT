@@ -2,6 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Configuration OpenSSL pour compatibilité avec les proxys réseau et inspection TLS
+RUN sed -i 's/DEFAULT@SECLEVEL=2/DEFAULT@SECLEVEL=1/g' /etc/ssl/openssl.cnf 2>/dev/null || true
+
 # Dépendances système pour psycopg et compilation éventuelle
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
