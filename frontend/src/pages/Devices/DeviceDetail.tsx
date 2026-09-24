@@ -62,6 +62,10 @@ export const DeviceDetail: React.FC = () => {
     'all' | 'domain' | 'local' | 'connected' | 'active' | 'admin' | 'standard'
   >('all');
 
+  // Network search & filter state
+  const [netSearch, setNetSearch] = useState('');
+  const [netFilter, setNetFilter] = useState<'all' | 'connected' | 'physical' | 'disconnected'>('all');
+
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
     'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | null
@@ -938,13 +942,69 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
 
       {/* Tab 2: Network Interfaces & Configuration (ipconfig /all style) */}
       {activeTab === 'network' && (() => {
-        const interfaces = inventory?.network_interfaces || [];
-        const connectedCount = interfaces.filter(
-          (iface) =>
-            iface.status?.toLowerCase() === 'connected' ||
-            iface.status?.toLowerCase() === 'active' ||
-            (iface.ip_addresses && iface.ip_addresses.length > 0)
-        ).length;
+        const rawInterfaces = inventory?.network_interfaces || [];
+
+        const isIfaceConnected = (iface: any) => {
+          const status = iface.status?.toLowerCase();
+          const hasValidIp =
+            iface.ip_addresses &&
+            iface.ip_addresses.length > 0 &&
+            iface.ip_addresses.some(
+              (ip: string) => !ip.startsWith('169.254.') && !ip.startsWith('127.')
+            );
+          return (
+            status === 'connected' ||
+            (status === 'active' && hasValidIp) ||
+            iface.is_connected === true ||
+            hasValidIp
+          );
+        };
+
+        // Smart sort: Connected physical with gateways first, connected next, then physical disconnected, then virtual
+        const sortedInterfaces = [...rawInterfaces].sort((a, b) => {
+          const aConn = isIfaceConnected(a);
+          const bConn = isIfaceConnected(b);
+          if (aConn && !bConn) return -1;
+          if (!aConn && bConn) return 1;
+
+          const aGw = Array.isArray(a.default_gateways) && a.default_gateways.length > 0;
+          const bGw = Array.isArray(b.default_gateways) && b.default_gateways.length > 0;
+          if (aGw && !bGw) return -1;
+          if (!aGw && bGw) return 1;
+
+          const aPhys = Boolean(a.is_physical);
+          const bPhys = Boolean(b.is_physical);
+          if (aPhys && !bPhys) return -1;
+          if (!aPhys && bPhys) return 1;
+          return 0;
+        });
+
+        const primaryConnectedIface = sortedInterfaces.find(isIfaceConnected);
+        const resolvedPrimaryIp =
+          primaryConnectedIface?.primary_ip ||
+          primaryConnectedIface?.ip_addresses?.[0] ||
+          (device.ip_address && !device.ip_address.startsWith('172.18.') ? device.ip_address : null) ||
+          device.ip_address ||
+          '127.0.0.1';
+
+        const connectedCount = sortedInterfaces.filter(isIfaceConnected).length;
+        const physicalCount = sortedInterfaces.filter((i) => Boolean(i.is_physical)).length;
+        const disconnectedCount = sortedInterfaces.length - connectedCount;
+
+        const filteredInterfaces = sortedInterfaces.filter((iface) => {
+          const conn = isIfaceConnected(iface);
+          if (netFilter === 'connected' && !conn) return false;
+          if (netFilter === 'disconnected' && conn) return false;
+          if (netFilter === 'physical' && !iface.is_physical) return false;
+
+          if (!netSearch.trim()) return true;
+          const q = netSearch.toLowerCase();
+          const nameMatch = iface.name?.toLowerCase().includes(q);
+          const descMatch = iface.description?.toLowerCase().includes(q);
+          const macMatch = iface.mac?.toLowerCase().includes(q);
+          const ipMatch = iface.ip_addresses?.some((ip: string) => ip.toLowerCase().includes(q));
+          return nameMatch || descMatch || macMatch || ipMatch;
+        });
 
         return (
           <div className="space-y-6">
@@ -956,12 +1016,12 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                     <Network className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-base font-bold text-slate-100">
-                      Configuration Réseau & Adaptateurs{' '}
+                    <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2">
+                      <span>Configuration Réseau & Adaptateurs</span>
                       <span className="font-mono text-xs text-slate-500 font-normal">(ipconfig /all)</span>
                     </h2>
                     <p className="text-xs text-slate-400">
-                      Association directe des adresses MAC, adresses IP, passerelles et serveurs DNS
+                      Cartes réseau actives et connectées en priorité, adresses IPv4, passerelles et serveurs DNS
                     </p>
                   </div>
                 </div>
@@ -969,21 +1029,88 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                 <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
                   <span className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
                     IP Principale :{' '}
-                    <strong className="text-emerald-400">{device.ip_address || '127.0.0.1'}</strong>
+                    <strong className="text-emerald-400 font-bold">{resolvedPrimaryIp}</strong>
                   </span>
                   <span className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
-                    Adaptateurs : <strong className="text-slate-100">{interfaces.length}</strong>
+                    Total : <strong className="text-slate-100">{sortedInterfaces.length}</strong>
                   </span>
                   <span className="px-3 py-1.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300">
                     Connectés : <strong>{connectedCount}</strong>
                   </span>
                 </div>
               </div>
+
+              {/* Filters & Search Toolbar */}
+              <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
+                {/* Search */}
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={netSearch}
+                    onChange={(e) => setNetSearch(e.target.value)}
+                    placeholder="Filtrer par nom, IP, MAC ou description..."
+                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                  />
+                  {netSearch && (
+                    <button
+                      onClick={() => setNetSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 text-xs font-medium">
+                  <button
+                    onClick={() => setNetFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl transition border ${
+                      netFilter === 'all'
+                        ? 'bg-emerald-600 text-white border-emerald-500 font-semibold shadow-sm shadow-emerald-900/30'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    Tous ({sortedInterfaces.length})
+                  </button>
+                  <button
+                    onClick={() => setNetFilter('connected')}
+                    className={`px-3 py-1.5 rounded-xl transition border ${
+                      netFilter === 'connected'
+                        ? 'bg-emerald-600 text-white border-emerald-500 font-semibold shadow-sm shadow-emerald-900/30'
+                        : 'bg-slate-950 text-emerald-400 border-slate-800 hover:bg-emerald-950/40 hover:border-emerald-800/40'
+                    }`}
+                  >
+                    Connectés ({connectedCount})
+                  </button>
+                  <button
+                    onClick={() => setNetFilter('physical')}
+                    className={`px-3 py-1.5 rounded-xl transition border ${
+                      netFilter === 'physical'
+                        ? 'bg-emerald-600 text-white border-emerald-500 font-semibold shadow-sm shadow-emerald-900/30'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    Physiques ({physicalCount})
+                  </button>
+                  <button
+                    onClick={() => setNetFilter('disconnected')}
+                    className={`px-3 py-1.5 rounded-xl transition border ${
+                      netFilter === 'disconnected'
+                        ? 'bg-emerald-600 text-white border-emerald-500 font-semibold shadow-sm shadow-emerald-900/30'
+                        : 'bg-slate-950 text-slate-500 border-slate-800 hover:bg-slate-800 hover:text-slate-300'
+                    }`}
+                  >
+                    Déconnectés ({disconnectedCount})
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Adapters Table */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              {interfaces.length > 0 ? (
+              {filteredInterfaces.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-950/80 sticky top-0 backdrop-blur z-10 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -997,11 +1124,9 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-sm">
-                      {interfaces.map((iface, idx) => {
-                        const isConnected =
-                          iface.status?.toLowerCase() === 'connected' ||
-                          iface.status?.toLowerCase() === 'active' ||
-                          (iface.ip_addresses && iface.ip_addresses.length > 0);
+                      {filteredInterfaces.map((iface, idx) => {
+                        const isConnected = isIfaceConnected(iface);
+                        const isPrimary = primaryConnectedIface?.mac && iface.mac === primaryConnectedIface.mac;
 
                         const isWifi =
                           iface.name?.toLowerCase().includes('wi-fi') ||
@@ -1033,7 +1158,14 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                         const dnsList = rawDns.map(formatNetItem).filter(Boolean);
 
                         return (
-                          <tr key={idx} className="hover:bg-slate-850/60 transition">
+                          <tr
+                            key={idx}
+                            className={`transition ${
+                              isConnected
+                                ? 'bg-slate-900/90 hover:bg-slate-850/80'
+                                : 'opacity-65 hover:opacity-100 hover:bg-slate-850/40'
+                            }`}
+                          >
                             {/* Interface Name & Description */}
                             <td className="py-3.5 px-4">
                               <div className="flex items-start space-x-3">
@@ -1041,14 +1173,19 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                                   className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
                                     isConnected
                                       ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                      : 'bg-slate-800 text-slate-500 border border-slate-700'
                                   }`}
                                 >
                                   {isWifi ? <Wifi className="w-4 h-4" /> : <Network className="w-4 h-4" />}
                                 </div>
                                 <div>
-                                  <div className="flex items-center space-x-2">
+                                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                                     <span className="font-bold text-slate-100">{iface.name}</span>
+                                    {isPrimary && (
+                                      <span className="px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
+                                        ★ Principale
+                                      </span>
+                                    )}
                                     {iface.is_physical !== undefined && (
                                       <span
                                         className={`px-1.5 py-0.2 text-[10px] font-mono rounded-md border ${
@@ -1088,9 +1225,15 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                             <td className="py-3.5 px-4">
                               {iface.ip_addresses && iface.ip_addresses.length > 0 ? (
                                 <div className="space-y-1">
-                                  {iface.ip_addresses.map((ip, i) => (
+                                  {iface.ip_addresses.map((ip: string, i: number) => (
                                     <div key={i} className="flex flex-col">
-                                      <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded-md inline-block w-fit">
+                                      <span
+                                        className={`font-mono text-xs font-bold px-2 py-0.5 rounded-md inline-block w-fit border ${
+                                          isConnected
+                                            ? 'text-emerald-400 bg-emerald-950/40 border-emerald-800/40'
+                                            : 'text-slate-400 bg-slate-950 border-slate-800'
+                                        }`}
+                                      >
                                         {ip}
                                       </span>
                                       {iface.subnet_masks && iface.subnet_masks[i] && (
@@ -1102,7 +1245,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                                   ))}
                                 </div>
                               ) : (
-                                <span className="text-slate-600 text-xs">Non configurée</span>
+                                <span className="text-slate-600 text-xs italic">Non configurée</span>
                               )}
                             </td>
 
@@ -1152,12 +1295,12 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                             <td className="py-3.5 px-4 text-right">
                               {isConnected ? (
                                 <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                   <span>Connecté</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center space-x-1.5 font-semibold text-xs px-2.5 py-1 rounded-full bg-slate-900 text-slate-400 border border-slate-800">
-                                  <XCircle className="w-3.5 h-3.5" />
+                                <span className="inline-flex items-center space-x-1.5 font-medium text-xs px-2.5 py-1 rounded-full bg-slate-950 text-slate-500 border border-slate-800">
+                                  <XCircle className="w-3.5 h-3.5 text-slate-600" />
                                   <span>Déconnecté</span>
                                 </span>
                               )}
@@ -1169,39 +1312,13 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   </table>
                 </div>
               ) : (
-                /* Fallback if no network interfaces array */
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center space-x-3 mb-4">
-                    <Globe className="w-5 h-5 text-emerald-400" />
-                    <span className="font-bold text-slate-200">Adresses Détectées</span>
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                      Adresses MAC
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {inventory?.mac_addresses && inventory.mac_addresses.length > 0 ? (
-                        inventory.mac_addresses.map((mac, idx) => (
-                          <span
-                            key={idx}
-                            className="font-mono text-xs bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-slate-200"
-                          >
-                            {mac}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-slate-500">Aucune adresse MAC physique rapportée.</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="pt-4 border-t border-slate-800">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                      Adresse IP Principale
-                    </label>
-                    <span className="font-mono text-sm bg-slate-950 border border-slate-800 px-3.5 py-1.5 rounded-xl text-emerald-400 font-semibold">
-                      {device.ip_address || '127.0.0.1'}
-                    </span>
-                  </div>
+                <div className="py-12 text-center text-slate-500">
+                  <Network className="w-10 h-10 mx-auto mb-2 text-slate-700 stroke-1" />
+                  <p className="text-sm font-semibold text-slate-400">
+                    {netSearch.trim() || netFilter !== 'all'
+                      ? 'Aucune interface ne correspond à ce filtre.'
+                      : 'Aucune interface réseau remontée par l’agent.'}
+                  </p>
                 </div>
               )}
             </div>

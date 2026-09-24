@@ -19,7 +19,14 @@ async def enroll_agent(
 ):
     service = AgentService(db)
     client_ip = request.client.host if request.client else None
-    return await service.enroll_agent(enroll_in, ip_address=client_ip)
+    reported_ip = enroll_in.ip_address
+    if reported_ip and not reported_ip.startswith("127.") and not reported_ip.startswith("169.254.") and not reported_ip.startswith("172.18.") and not reported_ip.startswith("172.17."):
+        real_ip = reported_ip
+    elif client_ip and not client_ip.startswith("172.18.") and not client_ip.startswith("172.17."):
+        real_ip = client_ip
+    else:
+        real_ip = reported_ip or client_ip
+    return await service.enroll_agent(enroll_in, ip_address=real_ip)
 
 
 @router.post("/heartbeat", response_model=AgentHeartbeatResponse)
@@ -31,7 +38,14 @@ async def heartbeat(
 ):
     service = AgentService(db)
     client_ip = request.client.host if request.client else None
-    return await service.process_heartbeat(device, heartbeat_in, ip_address=client_ip)
+    reported_ip = heartbeat_in.ip_address
+    if reported_ip and not reported_ip.startswith("127.") and not reported_ip.startswith("169.254.") and not reported_ip.startswith("172.18.") and not reported_ip.startswith("172.17."):
+        real_ip = reported_ip
+    elif client_ip and not client_ip.startswith("172.18.") and not client_ip.startswith("172.17."):
+        real_ip = client_ip
+    else:
+        real_ip = reported_ip or client_ip
+    return await service.process_heartbeat(device, heartbeat_in, ip_address=real_ip)
 
 
 @router.get("/download/windows")

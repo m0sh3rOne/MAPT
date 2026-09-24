@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/user"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -220,6 +221,12 @@ try {
             }
         }
 
+        $isPhys = if ($adapter.PhysicalAdapter) { $true } else { $false }
+        $hasGw = if ($cfg.DefaultIPGateway -and $cfg.DefaultIPGateway.Count -gt 0) { $true } else { $false }
+        $hasIpv4 = if ($ipv4List.Count -gt 0 -and -not ($ipv4List[0].StartsWith('169.254.'))) { $true } else { $false }
+        $isConn = ($adapter.NetConnectionStatus -eq 2) -or ($hasIpv4 -and $cfg.IPEnabled)
+        $statusStr = if ($isConn) { 'Connected' } else { 'Disconnected' }
+
         [PSCustomObject]@{
             name = if ($adapter.NetConnectionID) { $adapter.NetConnectionID } else { $cfg.Description }
             description = $cfg.Description
@@ -231,11 +238,23 @@ try {
             default_gateways = if ($cfg.DefaultIPGateway) { @($cfg.DefaultIPGateway) } else { @() }
             dns_servers = if ($cfg.DNSServerSearchOrder) { @($cfg.DNSServerSearchOrder) } else { @() }
             dhcp_enabled = [bool]$cfg.DHCPEnabled
-            status = if ($adapter.NetConnectionStatus -eq 2) { 'Connected' } elseif ($ipv4List.Count -gt 0) { 'Active' } else { 'Disconnected' }
-            is_physical = [bool]$adapter.PhysicalAdapter
+            status = $statusStr
+            is_physical = [bool]$isPhys
+            has_gateway = [bool]$hasGw
+            is_connected = [bool]$isConn
         }
     }
-    $res['network_interfaces'] = @($netList)
+
+    # Sort network interfaces so Connected interfaces with default gateway come FIRST!
+    $sortedNet = $netList | Sort-Object @{Expression={
+        if ($_.is_connected -and $_.has_gateway -and $_.is_physical) { 1 }
+        elseif ($_.is_connected -and $_.has_gateway) { 2 }
+        elseif ($_.is_connected -and $_.is_physical) { 3 }
+        elseif ($_.is_connected) { 4 }
+        elseif ($_.is_physical) { 5 }
+        else { 6 }
+    }}
+    $res['network_interfaces'] = @($sortedNet)
 } catch {}
 
 $res | ConvertTo-Json -Depth 4 -Compress
@@ -289,7 +308,7 @@ $res | ConvertTo-Json -Depth 4 -Compress
 		}
 		if len(parsed.NetworkInterfaces) > 0 {
 			data.NetworkInterfaces = parsed.NetworkInterfaces
-			// Also sync MACAddresses list
+			// Sync sorted MACAddresses list (connected physical MACs first)
 			macList := make([]string, 0)
 			for _, netIface := range parsed.NetworkInterfaces {
 				if m, ok := netIface["mac"].(string); ok && m != "" {
@@ -304,11 +323,38 @@ $res | ConvertTo-Json -Depth 4 -Compress
 }
 
 func GetPrimaryIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return "127.0.0.1"
+	// Try connecting via UDP route lookup to common external hosts
+	for _, target := range []string{"8.8.8.8:80", "1.1.1.1:80", "9.9.9.9:80"} {
+		if conn, err := net.DialTimeout("udp", target, 800*time.Millisecond); err == nil {
+			localAddr := conn.LocalAddr().(*net.UDPAddr)
+			conn.Close()
+			ipStr := localAddr.IP.String()
+			if ipStr != "" && ipStr != "127.0.0.1" && !strings.HasPrefix(ipStr, "169.254.") {
+				return ipStr
+			}
+		}
 	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+
+	// Fallback: inspect network interfaces for the first non-loopback IPv4 address
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			if addrs, err := iface.Addrs(); err == nil {
+				for _, addr := range addrs {
+					if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+						if ip4 := ipNet.IP.To4(); ip4 != nil {
+							ipStr := ip4.String()
+							if !strings.HasPrefix(ipStr, "169.254.") {
+								return ipStr
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return "127.0.0.1"
 }

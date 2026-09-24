@@ -29,19 +29,60 @@ class DeviceService:
         group_ids = [m.group_id for m in device.group_memberships] if device.group_memberships else []
         macs = []
         primary_mac = None
+        best_ip = None
+
         if device.inventory:
+            # 1. Inspect network_interfaces to prioritize connected physical adapters
+            if device.inventory.network_interfaces and isinstance(device.inventory.network_interfaces, list):
+                def iface_priority(iface: dict):
+                    if not isinstance(iface, dict):
+                        return 99
+                    status = str(iface.get("status", "")).lower()
+                    ips = iface.get("ip_addresses") or []
+                    has_gw = bool(iface.get("default_gateways"))
+                    is_phys = bool(iface.get("is_physical"))
+                    is_conn = status in ("connected", "active") or len(ips) > 0
+
+                    if is_conn and has_gw and is_phys:
+                        return 1
+                    if is_conn and has_gw:
+                        return 2
+                    if is_conn and is_phys:
+                        return 3
+                    if is_conn:
+                        return 4
+                    return 5
+
+                sorted_ifaces = sorted(
+                    [i for i in device.inventory.network_interfaces if isinstance(i, dict)],
+                    key=iface_priority
+                )
+
+                for iface in sorted_ifaces:
+                    m = iface.get("mac_address") or iface.get("mac")
+                    if m and str(m) not in macs:
+                        macs.append(str(m))
+
+                    if not best_ip:
+                        ips = iface.get("ip_addresses") or []
+                        for ip in ips:
+                            if ip and not ip.startswith("127.") and not ip.startswith("169.254.") and not ip.startswith("172.18.") and not ip.startswith("172.17."):
+                                best_ip = str(ip)
+                                break
+
+            # Fallback for remaining mac_addresses
             if device.inventory.mac_addresses and isinstance(device.inventory.mac_addresses, list):
                 for m in device.inventory.mac_addresses:
-                    if m and m not in macs:
+                    if m and str(m) not in macs:
                         macs.append(str(m))
-            if device.inventory.network_interfaces and isinstance(device.inventory.network_interfaces, list):
-                for iface in device.inventory.network_interfaces:
-                    if isinstance(iface, dict):
-                        m = iface.get("mac_address") or iface.get("mac")
-                        if m and m not in macs:
-                            macs.append(str(m))
+
             if macs:
                 primary_mac = macs[0]
+
+        effective_ip = device.ip_address
+        if not effective_ip or effective_ip.startswith("172.18.") or effective_ip.startswith("172.17.") or effective_ip.startswith("127."):
+            if best_ip:
+                effective_ip = best_ip
 
         return DeviceResponse(
             id=device.id,
@@ -51,7 +92,7 @@ class DeviceService:
             os_version=device.os_version,
             os_build=device.os_build,
             agent_version=device.agent_version,
-            ip_address=device.ip_address,
+            ip_address=effective_ip,
             enabled=device.enabled,
             is_online=self._is_online(device.last_seen_at),
             mac_address=primary_mac,
