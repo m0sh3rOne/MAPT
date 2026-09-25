@@ -269,11 +269,27 @@ export const Devices: React.FC = () => {
   });
 
   const filteredDevices = devices.filter((device) => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      if (statusFilter === 'ONLINE') return device.is_online;
+      if (statusFilter === 'OFFLINE') return !device.is_online;
+      return true;
+    }
+
+    const termNoHyphen = term.replace(/-/g, '');
+    const uuidClean = (device.device_uuid || '').toLowerCase().replace(/-/g, '');
+    const idClean = (device.id || '').toLowerCase().replace(/-/g, '');
+
     const matchesSearch =
-      device.hostname.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (device.ip_address && device.ip_address.includes(searchTerm)) ||
-      (device.mac_address && device.mac_address.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (device.os_name && device.os_name.toLowerCase().includes(searchTerm.toLowerCase()));
+      device.hostname.toLowerCase().includes(term) ||
+      (device.ip_address && device.ip_address.toLowerCase().includes(term)) ||
+      (device.mac_address && device.mac_address.toLowerCase().includes(term)) ||
+      (device.mac_addresses && device.mac_addresses.some((mac) => mac.toLowerCase().includes(term))) ||
+      (device.device_uuid && device.device_uuid.toLowerCase().includes(term)) ||
+      (device.id && device.id.toLowerCase().includes(term)) ||
+      (uuidClean && termNoHyphen && uuidClean.includes(termNoHyphen)) ||
+      (idClean && termNoHyphen && idClean.includes(termNoHyphen)) ||
+      (device.os_name && device.os_name.toLowerCase().includes(term));
 
     if (statusFilter === 'ONLINE') return matchesSearch && device.is_online;
     if (statusFilter === 'OFFLINE') return matchesSearch && !device.is_online;
@@ -388,7 +404,7 @@ export const Devices: React.FC = () => {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="text"
-              placeholder="Rechercher par nom d'hôte, IP, adresse MAC, OS..."
+              placeholder="Rechercher par nom d'hôte, IP, MAC, UUID, OS..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pl-10 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none"

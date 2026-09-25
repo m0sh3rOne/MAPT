@@ -474,12 +474,24 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
       (g.description && g.description.toLowerCase().includes(searchGroupQuery.toLowerCase()))
   );
 
-  const filteredDevices = devices.filter(
-    (d) =>
-      d.hostname.toLowerCase().includes(deviceSearchQuery.toLowerCase()) ||
-      (d.ip_address && d.ip_address.toLowerCase().includes(deviceSearchQuery.toLowerCase())) ||
-      (d.os_name && d.os_name.toLowerCase().includes(deviceSearchQuery.toLowerCase()))
-  );
+  const filteredDevices = devices.filter((d) => {
+    const q = deviceSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    const qClean = q.replace(/-/g, '');
+    const uuidClean = (d.device_uuid || '').toLowerCase().replace(/-/g, '');
+    const idClean = (d.id || '').toLowerCase().replace(/-/g, '');
+
+    return (
+      d.hostname.toLowerCase().includes(q) ||
+      (d.ip_address && d.ip_address.toLowerCase().includes(q)) ||
+      (d.mac_address && d.mac_address.toLowerCase().includes(q)) ||
+      (d.device_uuid && d.device_uuid.toLowerCase().includes(q)) ||
+      (d.id && d.id.toLowerCase().includes(q)) ||
+      (uuidClean && qClean && uuidClean.includes(qClean)) ||
+      (idClean && qClean && idClean.includes(qClean)) ||
+      (d.os_name && d.os_name.toLowerCase().includes(q))
+    );
+  });
 
   const toggleAllFilteredDevices = () => {
     const filteredIds = filteredDevices.map((d) => d.id);
