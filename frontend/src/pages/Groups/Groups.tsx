@@ -312,6 +312,20 @@ export const Groups: React.FC = () => {
     });
   };
 
+  const encodePowerShellUtf16Base64 = (script: string): string => {
+    const utf16Bytes = new Uint8Array(script.length * 2);
+    for (let i = 0; i < script.length; i++) {
+      const code = script.charCodeAt(i);
+      utf16Bytes[i * 2] = code & 0xff;
+      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    let binary = '';
+    for (let i = 0; i < utf16Bytes.byteLength; i++) {
+      binary += String.fromCharCode(utf16Bytes[i]);
+    }
+    return btoa(binary);
+  };
+
   const handleGroupExecuteScript = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedGroupForActions) return;
@@ -344,7 +358,7 @@ export const Groups: React.FC = () => {
 
       let cmd = '';
       if (adhocLanguage === 'powershell') {
-        const encoded = btoa(unescape(encodeURIComponent(adhocScriptContent)));
+        const encoded = encodePowerShellUtf16Base64(adhocScriptContent);
         cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
       } else if (adhocLanguage === 'cmd') {
         cmd = adhocScriptContent.replace(/\r?\n/g, ' && ');
@@ -436,7 +450,7 @@ Write-Output "AutoLogon configure avec succes pour $d\\$u"
 ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
 `.trim();
 
-    const encoded = btoa(unescape(encodeURIComponent(psScript)));
+    const encoded = encodePowerShellUtf16Base64(psScript);
     const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
 
     createGroupActionMutation.mutate({

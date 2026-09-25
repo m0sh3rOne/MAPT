@@ -306,6 +306,20 @@ export const DeviceDetail: React.FC = () => {
     });
   };
 
+  const encodePowerShellUtf16Base64 = (script: string): string => {
+    const utf16Bytes = new Uint8Array(script.length * 2);
+    for (let i = 0; i < script.length; i++) {
+      const code = script.charCodeAt(i);
+      utf16Bytes[i * 2] = code & 0xff;
+      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    let binary = '';
+    for (let i = 0; i < utf16Bytes.byteLength; i++) {
+      binary += String.fromCharCode(utf16Bytes[i]);
+    }
+    return btoa(binary);
+  };
+
   const handleExecuteScript = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -335,11 +349,11 @@ export const DeviceDetail: React.FC = () => {
 
       let cmd = '';
       if (adhocLanguage === 'powershell') {
-        const encoded = btoa(unescape(encodeURIComponent(adhocScriptContent)));
+        const encoded = encodePowerShellUtf16Base64(adhocScriptContent);
         cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
       } else if (adhocLanguage === 'vbscript') {
-        const encoded = btoa(unescape(encodeURIComponent(adhocScriptContent)));
-        cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$f = [System.IO.Path]::Combine($env:TEMP, 'mapt_adhoc_' + (Get-Random) + '.vbs'); [System.IO.File]::WriteAllText($f, [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}'))); cscript.exe //NoLogo $f; Remove-Item -Force $f"`;
+        const encoded = encodePowerShellUtf16Base64(adhocScriptContent);
+        cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$f = [System.IO.Path]::Combine($env:TEMP, 'mapt_adhoc_' + (Get-Random) + '.vbs'); [System.IO.File]::WriteAllText($f, [System.Text.Encoding]::Unicode.GetString([System.Convert]::FromBase64String('${encoded}'))); cscript.exe //NoLogo $f; Remove-Item -Force $f"`;
       } else if (adhocLanguage === 'cmd') {
         cmd = adhocScriptContent.replace(/\r?\n/g, ' && ');
       } else if (adhocLanguage === 'python') {
@@ -449,17 +463,7 @@ Write-Output "AutoLogon configure avec succes pour $d\\$u (${logonOneTime ? 'Usa
 ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
 `.trim();
 
-    const utf16Bytes = new Uint8Array(psScript.length * 2);
-    for (let i = 0; i < psScript.length; i++) {
-      const code = psScript.charCodeAt(i);
-      utf16Bytes[i * 2] = code & 0xff;
-      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
-    }
-    let binary = '';
-    for (let i = 0; i < utf16Bytes.byteLength; i++) {
-      binary += String.fromCharCode(utf16Bytes[i]);
-    }
-    const base64Encoded = btoa(binary);
+    const base64Encoded = encodePowerShellUtf16Base64(psScript);
     const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
 
     createActionMutation.mutate({
@@ -490,17 +494,7 @@ Remove-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnc
 Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
 `.trim();
 
-    const utf16Bytes = new Uint8Array(resetScript.length * 2);
-    for (let i = 0; i < resetScript.length; i++) {
-      const code = resetScript.charCodeAt(i);
-      utf16Bytes[i * 2] = code & 0xff;
-      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
-    }
-    let binary = '';
-    for (let i = 0; i < utf16Bytes.byteLength; i++) {
-      binary += String.fromCharCode(utf16Bytes[i]);
-    }
-    const base64Encoded = btoa(binary);
+    const base64Encoded = encodePowerShellUtf16Base64(resetScript);
     const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
 
     createActionMutation.mutate({

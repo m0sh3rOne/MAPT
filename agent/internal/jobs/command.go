@@ -22,8 +22,16 @@ func ExecuteCommand(ctx context.Context, commandStr string, timeoutSeconds int) 
 	var cmd *exec.Cmd
 	trimmed := strings.TrimSpace(commandStr)
 
+	// Direct execution for PowerShell -EncodedCommand to bypass cmd.exe / .bat mangling
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "powershell") && strings.Contains(trimmed, "-EncodedCommand") {
+		idx := strings.Index(trimmed, "-EncodedCommand")
+		encodedPart := strings.TrimSpace(trimmed[idx+len("-EncodedCommand"):])
+		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedPart)
+	}
+
 	// If command is long (> 500 chars) or contains newlines, execute via temporary script to avoid cmd.exe 8191-char limit
-	if len(trimmed) > 500 || strings.Contains(trimmed, "\n") {
+	if cmd == nil && (len(trimmed) > 500 || strings.Contains(trimmed, "\n")) {
 		tempDir := os.TempDir()
 		tempFile := filepath.Join(tempDir, fmt.Sprintf("mapt_cmd_%d.bat", time.Now().UnixNano()))
 		batContent := "@echo off\r\n" + trimmed + "\r\n"
