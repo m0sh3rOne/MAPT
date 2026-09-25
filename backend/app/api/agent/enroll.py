@@ -48,6 +48,35 @@ async def heartbeat(
     return await service.process_heartbeat(device, heartbeat_in, ip_address=real_ip)
 
 
+@router.get("/check-uuid")
+async def check_uuid(
+    uuid: str,
+    hostname: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Vérifie si un UUID est déjà attribué et s'il est en conflit avec une autre machine (Clone FOG).
+    """
+    from app.repositories.device_repository import DeviceRepository
+    repo = DeviceRepository(db)
+    dev = await repo.get_by_uuid(uuid)
+    if not dev:
+        return {"uuid": uuid, "exists": False, "conflict": False, "assigned_hostname": None}
+
+    assigned_host = (dev.hostname or "").strip()
+    is_conflict = False
+    if hostname and assigned_host:
+        is_conflict = (assigned_host.upper() != hostname.strip().upper()) and not dev.is_archived
+
+    return {
+        "uuid": uuid,
+        "exists": True,
+        "conflict": is_conflict,
+        "assigned_hostname": assigned_host,
+        "is_archived": dev.is_archived
+    }
+
+
 @router.get("/download/windows")
 async def download_windows_agent():
     """
@@ -225,8 +254,21 @@ if (-not $deviceUuid) {
         $deviceUuid = (Get-CimInstance -Class Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
     } catch {}
 }
-if (-not $deviceUuid) {
+
+# Vérification anti-collision clone FOG
+$isCloneConflict = $false
+if ($deviceUuid) {
+    try {
+        $check = Invoke-RestMethod -Uri "$serverUrl/agent/check-uuid?uuid=$deviceUuid&hostname=$env:COMPUTERNAME" -Method Get -TimeoutSec 4 -ErrorAction SilentlyContinue
+        if ($check -and $check.conflict -eq $true) {
+            $isCloneConflict = $true
+        }
+    } catch {}
+}
+
+if ($isCloneConflict -or -not $deviceUuid) {
     $deviceUuid = [Guid]::NewGuid().ToString()
+    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name "MachineGuid" -Value $deviceUuid -Force -ErrorAction SilentlyContinue
 }
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)

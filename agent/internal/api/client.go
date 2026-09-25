@@ -96,6 +96,9 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 	}
 
 	c.cfg.AgentToken = resp.AgentToken
+	if resp.DeviceUUID != "" {
+		c.cfg.DeviceUUID = resp.DeviceUUID
+	}
 	c.cfg.PollInterval = resp.PollIntervalSeconds
 	c.cfg.HeartbeatInterval = resp.HeartbeatIntervalSeconds
 	c.cfg.InventoryInterval = resp.InventoryIntervalSeconds

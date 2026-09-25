@@ -37,16 +37,39 @@ class AgentService:
 
         agent_token = generate_agent_token()
         now = datetime.now(timezone.utc)
+        target_uuid = enroll_in.device_uuid
 
-        device = await self.device_repo.get_by_uuid(enroll_in.device_uuid)
+        # 1. Recherche si une machine existe déjà avec cet UUID
+        device = await self.device_repo.get_by_uuid(target_uuid)
+
+        # 2. Protection Anti-Collision Clone (ex: image FOG déployée sans Sysprep)
+        # Si une machine active existe déjà avec cet UUID mais avec un nom d'hôte différent
+        if device and enroll_in.hostname:
+            existing_host = (device.hostname or "").strip().upper()
+            incoming_host = (enroll_in.hostname or "").strip().upper()
+            if existing_host and incoming_host and existing_host != incoming_host and not device.is_archived:
+                import uuid
+                new_uuid = str(uuid.uuid4())
+                from app.core.logging import logger
+                logger.warning(
+                    f"⚠️ [Clone Protection] Collision d'UUID détectée ! L'UUID {target_uuid} appartient déjà à '{device.hostname}'. "
+                    f"Attribution automatique d'un nouvel UUID unique pour le clone '{enroll_in.hostname}' : {new_uuid}"
+                )
+                target_uuid = new_uuid
+                # Vérifier si la machine sous son nouveau nom d'hôte existait déjà dans la base
+                device = await self.device_repo.get_by_hostname(enroll_in.hostname)
+                if device:
+                    device.device_uuid = target_uuid
+
+        # 3. Si non trouvé par UUID, chercher si la machine existait déjà par nom d'hôte
         if not device and enroll_in.hostname:
             device = await self.device_repo.get_by_hostname(enroll_in.hostname)
             if device:
-                device.device_uuid = enroll_in.device_uuid
+                device.device_uuid = target_uuid
 
         if not device:
             device = Device(
-                device_uuid=enroll_in.device_uuid,
+                device_uuid=target_uuid,
                 hostname=enroll_in.hostname,
                 os_name=enroll_in.os_name,
                 os_version=enroll_in.os_version,
@@ -59,6 +82,7 @@ class AgentService:
             )
             device = await self.device_repo.create(device)
         else:
+            device.device_uuid = target_uuid
             device.hostname = enroll_in.hostname
             device.os_name = enroll_in.os_name
             device.os_version = enroll_in.os_version
