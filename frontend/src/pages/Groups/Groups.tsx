@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import { Device, DeviceGroup } from '../../types';
+import { DeviceGroup, WolResult, Package as PackageType, Script as ScriptType } from '../../types';
 import {
   FolderKanban,
   Plus,
@@ -16,9 +16,23 @@ import {
   CheckSquare,
   Square,
   AlertCircle,
-  Zap
+  Zap,
+  RotateCw,
+  Power,
+  MessageSquare,
+  FileCode,
+  Package,
+  UserCheck,
+  Send,
+  Eye,
+  EyeOff,
+  Layers,
+  Clock,
+  Sparkles,
+  Terminal,
+  Play,
+  Info,
 } from 'lucide-react';
-import { WolResult } from '../../types';
 
 export const Groups: React.FC = () => {
   const queryClient = useQueryClient();
@@ -27,6 +41,13 @@ export const Groups: React.FC = () => {
   const [selectedGroupForMembers, setSelectedGroupForMembers] = useState<DeviceGroup | null>(null);
   const [groupToDelete, setGroupToDelete] = useState<DeviceGroup | null>(null);
 
+  // Group Quick Actions Modal
+  const [selectedGroupForActions, setSelectedGroupForActions] = useState<DeviceGroup | null>(null);
+  const [activeActionTab, setActiveActionTab] = useState<
+    'wol' | 'restart' | 'shutdown' | 'message' | 'script' | 'package' | 'logon'
+  >('wol');
+
+  // Form states for creation/editing
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
@@ -34,45 +55,46 @@ export const Groups: React.FC = () => {
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // WoL toast notification
-  const [wolNotification, setWolNotification] = useState<{
+  // Form states for quick actions
+  const [actionDelay, setActionDelay] = useState(10);
+  const [actionForce, setActionForce] = useState(true);
+  const [actionMessage, setActionMessage] = useState('Opération initiée par votre administrateur MAPT.');
+
+  // Message Net Send
+  const [msgText, setMsgText] = useState('');
+  const [msgDuration, setMsgDuration] = useState(60);
+
+  // Script
+  const [scriptMode, setScriptMode] = useState<'catalog' | 'adhoc'>('catalog');
+  const [selectedScriptId, setSelectedScriptId] = useState('');
+  const [adhocLanguage, setAdhocLanguage] = useState<'powershell' | 'vbscript' | 'cmd' | 'python'>('powershell');
+  const [adhocScriptContent, setAdhocScriptContent] = useState('');
+  const [adhocTimeout, setAdhocTimeout] = useState(300);
+
+  // Package
+  const [selectedPackageId, setSelectedPackageId] = useState('');
+
+  // Logon
+  const [logonAccountType, setLogonAccountType] = useState<'domain' | 'local'>('domain');
+  const [logonDomain, setLogonDomain] = useState('');
+  const [logonUsername, setLogonUsername] = useState('');
+  const [logonPassword, setLogonPassword] = useState('');
+  const [logonOneTime, setLogonOneTime] = useState(true);
+  const [logonRestartNow, setLogonRestartNow] = useState(true);
+  const [logonShowPassword, setLogonShowPassword] = useState(false);
+
+  // Concurrency & WoL options for group actions
+  const [actionConcurrency, setActionConcurrency] = useState<number>(8);
+  const [actionWakeOnLan, setActionWakeOnLan] = useState(false);
+
+  // Notification toast
+  const [notification, setNotification] = useState<{
     type: 'success' | 'error';
     message: string;
     details?: string[];
   } | null>(null);
 
-  const wakeGroupMutation = useMutation({
-    mutationFn: async (groupId: string) => {
-      return api.wakeGroup(groupId);
-    },
-    onSuccess: (results: WolResult[]) => {
-      const successful = results.filter((r) => r.success);
-      const failed = results.filter((r) => !r.success);
-
-      if (successful.length > 0) {
-        setWolNotification({
-          type: 'success',
-          message: `${successful.length} machine(s) du groupe réveillée(s) par Wake-on-LAN avec succès !`,
-          details: failed.map((f) => `Échec ${f.mac_address || 'inconnue'} : ${f.message}`),
-        });
-      } else {
-        setWolNotification({
-          type: 'error',
-          message: `Aucune machine n'a pu être réveillée (${failed.length} échecs ou pas d'adresse MAC).`,
-          details: failed.map((f) => f.message),
-        });
-      }
-      setTimeout(() => setWolNotification(null), 7000);
-    },
-    onError: (err: any) => {
-      setWolNotification({
-        type: 'error',
-        message: err?.response?.data?.detail || 'Erreur lors du réveil du groupe',
-      });
-      setTimeout(() => setWolNotification(null), 7000);
-    },
-  });
-
+  // Queries
   const { data: groups = [], isLoading: loadingGroups } = useQuery({
     queryKey: ['groups'],
     queryFn: api.getGroups,
@@ -83,6 +105,71 @@ export const Groups: React.FC = () => {
     queryFn: api.getDevices,
   });
 
+  const { data: packages = [] } = useQuery({
+    queryKey: ['packages'],
+    queryFn: api.getPackages,
+    enabled: !!selectedGroupForActions,
+  });
+
+  const { data: scripts = [] } = useQuery({
+    queryKey: ['scripts'],
+    queryFn: api.getScripts,
+    enabled: !!selectedGroupForActions,
+  });
+
+  // Wake-on-LAN Mutation
+  const wakeGroupMutation = useMutation({
+    mutationFn: async (groupId: string) => {
+      return api.wakeGroup(groupId);
+    },
+    onSuccess: (results: WolResult[]) => {
+      const successful = results.filter((r) => r.success);
+      const failed = results.filter((r) => !r.success);
+
+      if (successful.length > 0) {
+        setNotification({
+          type: 'success',
+          message: `${successful.length} machine(s) du groupe réveillée(s) par Wake-on-LAN avec succès !`,
+          details: failed.map((f) => `Échec ${f.mac_address || 'inconnue'} : ${f.message}`),
+        });
+      } else {
+        setNotification({
+          type: 'error',
+          message: `Aucune machine n'a pu être réveillée (${failed.length} échecs ou pas d'adresse MAC).`,
+          details: failed.map((f) => f.message),
+        });
+      }
+      setTimeout(() => setNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || 'Erreur lors du réveil du groupe',
+      });
+      setTimeout(() => setNotification(null), 7000);
+    },
+  });
+
+  // Group Action / Deployment Mutation
+  const createGroupActionMutation = useMutation({
+    mutationFn: (deploymentData: any) => api.createDeployment(deploymentData),
+    onSuccess: (_, variables) => {
+      setSelectedGroupForActions(null);
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      setNotification({
+        type: 'success',
+        message: `Action rapide "${variables.name}" lancée sur le groupe avec succès !`,
+      });
+      setTimeout(() => setNotification(null), 6000);
+    },
+    onError: (err: any) => {
+      setError(err.response?.data?.detail || err.message || "Erreur lors du lancement de l'action");
+    },
+  });
+
+  // Group CRUD Mutations
   const createMutation = useMutation({
     mutationFn: (data: { name: string; description?: string }) => api.createGroup(data.name, data.description),
     onSuccess: () => {
@@ -133,10 +220,10 @@ export const Groups: React.FC = () => {
   const handleOpenMembers = (grp: DeviceGroup) => {
     setSelectedGroupForMembers(grp);
     setDeviceSearchQuery('');
-    // Initialize selected device IDs from group.device_ids or device.group_ids
-    const initialIds = grp.device_ids && grp.device_ids.length > 0
-      ? [...grp.device_ids]
-      : devices.filter(d => d.group_ids?.includes(grp.id)).map(d => d.id);
+    const initialIds =
+      grp.device_ids && grp.device_ids.length > 0
+        ? [...grp.device_ids]
+        : devices.filter((d) => d.group_ids?.includes(grp.id)).map((d) => d.id);
     setSelectedDeviceIds(initialIds);
   };
 
@@ -147,22 +234,244 @@ export const Groups: React.FC = () => {
     setError(null);
   };
 
-  const filteredGroups = groups.filter(g =>
-    g.name.toLowerCase().includes(searchGroupQuery.toLowerCase()) ||
-    (g.description && g.description.toLowerCase().includes(searchGroupQuery.toLowerCase()))
+  const handleOpenQuickActions = (grp: DeviceGroup) => {
+    setSelectedGroupForActions(grp);
+    setActiveActionTab('wol');
+    setActionDelay(10);
+    setActionForce(true);
+    setActionMessage('Opération initiée par votre administrateur MAPT.');
+    setMsgText('');
+    setAdhocScriptContent('');
+    setSelectedScriptId('');
+    setSelectedPackageId('');
+    setLogonUsername('');
+    setLogonPassword('');
+    setActionConcurrency(8);
+    setActionWakeOnLan(false);
+    setError(null);
+  };
+
+  // Group Quick Actions Handlers
+  const handleGroupRestart = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+
+    createGroupActionMutation.mutate({
+      name: `🔄 Redémarrage Groupé - ${selectedGroupForActions.name}`,
+      description: `Redémarrage système à distance (${actionDelay}s) sur ${selectedGroupForActions.name}`,
+      deployment_type: 'command',
+      custom_command: `shutdown.exe /r /t ${actionDelay} /f`,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleGroupShutdown = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+
+    createGroupActionMutation.mutate({
+      name: `⚡ Arrêt Groupé - ${selectedGroupForActions.name}`,
+      description: `Extinction forcée à distance (${actionDelay}s) sur ${selectedGroupForActions.name}`,
+      deployment_type: 'command',
+      custom_command: `shutdown.exe /s /t ${actionDelay} /f`,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleGroupSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions || !msgText.trim()) return;
+
+    const safeText = msgText.replace(/"/g, '""');
+    const cmd = `msg * /TIME:${msgDuration} "${safeText}"`;
+
+    createGroupActionMutation.mutate({
+      name: `💬 Message Groupé - ${selectedGroupForActions.name}`,
+      description: `Diffusion message sur ${selectedGroupForActions.name}: "${msgText.slice(0, 35)}..."`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleGroupExecuteScript = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+
+    if (scriptMode === 'catalog') {
+      const script = scripts.find((s) => s.id === selectedScriptId);
+      if (!script || !script.latest_version) {
+        setError('Veuillez sélectionner un script valide.');
+        return;
+      }
+
+      createGroupActionMutation.mutate({
+        name: `📜 Script: ${script.name} - ${selectedGroupForActions.name}`,
+        description: `Exécution du script ${script.name} sur ${selectedGroupForActions.name}`,
+        deployment_type: 'script',
+        script_version_id: script.latest_version.id,
+        target_all_devices: false,
+        target_group_ids: [selectedGroupForActions.id],
+        target_device_ids: [],
+        max_concurrency: actionConcurrency,
+        wake_on_lan: actionWakeOnLan,
+        schedule_type: 'immediate',
+        is_recurring: false,
+      });
+    } else {
+      if (!adhocScriptContent.trim()) {
+        setError('Veuillez saisir le contenu du script.');
+        return;
+      }
+
+      let cmd = '';
+      if (adhocLanguage === 'powershell') {
+        const encoded = btoa(unescape(encodeURIComponent(adhocScriptContent)));
+        cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+      } else if (adhocLanguage === 'cmd') {
+        cmd = adhocScriptContent.replace(/\r?\n/g, ' && ');
+      } else if (adhocLanguage === 'python') {
+        const escaped = adhocScriptContent.replace(/"/g, '\\"').replace(/\r?\n/g, '; ');
+        cmd = `python -c "${escaped}"`;
+      }
+
+      createGroupActionMutation.mutate({
+        name: `⚡ Script Ad-Hoc (${adhocLanguage}) - ${selectedGroupForActions.name}`,
+        description: `Exécution personnalisée ${adhocLanguage} sur ${selectedGroupForActions.name}`,
+        deployment_type: 'command',
+        custom_command: cmd,
+        target_all_devices: false,
+        target_group_ids: [selectedGroupForActions.id],
+        target_device_ids: [],
+        max_concurrency: actionConcurrency,
+        wake_on_lan: actionWakeOnLan,
+        schedule_type: 'immediate',
+        is_recurring: false,
+      });
+    }
+  };
+
+  const handleGroupDeployPackage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+
+    const pkg = packages.find((p) => p.id === selectedPackageId);
+    if (!pkg || !pkg.latest_version) {
+      setError('Veuillez sélectionner un package disponible.');
+      return;
+    }
+
+    createGroupActionMutation.mutate({
+      name: `📦 Déploiement: ${pkg.name} - ${selectedGroupForActions.name}`,
+      description: `Installation du package ${pkg.name} (${pkg.latest_version.version}) sur ${selectedGroupForActions.name}`,
+      deployment_type: 'package',
+      package_version_id: pkg.latest_version.id,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleGroupLogon = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+    const user = logonUsername.trim();
+    if (!user) {
+      setError("Veuillez renseigner un nom d'utilisateur.");
+      return;
+    }
+
+    const domain = logonAccountType === 'domain' ? (logonDomain.trim() || '.') : '.';
+    const psScript = `
+$d = "${domain.replace(/"/g, '`"')}"
+$u = "${user.replace(/"/g, '`"')}"
+$p = "${logonPassword.replace(/"/g, '`"')}"
+
+$w = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+$s = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+
+Set-ItemProperty $w -Name "AutoAdminLogon" -Value "1" -Type String -Force
+Set-ItemProperty $w -Name "DefaultUserName" -Value $u -Type String -Force
+Set-ItemProperty $w -Name "DefaultDomainName" -Value $d -Type String -Force
+Set-ItemProperty $w -Name "DefaultPassword" -Value $p -Type String -Force
+Set-ItemProperty $w -Name "DisableCAD" -Value 1 -Type DWord -Force
+Remove-ItemProperty $w -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
+
+${
+  logonOneTime
+    ? `$cleanupCmd = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 5; Set-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name AutoAdminLogon -Value ''0'' -Force; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name DefaultPassword -ErrorAction SilentlyContinue"'
+Set-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce" -Name "MAPT_DisableAutoLogon" -Value $cleanupCmd -Type String -Force
+Set-ItemProperty $w -Name "AutoLogonCount" -Value 1 -Type DWord -Force`
+    : `Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force`
+}
+
+if (Test-Path $s) {
+    Set-ItemProperty $s -Name "DisableCAD" -Value 1 -Type DWord -Force
+    Set-ItemProperty $s -Name "DontDisplayLastUserName" -Value 0 -Type DWord -Force
+}
+
+Write-Output "AutoLogon configure avec succes pour $d\\$u"
+${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
+`.trim();
+
+    const encoded = btoa(unescape(encodeURIComponent(psScript)));
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+
+    createGroupActionMutation.mutate({
+      name: `👤 Session AutoLogon (${domain}\\${user}) - ${selectedGroupForActions.name}`,
+      description: `Connexion automatique de l'utilisateur ${domain}\\${user} sur ${selectedGroupForActions.name}`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const filteredGroups = groups.filter(
+    (g) =>
+      g.name.toLowerCase().includes(searchGroupQuery.toLowerCase()) ||
+      (g.description && g.description.toLowerCase().includes(searchGroupQuery.toLowerCase()))
   );
 
-  const filteredDevices = devices.filter(d =>
-    d.hostname.toLowerCase().includes(deviceSearchQuery.toLowerCase()) ||
-    (d.ip_address && d.ip_address.toLowerCase().includes(deviceSearchQuery.toLowerCase())) ||
-    (d.os_name && d.os_name.toLowerCase().includes(deviceSearchQuery.toLowerCase()))
+  const filteredDevices = devices.filter(
+    (d) =>
+      d.hostname.toLowerCase().includes(deviceSearchQuery.toLowerCase()) ||
+      (d.ip_address && d.ip_address.toLowerCase().includes(deviceSearchQuery.toLowerCase())) ||
+      (d.os_name && d.os_name.toLowerCase().includes(deviceSearchQuery.toLowerCase()))
   );
 
   const toggleAllFilteredDevices = () => {
-    const filteredIds = filteredDevices.map(d => d.id);
-    const allSelected = filteredIds.every(id => selectedDeviceIds.includes(id));
+    const filteredIds = filteredDevices.map((d) => d.id);
+    const allSelected = filteredIds.every((id) => selectedDeviceIds.includes(id));
     if (allSelected) {
-      setSelectedDeviceIds(selectedDeviceIds.filter(id => !filteredIds.includes(id)));
+      setSelectedDeviceIds(selectedDeviceIds.filter((id) => !filteredIds.includes(id)));
     } else {
       const merged = Array.from(new Set([...selectedDeviceIds, ...filteredIds]));
       setSelectedDeviceIds(merged);
@@ -172,35 +481,32 @@ export const Groups: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
-      {wolNotification && (
+      {notification && (
         <div
           className={`p-4 rounded-2xl border flex items-start justify-between shadow-xl transition animate-in fade-in slide-in-from-top-2 duration-200 ${
-            wolNotification.type === 'success'
+            notification.type === 'success'
               ? 'bg-emerald-950/80 border-emerald-500/30 text-emerald-300'
               : 'bg-rose-950/80 border-rose-500/30 text-rose-300'
           }`}
         >
           <div className="flex items-start space-x-3">
-            {wolNotification.type === 'success' ? (
+            {notification.type === 'success' ? (
               <Zap className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             ) : (
               <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
             )}
             <div>
-              <p className="text-sm font-semibold">{wolNotification.message}</p>
-              {wolNotification.details && wolNotification.details.length > 0 && (
+              <p className="text-sm font-semibold">{notification.message}</p>
+              {notification.details && notification.details.length > 0 && (
                 <ul className="text-xs text-rose-400/80 list-disc list-inside mt-1">
-                  {wolNotification.details.map((d, i) => (
+                  {notification.details.map((d, i) => (
                     <li key={i}>{d}</li>
                   ))}
                 </ul>
               )}
             </div>
           </div>
-          <button
-            onClick={() => setWolNotification(null)}
-            className="text-slate-400 hover:text-slate-200 p-1"
-          >
+          <button onClick={() => setNotification(null)} className="text-slate-400 hover:text-slate-200 p-1">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -214,7 +520,7 @@ export const Groups: React.FC = () => {
             Groupes de Machines
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Organisation logique et dynamique du parc pour le ciblage massif des déploiements et des scripts
+            Organisation logique et dynamique du parc pour le ciblage massif des déploiements et des actions rapides
           </p>
         </div>
 
@@ -260,7 +566,7 @@ export const Groups: React.FC = () => {
               className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-6 flex flex-col justify-between space-y-4 transition shadow-lg relative overflow-hidden group"
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none -mr-10 -mt-10" />
-              
+
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
@@ -278,36 +584,40 @@ export const Groups: React.FC = () => {
                 </p>
               </div>
 
+              {/* Group Card Action Bar */}
               <div className="flex items-center space-x-2 pt-4 border-t border-slate-800/80">
                 <button
                   onClick={() => handleOpenMembers(grp)}
-                  className="flex-1 flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 rounded-xl text-xs font-semibold transition border border-slate-700/50"
+                  className="flex-1 flex items-center justify-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-2.5 rounded-xl text-xs font-semibold transition border border-slate-700/50"
                   title="Gérer les machines membres"
                 >
-                  <Users className="w-4 h-4 text-emerald-400" />
+                  <Users className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Membres ({grp.device_count || 0})</span>
                 </button>
+
+                {/* Quick Actions Button (Replaces standalone WoL button) */}
                 <button
-                  onClick={() => wakeGroupMutation.mutate(grp.id)}
-                  disabled={wakeGroupMutation.isPending}
-                  className="p-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 transition disabled:opacity-50"
-                  title="Réveiller toutes les machines de ce groupe (Wake-on-LAN)"
+                  onClick={() => handleOpenQuickActions(grp)}
+                  className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition text-xs font-semibold shadow-md shadow-emerald-900/30 shrink-0"
+                  title="Lancer une action rapide sur tout le groupe (Wake-on-LAN, Redémarrage, Arrêt, Scripts, Packages...)"
                 >
-                  <Zap className="w-4 h-4" />
+                  <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
+                  <span>Actions Rapides</span>
                 </button>
+
                 <button
                   onClick={() => handleOpenEdit(grp)}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/50 text-slate-300 hover:text-white transition"
                   title="Modifier le groupe"
                 >
-                  <Edit2 className="w-4 h-4" />
+                  <Edit2 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setGroupToDelete(grp)}
                   className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition"
                   title="Supprimer le groupe"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
@@ -318,39 +628,687 @@ export const Groups: React.FC = () => {
       {!loadingGroups && filteredGroups.length === 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500 space-y-2">
           <FolderKanban className="w-10 h-10 mx-auto text-slate-600 mb-2" />
-          <p className="text-base font-semibold text-slate-300">Aucun groupe trouvé</p>
-          <p className="text-xs text-slate-500">
-            {searchGroupQuery
-              ? `Aucun résultat pour la recherche "${searchGroupQuery}".`
-              : 'Cliquez sur "Nouveau Groupe" pour structurer votre parc.'}
-          </p>
+          <p className="text-sm font-semibold text-slate-400">Aucun groupe trouvé</p>
+          <p className="text-xs text-slate-600">Créez des groupes pour organiser et administrer vos machines en masse.</p>
         </div>
       )}
 
-      {/* Modal: Nouveau / Modifier Groupe */}
-      {(showCreateModal || editingGroup) && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <FolderKanban className="w-5 h-5 text-emerald-400" />
-                {editingGroup ? 'Modifier le Groupe' : 'Créer un Nouveau Groupe'}
-              </h2>
+      {/* ========================================================================= */}
+      {/* MODAL : ACTIONS RAPIDES SUR LE GROUPE */}
+      {/* ========================================================================= */}
+      {selectedGroupForActions && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <span>Actions Rapides de Groupe</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-xs text-emerald-400 font-mono">
+                      {selectedGroupForActions.name}
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Cible l'ensemble des <strong>{selectedGroupForActions.device_count || 0} machine(s)</strong> de ce groupe
+                  </p>
+                </div>
+              </div>
               <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setEditingGroup(null);
-                }}
-                className="text-slate-400 hover:text-slate-200 transition"
+                onClick={() => setSelectedGroupForActions(null)}
+                className="text-slate-400 hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-800 transition"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs flex items-center gap-2">
+              <div className="p-3.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs flex items-center space-x-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
+              </div>
+            )}
+
+            {/* Action Tabs Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('wol'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'wol'
+                    ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm shadow-amber-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <Zap className="w-4 h-4 text-amber-400" />
+                <span>Wake-on-LAN</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('restart'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'restart'
+                    ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <RotateCw className="w-4 h-4" />
+                <span>Redémarrer</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('shutdown'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'shutdown'
+                    ? 'bg-rose-600 text-white border-rose-500 shadow-sm shadow-rose-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <Power className="w-4 h-4" />
+                <span>Éteindre</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('message'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'message'
+                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Message</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('script'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'script'
+                    ? 'bg-cyan-600 text-white border-cyan-500 shadow-sm shadow-cyan-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <FileCode className="w-4 h-4" />
+                <span>Script PS/Py</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('package'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                  activeActionTab === 'package'
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <Package className="w-4 h-4" />
+                <span>Package MSI</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveActionTab('logon'); setError(null); }}
+                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 col-span-2 sm:col-span-2 transition ${
+                  activeActionTab === 'logon'
+                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-900/30'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Ouvrir une Session (AutoLogon)</span>
+              </button>
+            </div>
+
+            {/* TAB 1: Wake-on-LAN */}
+            {activeActionTab === 'wol' && (
+              <div className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">Réveil à Distance (Wake-on-LAN)</h3>
+                    <p className="text-xs text-slate-400">
+                      Émet un paquet magique UDP à toutes les adresses MAC enregistrées pour ce groupe.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Groupe ciblé :</span>
+                    <strong className="text-emerald-400">{selectedGroupForActions.name}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Machines membres :</span>
+                    <strong className="text-slate-100">{selectedGroupForActions.device_count || 0} machine(s)</strong>
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    disabled={wakeGroupMutation.isPending}
+                    onClick={() => {
+                      wakeGroupMutation.mutate(selectedGroupForActions.id);
+                      setSelectedGroupForActions(null);
+                    }}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {wakeGroupMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4 fill-current" />}
+                    <span>Envoyer le signal Wake-on-LAN à tout le groupe</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: Redémarrer */}
+            {activeActionTab === 'restart' && (
+              <form onSubmit={handleGroupRestart} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Délai avant redémarrage (secondes)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={actionDelay}
+                      onChange={(e) => setActionDelay(parseInt(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-amber-500 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={actionForce}
+                        onChange={(e) => setActionForce(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-amber-500 focus:ring-amber-500"
+                      />
+                      <span>Forcer la fermeture des applications ouvertes</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Common Concurrency & WoL bar */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    <span className="text-slate-300">Vagues simultanées :</span>
+                    <select
+                      value={actionConcurrency}
+                      onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                    >
+                      <option value={4}>4 machines</option>
+                      <option value={8}>8 machines (Défaut)</option>
+                      <option value={16}>16 machines</option>
+                      <option value={0}>Illimité</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={actionWakeOnLan}
+                      onChange={(e) => setActionWakeOnLan(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                    />
+                    <span>Réveiller par WoL avant l'ordre</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-amber-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
+                    <span>Redémarrer le groupe ({selectedGroupForActions.device_count || 0} machines)</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 3: Arrêter */}
+            {activeActionTab === 'shutdown' && (
+              <form onSubmit={handleGroupShutdown} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Délai avant extinction (secondes)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={actionDelay}
+                      onChange={(e) => setActionDelay(parseInt(e.target.value) || 0)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-rose-500 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={actionForce}
+                        onChange={(e) => setActionForce(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-800 text-rose-500 focus:ring-rose-500"
+                      />
+                      <span>Forcer l'arrêt immédiat sans attendre</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Concurrency bar */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex items-center space-x-2 text-xs">
+                  <Layers className="w-4 h-4 text-purple-400" />
+                  <span className="text-slate-300">Vagues simultanées :</span>
+                  <select
+                    value={actionConcurrency}
+                    onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                  >
+                    <option value={4}>4 machines</option>
+                    <option value={8}>8 machines (Défaut)</option>
+                    <option value={16}>16 machines</option>
+                    <option value={0}>Illimité</option>
+                  </select>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Power className="w-4 h-4" />}
+                    <span>Éteindre le groupe ({selectedGroupForActions.device_count || 0} machines)</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 4: Message */}
+            {activeActionTab === 'message' && (
+              <form onSubmit={handleGroupSendMessage} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Texte du Message
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={msgText}
+                    onChange={(e) => setMsgText(e.target.value)}
+                    placeholder="Ex: Maintenance du parc dans 10 minutes. Merci d'enregistrer vos documents."
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Durée d'affichage (secondes)
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={3600}
+                      value={msgDuration}
+                      onChange={(e) => setMsgDuration(parseInt(e.target.value) || 60)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    <span>Diffuser le message à tout le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 5: Script */}
+            {activeActionTab === 'script' && (
+              <form onSubmit={handleGroupExecuteScript} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
+                  <button
+                    type="button"
+                    onClick={() => setScriptMode('catalog')}
+                    className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                      scriptMode === 'catalog'
+                        ? 'bg-cyan-600 text-white border-cyan-500'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Depuis la bibliothèque ({scripts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScriptMode('adhoc')}
+                    className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                      scriptMode === 'adhoc'
+                        ? 'bg-cyan-600 text-white border-cyan-500'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Code personnalisé (Ad-hoc)
+                  </button>
+                </div>
+
+                {scriptMode === 'catalog' ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Sélectionner un Script
+                    </label>
+                    <select
+                      value={selectedScriptId}
+                      onChange={(e) => setSelectedScriptId(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-cyan-500 outline-none"
+                    >
+                      <option value="">-- Choisir un script --</option>
+                      {scripts.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.language}) {s.latest_version ? `- v${s.latest_version.version}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Langage & Code
+                      </label>
+                      <div className="flex gap-1">
+                        {(['powershell', 'python', 'cmd'] as const).map((lang) => (
+                          <button
+                            key={lang}
+                            type="button"
+                            onClick={() => setAdhocLanguage(lang)}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono uppercase ${
+                              adhocLanguage === lang
+                                ? 'bg-cyan-500 text-slate-950 font-bold'
+                                : 'bg-slate-900 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {lang}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <textarea
+                      rows={5}
+                      value={adhocScriptContent}
+                      onChange={(e) => setAdhocScriptContent(e.target.value)}
+                      placeholder="# Écrivez votre script ici..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs font-mono text-emerald-300 focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+                )}
+
+                {/* Concurrency & WoL */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    <span className="text-slate-300">Vagues :</span>
+                    <select
+                      value={actionConcurrency}
+                      onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                    >
+                      <option value={4}>4 machines</option>
+                      <option value={8}>8 machines</option>
+                      <option value={16}>16 machines</option>
+                      <option value={0}>Illimité</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={actionWakeOnLan}
+                      onChange={(e) => setActionWakeOnLan(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                    />
+                    <span>Réveiller par WoL avant l'exécution</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
+                    <span>Lancer le script sur le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 6: Package */}
+            {activeActionTab === 'package' && (
+              <form onSubmit={handleGroupDeployPackage} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Sélectionner un Package Logiciel
+                  </label>
+                  <select
+                    value={selectedPackageId}
+                    onChange={(e) => setSelectedPackageId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-blue-500 outline-none"
+                  >
+                    <option value="">-- Choisir un package --</option>
+                    {packages.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.package_type?.toUpperCase()}) {p.latest_version ? `- v${p.latest_version.version}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Concurrency & WoL */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    <span className="text-slate-300">Vagues de déploiement :</span>
+                    <select
+                      value={actionConcurrency}
+                      onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                    >
+                      <option value={4}>4 machines</option>
+                      <option value={8}>8 machines (Recommandé)</option>
+                      <option value={16}>16 machines</option>
+                      <option value={0}>Illimité</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={actionWakeOnLan}
+                      onChange={(e) => setActionWakeOnLan(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                    />
+                    <span>Réveiller par WoL avant l'installation</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
+                    <span>Déployer le package sur le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 7: AutoLogon */}
+            {activeActionTab === 'logon' && (
+              <form onSubmit={handleGroupLogon} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
+                  <button
+                    type="button"
+                    onClick={() => setLogonAccountType('domain')}
+                    className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                      logonAccountType === 'domain'
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🌐 Compte de Domaine (Active Directory)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogonAccountType('local')}
+                    className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                      logonAccountType === 'local'
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    💻 Compte Local
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {logonAccountType === 'domain' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Domaine Active Directory
+                      </label>
+                      <input
+                        type="text"
+                        value={logonDomain}
+                        onChange={(e) => setLogonDomain(e.target.value)}
+                        placeholder="Ex: ECOLE ou MON-DOMAINE"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Identifiant Utilisateur
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={logonUsername}
+                      onChange={(e) => setLogonUsername(e.target.value)}
+                      placeholder="Ex: eleve ou jdupont"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="relative">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Mot de passe
+                    </label>
+                    <input
+                      type={logonShowPassword ? 'text' : 'password'}
+                      value={logonPassword}
+                      onChange={(e) => setLogonPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3 pr-9 py-2 text-xs text-slate-200 focus:border-indigo-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setLogonShowPassword(!logonShowPassword)}
+                      className="absolute right-3 top-8 text-slate-500 hover:text-slate-300"
+                    >
+                      {logonShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={logonOneTime}
+                      onChange={(e) => setLogonOneTime(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-indigo-500"
+                    />
+                    <span>Usage unique (nettoyage automatique du mot de passe après ouverture)</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={logonRestartNow}
+                      onChange={(e) => setLogonRestartNow(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-indigo-500"
+                    />
+                    <span>Redémarrer immédiatement pour ouvrir la session</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
+                    <span>Activer et ouvrir la session sur le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Création / Modification de Groupe */}
+      {(showCreateModal || editingGroup) && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <FolderKanban className="w-5 h-5 text-emerald-400" />
+                <span>{editingGroup ? 'Modifier le Groupe' : 'Nouveau Groupe'}</span>
+              </h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingGroup(null);
+                }}
+                className="text-slate-400 hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {error && (
+              <div className="p-3 bg-rose-950/50 border border-rose-500/30 rounded-xl text-rose-300 text-xs">
+                {error}
               </div>
             )}
 
@@ -366,29 +1324,29 @@ export const Groups: React.FC = () => {
               className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                   Nom du Groupe *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="ex: Comptabilité, Serveurs DNS, Agence Lyon"
+                  placeholder="Ex: Salle Informatique 101, Portables..."
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-emerald-500 transition"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-emerald-500 outline-none transition"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                   Description
                 </label>
                 <textarea
                   rows={3}
+                  placeholder="Ex: Postes fixes de la salle informatique..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Rôle, site ou périmètre du groupe..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500 transition"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-emerald-500 outline-none transition"
                 />
               </div>
 
@@ -406,12 +1364,12 @@ export const Groups: React.FC = () => {
                 <button
                   type="submit"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 transition shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 transition shadow-lg shadow-emerald-600/20"
                 >
                   {(createMutation.isPending || updateMutation.isPending) && (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   )}
-                  <span>{editingGroup ? 'Enregistrer les modifications' : 'Créer le Groupe'}</span>
+                  <span>{editingGroup ? 'Enregistrer' : 'Créer le groupe'}</span>
                 </button>
               </div>
             </form>
@@ -419,32 +1377,36 @@ export const Groups: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Gérer Membres */}
+      {/* Modal: Gestion des Membres */}
       {selectedGroupForMembers && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 max-w-2xl w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-emerald-400" />
-                  Gérer les Machines Membres
-                </h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Groupe : <strong className="text-emerald-400">{selectedGroupForMembers.name}</strong>
-                </p>
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">
+                    Machines Membres du Groupe "{selectedGroupForMembers.name}"
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Cochez ou décochez les machines à intégrer dans ce groupe
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setSelectedGroupForMembers(null)}
-                className="text-slate-400 hover:text-slate-200 transition"
+                className="text-slate-400 hover:text-slate-200 p-1.5"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Filter and Select All Toolbar */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Search & Select All Toolbar */}
+            <div className="flex items-center justify-between gap-3">
               <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Filtrer par nom, IP, OS..."
