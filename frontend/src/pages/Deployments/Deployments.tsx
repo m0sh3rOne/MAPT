@@ -51,6 +51,7 @@ export const Deployments: React.FC = () => {
   const [packageVersionId, setPackageVersionId] = useState('');
   const [scriptVersionId, setScriptVersionId] = useState('');
   const [customCommand, setCustomCommand] = useState('');
+  const [commandShell, setCommandShell] = useState<'cmd' | 'powershell'>('cmd');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [wakeOnLan, setWakeOnLan] = useState(false);
@@ -178,6 +179,7 @@ export const Deployments: React.FC = () => {
     setPackageVersionId('');
     setScriptVersionId('');
     setCustomCommand('');
+    setCommandShell('cmd');
     setSelectedDeviceIds([]);
     setSelectedGroupIds([]);
     setWakeOnLan(false);
@@ -194,6 +196,20 @@ export const Deployments: React.FC = () => {
     setError(null);
   };
 
+  const encodePowerShellUtf16Base64 = (script: string): string => {
+    const utf16Bytes = new Uint8Array(script.length * 2);
+    for (let i = 0; i < script.length; i++) {
+      const code = script.charCodeAt(i);
+      utf16Bytes[i * 2] = code & 0xff;
+      utf16Bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    let binary = '';
+    for (let i = 0; i < utf16Bytes.byteLength; i++) {
+      binary += String.fromCharCode(utf16Bytes[i]);
+    }
+    return btoa(binary);
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -203,13 +219,21 @@ export const Deployments: React.FC = () => {
       return;
     }
 
+    let finalCommand = customCommand;
+    if (deploymentType === 'command' && customCommand) {
+      if (commandShell === 'powershell') {
+        const encoded = encodePowerShellUtf16Base64(customCommand);
+        finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+      }
+    }
+
     createMutation.mutate({
       name,
       description,
       deployment_type: deploymentType,
       package_version_id: deploymentType === 'package' ? packageVersionId || null : null,
       script_version_id: deploymentType === 'script' ? scriptVersionId || null : null,
-      custom_command: deploymentType === 'command' ? customCommand || null : null,
+      custom_command: deploymentType === 'command' ? finalCommand || null : null,
       target_device_ids: selectedDeviceIds,
       target_group_ids: selectedGroupIds,
       wake_on_lan: wakeOnLan,
@@ -799,20 +823,68 @@ export const Deployments: React.FC = () => {
                 </div>
               )}
 
-              {/* Custom Command */}
+              {/* Custom Command with Shell Selector */}
               {deploymentType === 'command' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Commande d'exécution
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={customCommand}
-                    onChange={(e) => setCustomCommand(e.target.value)}
-                    placeholder="ex: ipconfig /flushdns"
-                    className="w-full bg-slate-950 border border-slate-800 font-mono text-sm text-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-emerald-500"
-                  />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Terminal & Commande d'exécution
+                    </label>
+                    <div className="flex rounded-xl bg-slate-950 border border-slate-800 p-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => setCommandShell('cmd')}
+                        className={`px-3 py-1 rounded-lg transition flex items-center space-x-1.5 ${
+                          commandShell === 'cmd'
+                            ? 'bg-slate-800 text-cyan-400 shadow-sm border border-slate-700/50'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Terminal className="w-3.5 h-3.5" />
+                        <span>CMD (Invite Windows)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCommandShell('powershell')}
+                        className={`px-3 py-1 rounded-lg transition flex items-center space-x-1.5 ${
+                          commandShell === 'powershell'
+                            ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-sm'
+                            : 'text-slate-400 hover:text-blue-400'
+                        }`}
+                      >
+                        <Code2 className="w-3.5 h-3.5" />
+                        <span>PowerShell</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute left-3.5 top-3 text-slate-500 font-mono text-xs select-none">
+                      {commandShell === 'powershell' ? 'PS >' : 'C:\\>'}
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={customCommand}
+                      onChange={(e) => setCustomCommand(e.target.value)}
+                      placeholder={
+                        commandShell === 'powershell'
+                          ? "ex: Test-Connection -ComputerName 8.8.8.8 -Count 4 ou Restart-Service Spooler"
+                          : "ex: ping 8.8.8.8 -n 4 ou ipconfig /flushdns"
+                      }
+                      className={`w-full bg-slate-950 border border-slate-800 font-mono text-sm text-slate-200 rounded-xl pl-12 pr-4 py-2.5 outline-none transition ${
+                        commandShell === 'powershell'
+                          ? 'focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50'
+                          : 'focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50'
+                      }`}
+                    />
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    {commandShell === 'powershell'
+                      ? "Exécuté nativement dans l'environnement Windows PowerShell sous privilèges Administrateur (SYSTEM)."
+                      : "Exécuté dans l'interpréteur de commandes Windows classique (cmd.exe) sous privilèges Administrateur (SYSTEM)."}
+                  </p>
                 </div>
               )}
 
