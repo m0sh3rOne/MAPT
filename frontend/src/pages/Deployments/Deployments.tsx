@@ -62,6 +62,8 @@ export const Deployments: React.FC = () => {
     scheduled_days_of_week: '1,2,3,4,5',
     interval_value: 1,
   });
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [deviceFilterOnline, setDeviceFilterOnline] = useState<'all' | 'online' | 'offline'>('all');
   const [error, setError] = useState<string | null>(null);
 
   const { data: deployments = [], isLoading } = useQuery({
@@ -187,6 +189,8 @@ export const Deployments: React.FC = () => {
       scheduled_days_of_week: '1,2,3,4,5',
       interval_value: 1,
     });
+    setDeviceSearch('');
+    setDeviceFilterOnline('all');
     setError(null);
   };
 
@@ -585,39 +589,64 @@ export const Deployments: React.FC = () => {
       </div>
 
       {/* Modal: Nouveau Déploiement */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center space-x-3">
-                <Rocket className="w-6 h-6 text-emerald-400" />
-                <h2 className="text-xl font-bold text-slate-100">Nouveau Déploiement</h2>
-              </div>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {showModal && (() => {
+        const filteredDevices = devices.filter((dev) => {
+          const q = deviceSearch.toLowerCase().trim();
+          const matchText =
+            !q ||
+            dev.hostname.toLowerCase().includes(q) ||
+            (dev.ip_address && dev.ip_address.toLowerCase().includes(q));
+          const matchOnline =
+            deviceFilterOnline === 'all' ||
+            (deviceFilterOnline === 'online' ? dev.is_online : !dev.is_online);
+          return matchText && matchOnline;
+        });
 
-            {error && (
-              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3 rounded-xl text-sm">
-                {error}
+        return (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 z-50 animate-in fade-in duration-150">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+              {/* Modal Header - Fixed */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0 bg-slate-900">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <Rocket className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-100">Nouveau Déploiement</h2>
+                    <p className="text-xs text-slate-400">Distribution de scripts, packages et commandes sur le parc</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            )}
 
-            <form onSubmit={handleCreate} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Nom du déploiement
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="ex: Installation 7-Zip v24 ou Exécution Script Audit"
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none"
-                />
-              </div>
+              <form onSubmit={handleCreate} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                {/* Modal Body - Scrollable */}
+                <div className="overflow-y-auto p-6 space-y-5 flex-1 custom-scrollbar">
+                  {error && (
+                    <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3.5 rounded-xl text-sm flex items-center space-x-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nom du déploiement
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="ex: Installation 7-Zip v24 ou Exécution Script Audit"
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none"
+                    />
+                  </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -788,53 +817,147 @@ export const Deployments: React.FC = () => {
               )}
 
               {/* Targets: Devices selection */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Machines Cibles ({selectedDeviceIds.length} sélectionnée(s))
+                    Machines Cibles ({selectedDeviceIds.length} sélectionnée(s) / {devices.length} total)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (selectedDeviceIds.length === devices.length) {
-                        setSelectedDeviceIds([]);
-                      } else {
-                        setSelectedDeviceIds(devices.map((d) => d.id));
-                      }
-                    }}
-                    className="text-xs text-emerald-400 font-semibold"
-                  >
-                    {selectedDeviceIds.length === devices.length ? 'Tout désélectionner' : 'Sélectionner tout le parc'}
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const filteredIds = filteredDevices.map((d) => d.id);
+                        const allSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedDeviceIds.includes(id));
+                        if (allSelected) {
+                          setSelectedDeviceIds(selectedDeviceIds.filter((id) => !filteredIds.includes(id)));
+                        } else {
+                          const newIds = Array.from(new Set([...selectedDeviceIds, ...filteredIds]));
+                          setSelectedDeviceIds(newIds);
+                        }
+                      }}
+                      className="text-xs text-emerald-400 hover:text-emerald-300 font-semibold transition"
+                    >
+                      {filteredDevices.length > 0 && filteredDevices.every((d) => selectedDeviceIds.includes(d.id))
+                        ? 'Désélectionner filtrées'
+                        : `Sélectionner filtrées (${filteredDevices.length})`}
+                    </button>
+                    {selectedDeviceIds.length > 0 && (
+                      <>
+                        <span className="text-slate-600">•</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDeviceIds([])}
+                          className="text-xs text-slate-400 hover:text-rose-400 transition"
+                        >
+                          Tout effacer
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                <div className="max-h-40 overflow-y-auto border border-slate-800 rounded-xl p-2 bg-slate-950 space-y-1">
-                  {devices.map((dev) => (
-                    <label
-                      key={dev.id}
-                      className="flex items-center space-x-3 p-2 rounded-lg hover:bg-slate-900 cursor-pointer text-sm"
+                {/* Filter & Search Bar for Target Machines */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Filtrer les machines par nom, IP..."
+                      value={deviceSearch}
+                      onChange={(e) => setDeviceSearch(e.target.value)}
+                      className="w-full pl-9 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50"
+                    />
+                    {deviceSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setDeviceSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex rounded-xl bg-slate-950 border border-slate-800 p-0.5 text-[11px] font-semibold shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setDeviceFilterOnline('all')}
+                      className={`px-2 py-1 rounded-lg transition ${
+                        deviceFilterOnline === 'all'
+                          ? 'bg-slate-800 text-slate-100'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedDeviceIds.includes(dev.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedDeviceIds([...selectedDeviceIds, dev.id]);
-                          } else {
-                            setSelectedDeviceIds(selectedDeviceIds.filter((id) => id !== dev.id));
-                          }
-                        }}
-                        className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-800"
-                      />
-                      <span className="font-semibold text-slate-200">{dev.hostname}</span>
-                      <span className="text-xs text-slate-500 font-mono">({dev.ip_address || '127.0.0.1'})</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full ml-auto ${
-                        dev.is_online ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
-                      }`}>
-                        {dev.is_online ? 'En ligne' : 'Hors ligne'}
-                      </span>
-                    </label>
-                  ))}
+                      Tous ({devices.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeviceFilterOnline('online')}
+                      className={`px-2 py-1 rounded-lg transition flex items-center space-x-1 ${
+                        deviceFilterOnline === 'online'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'text-slate-400 hover:text-emerald-400'
+                      }`}
+                    >
+                      <span>En ligne</span>
+                      <span className="font-mono text-[10px]">({devices.filter((d) => d.is_online).length})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeviceFilterOnline('offline')}
+                      className={`px-2 py-1 rounded-lg transition ${
+                        deviceFilterOnline === 'offline'
+                          ? 'bg-slate-800 text-slate-300'
+                          : 'text-slate-400 hover:text-slate-300'
+                      }`}
+                    >
+                      Hors ligne ({devices.filter((d) => !d.is_online).length})
+                    </button>
+                  </div>
+                </div>
+
+                {/* Machine Checkbox List */}
+                <div className="max-h-48 overflow-y-auto border border-slate-800 rounded-xl p-2 bg-slate-950 space-y-1">
+                  {filteredDevices.length > 0 ? (
+                    filteredDevices.map((dev) => {
+                      const isSelected = selectedDeviceIds.includes(dev.id);
+                      return (
+                        <label
+                          key={dev.id}
+                          className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer text-sm transition ${
+                            isSelected ? 'bg-slate-900 border border-emerald-500/20' : 'hover:bg-slate-900/60 border border-transparent'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedDeviceIds([...selectedDeviceIds, dev.id]);
+                              } else {
+                                setSelectedDeviceIds(selectedDeviceIds.filter((id) => id !== dev.id));
+                              }
+                            }}
+                            className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500 bg-slate-800"
+                          />
+                          <div className="flex items-center space-x-2 min-w-0 flex-1">
+                            <span className="font-semibold text-slate-200 truncate">{dev.hostname}</span>
+                            <span className="text-xs text-slate-500 font-mono shrink-0">({dev.ip_address || '127.0.0.1'})</span>
+                          </div>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full shrink-0 font-medium ${
+                              dev.is_online ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {dev.is_online ? 'En ligne' : 'Hors ligne'}
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div className="py-6 text-center text-slate-500 text-xs">
+                      Aucune machine ne correspond à votre recherche.
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -955,27 +1078,32 @@ export const Deployments: React.FC = () => {
               {/* Schedule and Recurrence Selector */}
               <SchedulerSelector value={scheduleConfig} onChange={setScheduleConfig} />
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm font-semibold"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-600/20 flex items-center space-x-2"
-                >
-                  {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Lancer le Déploiement</span>
-                </button>
-              </div>
-            </form>
+                </div>
+
+                {/* Modal Footer - Fixed */}
+                <div className="flex items-center justify-end space-x-3 px-6 py-4 border-t border-slate-800 shrink-0 bg-slate-950/90">
+                  <button
+                    type="button"
+                    onClick={() => setShowModal(false)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm font-semibold transition"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold shadow-lg shadow-emerald-950/50 flex items-center space-x-2 transition disabled:opacity-50"
+                  >
+                    {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <Rocket className="w-4 h-4" />
+                    <span>Lancer le Déploiement</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {/* Modal: Confirmation de suppression individuelle */}
       {deploymentToDelete && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
