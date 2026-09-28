@@ -196,7 +196,7 @@ try {
 try {
     $sw = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*, HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*, HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -and $_.SystemComponent -ne 1 -and $_.ParentKeyName -eq $null } |
-        Select-Object @{N='name';E={$_.DisplayName}}, @{N='version';E={$_.DisplayVersion}}, @{N='publisher';E={$_.Publisher}}, @{N='install_date';E={$_.InstallDate}} |
+        Select-Object @{N='name';E={$_.DisplayName}}, @{N='version';E={$_.DisplayVersion}}, @{N='publisher';E={$_.Publisher}}, @{N='install_date';E={$_.InstallDate}}, @{N='uninstall_string';E={$_.UninstallString}}, @{N='quiet_uninstall_string';E={$_.QuietUninstallString}}, @{N='pschildname';E={$_.PSChildName}}, @{N='windows_installer';E={[bool]$_.WindowsInstaller}}, @{N='install_location';E={$_.InstallLocation}} |
         Sort-Object name -Unique
     $res['installed_software'] = @($sw)
 } catch {}

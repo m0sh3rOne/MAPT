@@ -68,8 +68,15 @@ export const DeviceDetail: React.FC = () => {
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
-    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | null
+    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | 'uninstall_software' | null
   >(null);
+
+  // Software uninstallation state
+  const [softwareToUninstall, setSoftwareToUninstall] = useState<InstalledSoftware | null>(null);
+  const [uninstallSilentMode, setUninstallSilentMode] = useState<boolean>(true);
+  const [uninstallTimeout, setUninstallTimeout] = useState<number>(300);
+  const [customUninstallScript, setCustomUninstallScript] = useState<string>('');
+  const [showAdvancedUninstallScript, setShowAdvancedUninstallScript] = useState<boolean>(false);
 
   // Restart / Shutdown form state
   const [powerDelay, setPowerDelay] = useState(10);
@@ -318,6 +325,149 @@ export const DeviceDetail: React.FC = () => {
       binary += String.fromCharCode(utf16Bytes[i]);
     }
     return btoa(binary);
+  };
+
+  const generateUninstallScript = (sw: InstalledSoftware, silent: boolean = true): string => {
+    const cleanName = (sw.name || '').replace(/'/g, "''");
+    const cleanGuid = (sw.pschildname || '').replace(/'/g, "''");
+    const cleanUninstall = (sw.uninstall_string || '').replace(/'/g, "''");
+    const cleanQuiet = (sw.quiet_uninstall_string || '').replace(/'/g, "''");
+
+    return `# ========================================================
+# MAPT - Script de désinstallation silencieuse
+# Application : ${cleanName}
+# ========================================================
+$ErrorActionPreference = 'Continue'
+$swName = '${cleanName}'
+$swGuid = '${cleanGuid}'
+$rawUninstall = @'
+${sw.uninstall_string || ''}
+'@
+$rawQuiet = @'
+${sw.quiet_uninstall_string || ''}
+'@
+
+Write-Output "[MAPT] Début de la désinstallation de '$swName' sur $env:COMPUTERNAME..."
+$uninstalled = $false
+
+# 1. Désinstallation directe via GUID MSI
+if ($swGuid -and $swGuid -match '^\\{[0-9A-Fa-f\\-]{36}\\}$') {
+    Write-Output "[MAPT] Détection d'un composant Windows Installer (MSI) : $swGuid"
+    $p = Start-Process "msiexec.exe" -ArgumentList "/x \`"$swGuid\`" /qn /norestart" -Wait -PassThru -NoNewWindow
+    Write-Output "[MAPT] MsiExec terminé avec le code de sortie : $($p.ExitCode)"
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { $uninstalled = $true }
+}
+
+# 2. Désinstallation via QuietUninstallString déclaré par l'éditeur
+if (-not $uninstalled -and $rawQuiet.Trim()) {
+    Write-Output "[MAPT] Exécution de la commande de désinstallation silencieuse native (QuietUninstallString)..."
+    $cmd = $rawQuiet.Trim()
+    if ($cmd -match '(?i)msiexec.*\\{([0-9a-f\\-]+)\\}') {
+        $guid = $matches[1]
+        $p = Start-Process "msiexec.exe" -ArgumentList "/x \`"$guid\`" /qn /norestart" -Wait -PassThru -NoNewWindow
+        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { $uninstalled = $true }
+    } else {
+        $p = Start-Process "cmd.exe" -ArgumentList "/c \`"$cmd\`"" -Wait -PassThru -NoNewWindow
+        if ($p.ExitCode -eq 0) { $uninstalled = $true }
+    }
+}
+
+# 3. Analyse et injection silencieuse sur UninstallString
+if (-not $uninstalled -and $rawUninstall.Trim()) {
+    Write-Output "[MAPT] Analyse de la clé UninstallString..."
+    $cmd = $rawUninstall.Trim()
+    if ($cmd -match '(?i)msiexec(?:\\.exe)?\\s+(?:/[IXix])\\s*(\\{[0-9a-f\\-]+\\})') {
+        $guid = $matches[1]
+        Write-Output "[MAPT] Lancement de MsiExec pour le GUID $guid..."
+        $p = Start-Process "msiexec.exe" -ArgumentList "/x $guid /qn /norestart" -Wait -PassThru -NoNewWindow
+        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { $uninstalled = $true }
+    } elseif ($cmd -match '^(?:\\"([^\\"]+)\\"|([^\\s]+))\\s*(.*)$') {
+        $exe = if ($matches[1]) { $matches[1] } else { $matches[2] }
+        $origArgs = if ($matches[3]) { $matches[3] } else { "" }
+        $silentArgs = $origArgs
+        if ($silentArgs -notmatch '(?i)/S|/silent|/verysilent|/quiet|/qn') {
+            if ($exe -match '(?i)unins\\d*\\.exe|setup\\.exe') {
+                $silentArgs = "$origArgs /VERYSILENT /SUPPRESSMSGBOXES /NORESTART".Trim()
+            } else {
+                $silentArgs = "$origArgs /S /quiet /norestart".Trim()
+            }
+        }
+        Write-Output "[MAPT] Lancement de l'exécutable : '$exe' avec paramètres : '$silentArgs'"
+        if (Test-Path $exe) {
+            $p = Start-Process -FilePath $exe -ArgumentList $silentArgs -Wait -PassThru -NoNewWindow
+            Write-Output "[MAPT] Code de sortie de l'exécutable : $($p.ExitCode)"
+            if ($p.ExitCode -eq 0) { $uninstalled = $true }
+        }
+    }
+}
+
+# 4. Recherche dynamique de secours dans la base de registre
+if (-not $uninstalled) {
+    Write-Output "[MAPT] Recherche dynamique dans les clés Uninstall du registre..."
+    $keys = Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*, HKLM:\\Software\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*, HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\* -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -and ($_.DisplayName -eq $swName -or $_.DisplayName -like "$swName*") }
+    foreach ($k in $keys) {
+        if ($k.PSChildName -match '^\\{[0-9A-Fa-f\\-]{36}\\}$' -or $k.WindowsInstaller) {
+            $g = $k.PSChildName
+            Write-Output "[MAPT] MsiExec dynamique pour $g"
+            $p = Start-Process "msiexec.exe" -ArgumentList "/x \`"$g\`" /qn /norestart" -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { $uninstalled = $true; break }
+        } elseif ($k.QuietUninstallString) {
+            $p = Start-Process "cmd.exe" -ArgumentList "/c \`"$($k.QuietUninstallString)\`"" -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -eq 0) { $uninstalled = $true; break }
+        } elseif ($k.UninstallString) {
+            $u = $k.UninstallString
+            if ($u -match '(?i)msiexec(?:\\.exe)?\\s+(?:/[IXix])\\s*(\\{[0-9a-f\\-]+\\})') {
+                $g = $matches[1]
+                $p = Start-Process "msiexec.exe" -ArgumentList "/x $g /qn /norestart" -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { $uninstalled = $true; break }
+            }
+        }
+    }
+}
+
+Write-Output "[MAPT] Procédure de désinstallation terminée avec succès."
+Start-Sleep -Seconds 2
+`;
+  };
+
+  const handleOpenUninstallModal = (sw: InstalledSoftware) => {
+    setSoftwareToUninstall(sw);
+    setCustomUninstallScript(generateUninstallScript(sw, true));
+    setShowAdvancedUninstallScript(false);
+    setUninstallSilentMode(true);
+    setUninstallTimeout(300);
+    setActiveModal('uninstall_software');
+  };
+
+  const handleConfirmUninstallSoftware = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!softwareToUninstall) return;
+
+    const scriptToRun = customUninstallScript || generateUninstallScript(softwareToUninstall, uninstallSilentMode);
+    const encoded = encodePowerShellUtf16Base64(scriptToRun);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+
+    createActionMutation.mutate(
+      {
+        name: `🗑️ Désinstallation - ${softwareToUninstall.name}`,
+        description: `Désinstallation à distance de l'application ${softwareToUninstall.name} (${softwareToUninstall.version || 'v?'})`,
+        deployment_type: 'command',
+        custom_command: cmd,
+        target_all_devices: false,
+        target_device_ids: [device.id],
+        target_group_ids: [],
+        schedule_type: 'immediate',
+        is_recurring: false,
+      },
+      {
+        onSuccess: () => {
+          setActiveModal(null);
+          setSoftwareToUninstall(null);
+          setActiveTab('actions');
+        },
+      }
+    );
   };
 
   const handleExecuteScript = (e: React.FormEvent) => {
@@ -874,12 +1024,13 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                         <th className="py-3 px-4">Application</th>
                         <th className="py-3 px-4">Version</th>
                         <th className="py-3 px-4">Éditeur / Fournisseur</th>
-                        <th className="py-3 px-4 text-right">Date d'installation</th>
+                        <th className="py-3 px-4">Date d'installation</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-sm">
                       {filteredList.map((sw, idx) => (
-                        <tr key={idx} className="hover:bg-slate-850/60 transition">
+                        <tr key={idx} className="hover:bg-slate-850/60 transition group/row">
                           <td className="py-3 px-4">
                             <div className="flex items-center space-x-3">
                               <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 shrink-0">
@@ -900,7 +1051,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                           <td className="py-3 px-4 text-xs text-slate-300">
                             {sw.publisher || <span className="text-slate-600">Non spécifié</span>}
                           </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs text-slate-400">
+                          <td className="py-3 px-4 font-mono text-xs text-slate-400">
                             {sw.install_date ? (
                               sw.install_date.length === 8 ? (
                                 `${sw.install_date.slice(6, 8)}/${sw.install_date.slice(4, 6)}/${sw.install_date.slice(0, 4)}`
@@ -910,6 +1061,17 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                             ) : (
                               <span className="text-slate-600">—</span>
                             )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenUninstallModal(sw)}
+                              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/60 text-rose-300 hover:text-rose-100 text-xs font-semibold transition group shadow-sm"
+                              title={`Désinstaller ${sw.name} de ce poste`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-400 group-hover:scale-110 transition" />
+                              <span>Désinstaller</span>
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -2926,6 +3088,160 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                 <span>Supprimer</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 10: UNINSTALL SOFTWARE CONFIRMATION                                 */}
+      {/* ========================================================================= */}
+      {activeModal === 'uninstall_software' && softwareToUninstall && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-rose-400">
+                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                  <Trash2 className="w-5 h-5 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Désinstaller une application</h3>
+                  <p className="text-xs text-slate-400">Machine cible : <span className="font-semibold text-slate-200">{device.hostname}</span> ({device.ip_address || 'IP inconnue'})</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveModal(null);
+                  setSoftwareToUninstall(null);
+                }}
+                className="text-slate-500 hover:text-slate-300 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Application Details Card */}
+            <div className="bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 space-y-3">
+              <div className="flex items-start space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center shrink-0">
+                  <PackageIcon className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-bold text-slate-100 truncate">{softwareToUninstall.name}</h4>
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                    {softwareToUninstall.version && (
+                      <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono text-emerald-400">
+                        v{softwareToUninstall.version}
+                      </span>
+                    )}
+                    {softwareToUninstall.publisher && (
+                      <span className="text-slate-300">Éditeur : {softwareToUninstall.publisher}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {(softwareToUninstall.uninstall_string || softwareToUninstall.quiet_uninstall_string || softwareToUninstall.pschildname) && (
+                <div className="pt-2 border-t border-slate-850 text-[11px] font-mono text-slate-400 break-all space-y-1">
+                  {softwareToUninstall.pschildname && softwareToUninstall.pschildname.startsWith('{') && (
+                    <div><span className="text-slate-500">ProductCode MSI :</span> <span className="text-purple-300">{softwareToUninstall.pschildname}</span></div>
+                  )}
+                  {softwareToUninstall.uninstall_string && (
+                    <div className="truncate"><span className="text-slate-500">UninstallString :</span> <span className="text-slate-300">{softwareToUninstall.uninstall_string}</span></div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleConfirmUninstallSoftware} className="space-y-4 text-xs">
+              {/* Silent mode option */}
+              <div
+                onClick={() => {
+                  const next = !uninstallSilentMode;
+                  setUninstallSilentMode(next);
+                  setCustomUninstallScript(generateUninstallScript(softwareToUninstall, next));
+                }}
+                className="flex items-start space-x-3 p-3.5 bg-slate-950 rounded-xl border border-slate-800 cursor-pointer hover:border-slate-700 transition"
+              >
+                <input
+                  type="checkbox"
+                  checked={uninstallSilentMode}
+                  onChange={() => {}}
+                  className="w-4 h-4 mt-0.5 text-rose-500 rounded bg-slate-900 border-slate-700 focus:ring-rose-500"
+                />
+                <div>
+                  <span className="text-slate-200 font-semibold block">Désinstallation 100% silencieuse automatique</span>
+                  <span className="text-slate-400 text-[11px] block mt-0.5">
+                    Injecte automatiquement les commutateurs silencieux (<code className="text-rose-300 font-mono">/qn</code>, <code className="text-rose-300 font-mono">/VERYSILENT</code>, <code className="text-rose-300 font-mono">/S</code>, <code className="text-rose-300 font-mono">/norestart</code>) pour une exécution sans invite devant l'utilisateur.
+                  </span>
+                </div>
+              </div>
+
+              {/* Advanced Script Toggle */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedUninstallScript(!showAdvancedUninstallScript)}
+                  className="flex items-center space-x-1.5 text-slate-400 hover:text-slate-200 text-xs font-semibold transition"
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                  <span>{showAdvancedUninstallScript ? 'Masquer le script PowerShell' : 'Afficher / Personnaliser le script PowerShell de désinstallation'}</span>
+                </button>
+
+                {showAdvancedUninstallScript && (
+                  <div className="mt-2 space-y-1.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Script PowerShell généré automatiquement :</span>
+                      <button
+                        type="button"
+                        onClick={() => setCustomUninstallScript(generateUninstallScript(softwareToUninstall, uninstallSilentMode))}
+                        className="text-emerald-400 hover:text-emerald-300 transition"
+                      >
+                        Réinitialiser le script
+                      </button>
+                    </div>
+                    <textarea
+                      rows={8}
+                      value={customUninstallScript}
+                      onChange={(e) => setCustomUninstallScript(e.target.value)}
+                      className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-rose-500/50"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Warning note */}
+              <div className="flex items-start space-x-2.5 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] leading-relaxed">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <span>
+                  L'ordre de désinstallation sera envoyé sous forme de tâche immédiate exécutée par l'agent MAPT sous privilèges <strong>SYSTEM / Administrateur</strong>. Le suivi en temps réel sera disponible dans l'onglet <strong>Actions & Télémaintenance</strong>.
+                </span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveModal(null);
+                    setSoftwareToUninstall(null);
+                  }}
+                  disabled={createActionMutation.isPending}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={createActionMutation.isPending}
+                  className="flex items-center space-x-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl shadow-lg shadow-rose-950/50 disabled:opacity-50 transition"
+                >
+                  {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <Trash2 className="w-4 h-4" />
+                  <span>Confirmer la désinstallation</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

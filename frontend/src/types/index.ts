@@ -45,6 +45,10 @@ export interface InstalledSoftware {
   publisher?: string;
   install_date?: string;
   uninstall_string?: string;
+  quiet_uninstall_string?: string;
+  pschildname?: string;
+  windows_installer?: boolean;
+  install_location?: string;
 }
 
 export interface NetworkInterface {
