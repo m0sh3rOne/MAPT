@@ -127,11 +127,11 @@ export const DeviceDetail: React.FC = () => {
     refetchInterval: 10000,
   });
 
-  const { data: inventory } = useQuery({
+  const { data: inventory, refetch: refetchInventory, isFetching: fetchingInventory } = useQuery({
     queryKey: ['device-inventory', id],
     queryFn: () => api.getDeviceInventory(id!),
     enabled: !!id,
-    refetchInterval: 15000,
+    refetchInterval: 4000,
   });
 
   const { data: actions = [], isLoading: loadingActions, refetch: refetchActions } = useQuery({
@@ -963,6 +963,16 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                 </div>
 
                 <div className="flex items-center gap-2 font-mono text-xs">
+                  <button
+                    type="button"
+                    onClick={() => refetchInventory()}
+                    disabled={fetchingInventory}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 transition"
+                    title="Forcer l'actualisation immédiate de l'inventaire logiciel"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${fetchingInventory ? 'animate-spin' : ''}`} />
+                    <span className="font-sans font-medium text-xs">Actualiser</span>
+                  </button>
                   <span className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300">
                     Total : <strong className="text-emerald-400">{softwareList.length}</strong> applications
                   </span>

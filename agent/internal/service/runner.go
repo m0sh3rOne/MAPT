@@ -203,6 +203,18 @@ func (r *Runner) executeSingleJob(ctx context.Context, job *jobs.JobPayload) {
 		}
 		r.logger.Info("Job %s completed successfully (duration: %.2fs)", job.JobID, durationSec)
 		_ = r.client.CompleteJob(job.JobID, 0, durationSec, output)
+
+		// Rafraîchir l'inventaire matériel et logiciel immédiatement après un job réussi (désinstallation, installation, script, etc.)
+		go func() {
+			time.Sleep(3 * time.Second) // Temporisation pour laisser le temps aux désinstalleurs Windows d'écrire dans la base de registre
+			r.logger.Info("Refreshing system and software inventory post-job...")
+			inv := inventory.CollectInventory()
+			if err := r.client.SendInventory(inv); err != nil {
+				r.logger.Warn("Failed to submit post-job inventory: %v", err)
+			} else {
+				r.logger.Info("Post-job system and software inventory updated successfully.")
+			}
+		}()
 	}
 }
 
