@@ -5,8 +5,8 @@ import { api } from '../../services/api';
 import { ShieldCheck, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('Admin123!');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -99,10 +99,6 @@ export const Login: React.FC = () => {
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Se connecter</span>}
           </button>
         </form>
-
-        <div className="mt-6 pt-6 border-t border-slate-800 text-center text-xs text-slate-500">
-          Compte initial par défaut : <span className="text-slate-300 font-mono">admin</span> / <span className="text-slate-300 font-mono">Admin123!</span>
-        </div>
       </div>
     </div>
   );
