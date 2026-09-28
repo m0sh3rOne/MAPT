@@ -137,6 +137,8 @@ export const Packages: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [detectedPresetBadge, setDetectedPresetBadge] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadBytesInfo, setUploadBytesInfo] = useState<{ loaded: number; total: number } | null>(null);
 
   // FOG-style Snapin parameters - Create Modal
   const [runWith, setRunWith] = useState('c:\\windows\\system32\\msiexec.exe');
@@ -272,7 +274,10 @@ export const Packages: React.FC = () => {
   // Mutations
   const createPackageMutation = useMutation({
     mutationFn: async () => {
+      setError(null);
       if (file) {
+        setUploadProgress(0);
+        setUploadBytesInfo({ loaded: 0, total: file.size });
         const formData = new FormData();
         formData.append('name', name);
         if (description) formData.append('description', description);
@@ -286,7 +291,10 @@ export const Packages: React.FC = () => {
         formData.append('is_interactive', String(isInteractive));
         if (destinationFolder) formData.append('destination_folder', destinationFolder);
         if (installCommand) formData.append('install_command', installCommand);
-        return api.createPackageWithFile(formData);
+        return api.createPackageWithFile(formData, (percent, loaded, total) => {
+          setUploadProgress(percent);
+          setUploadBytesInfo({ loaded, total });
+        });
       } else {
         return api.createPackage({ name, description, package_type: packageType });
       }
@@ -296,7 +304,13 @@ export const Packages: React.FC = () => {
       setShowCreateModal(false);
       resetForms();
     },
-    onError: (err: any) => setError(err.response?.data?.detail || 'Erreur lors de la création du package'),
+    onError: (err: any) => {
+      setError(err.response?.data?.detail || err.message || 'Erreur lors de la création du package');
+    },
+    onSettled: () => {
+      setUploadProgress(null);
+      setUploadBytesInfo(null);
+    },
   });
 
   const updatePackageMutation = useMutation({
@@ -333,6 +347,9 @@ export const Packages: React.FC = () => {
   const uploadVersionMutation = useMutation({
     mutationFn: async () => {
       if (!selectedPackageForUpload || !file) return;
+      setError(null);
+      setUploadProgress(0);
+      setUploadBytesInfo({ loaded: 0, total: file.size });
       const formData = new FormData();
       formData.append('version', version);
       formData.append('file', file);
@@ -343,14 +360,23 @@ export const Packages: React.FC = () => {
       formData.append('is_interactive', String(isInteractive));
       if (destinationFolder) formData.append('destination_folder', destinationFolder);
       if (installCommand) formData.append('install_command', installCommand);
-      return api.uploadPackageVersion(selectedPackageForUpload.id, formData);
+      return api.uploadPackageVersion(selectedPackageForUpload.id, formData, (percent, loaded, total) => {
+        setUploadProgress(percent);
+        setUploadBytesInfo({ loaded, total });
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['packages'] });
       setSelectedPackageForUpload(null);
       resetForms();
     },
-    onError: (err: any) => setError(err.response?.data?.detail || 'Erreur lors de l’upload du package'),
+    onError: (err: any) => {
+      setError(err.response?.data?.detail || err.message || 'Erreur lors de l’upload du package');
+    },
+    onSettled: () => {
+      setUploadProgress(null);
+      setUploadBytesInfo(null);
+    },
   });
 
   const deletePackageMutation = useMutation({
@@ -1293,13 +1319,47 @@ export const Packages: React.FC = () => {
                     </div>
                   </div>
                 )}
+                {/* Upload Progress Indicator */}
+                {uploadProgress !== null && (
+                  <div className="p-4 bg-slate-950/90 border border-emerald-500/40 rounded-2xl space-y-2.5 shadow-lg shadow-emerald-950/40 animate-in fade-in">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <div className="flex items-center space-x-2 text-emerald-400">
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                        <span>
+                          {uploadProgress < 100
+                            ? 'Téléversement en cours vers le serveur MAPT...'
+                            : 'Enregistrement, calcul SHA-256 et stockage en cours...'}
+                        </span>
+                      </div>
+                      <span className="font-mono text-emerald-300 font-bold text-sm">{uploadProgress}%</span>
+                    </div>
+
+                    {/* Progress Bar Track */}
+                    <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-300 ease-out shadow-sm shadow-emerald-500/50"
+                        style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                      <span>
+                        {uploadBytesInfo && uploadBytesInfo.total > 0
+                          ? `${(uploadBytesInfo.loaded / (1024 * 1024)).toFixed(2)} Mo / ${(uploadBytesInfo.total / (1024 * 1024)).toFixed(2)} Mo transférés`
+                          : 'Initialisation du transfert...'}
+                      </span>
+                      <span className="text-slate-500">Ne fermez pas cette fenêtre</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
+                  disabled={createPackageMutation.isPending}
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl text-sm font-medium"
                 >
                   Annuler
                 </button>
@@ -1309,7 +1369,13 @@ export const Packages: React.FC = () => {
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 shadow-lg shadow-emerald-600/20"
                 >
                   {createPackageMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Créer et Uploader le Package</span>
+                  <span>
+                    {createPackageMutation.isPending
+                      ? uploadProgress !== null && uploadProgress < 100
+                        ? `Envoi en cours (${uploadProgress}%)`
+                        : 'Traitement serveur...'
+                      : 'Créer et Uploader le Package'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -1502,23 +1568,63 @@ export const Packages: React.FC = () => {
                     Exécuter en tant qu'administrateur (Privilèges élevés / Service)
                   </label>
                 </div>
+                {/* Upload Progress Indicator */}
+                {uploadProgress !== null && (
+                  <div className="p-4 bg-slate-950/90 border border-emerald-500/40 rounded-2xl space-y-2.5 shadow-lg shadow-emerald-950/40 animate-in fade-in">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <div className="flex items-center space-x-2 text-emerald-400">
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                        <span>
+                          {uploadProgress < 100
+                            ? 'Téléversement en cours vers le serveur MAPT...'
+                            : 'Enregistrement, calcul SHA-256 et stockage en cours...'}
+                        </span>
+                      </div>
+                      <span className="font-mono text-emerald-300 font-bold text-sm">{uploadProgress}%</span>
+                    </div>
+
+                    {/* Progress Bar Track */}
+                    <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800 p-0.5">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-300 ease-out shadow-sm shadow-emerald-500/50"
+                        style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                      <span>
+                        {uploadBytesInfo && uploadBytesInfo.total > 0
+                          ? `${(uploadBytesInfo.loaded / (1024 * 1024)).toFixed(2)} Mo / ${(uploadBytesInfo.total / (1024 * 1024)).toFixed(2)} Mo transférés`
+                          : 'Initialisation du transfert...'}
+                      </span>
+                      <span className="text-slate-500">Ne fermez pas cette fenêtre</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
+                  disabled={uploadVersionMutation.isPending}
                   onClick={() => setSelectedPackageForUpload(null)}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-sm font-medium"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 rounded-xl text-sm font-medium"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
                   disabled={uploadVersionMutation.isPending || !file}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 shadow-lg shadow-emerald-600/20"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 shadow-lg shadow-emerald-600/20"
                 >
                   {uploadVersionMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>Uploader la Version</span>
+                  <span>
+                    {uploadVersionMutation.isPending
+                      ? uploadProgress !== null && uploadProgress < 100
+                        ? `Envoi en cours (${uploadProgress}%)`
+                        : 'Traitement serveur...'
+                      : 'Uploader la Version'}
+                  </span>
                 </button>
               </div>
             </form>

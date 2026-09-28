@@ -191,9 +191,18 @@ export const api = {
     const res = await apiClient.post('/admin/packages', data);
     return res.data;
   },
-  createPackageWithFile: async (formData: FormData): Promise<Package> => {
+  createPackageWithFile: async (
+    formData: FormData,
+    onProgress?: (percent: number, loaded: number, total: number) => void
+  ): Promise<Package> => {
     const res = await apiClient.post('/admin/packages/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent, progressEvent.loaded, progressEvent.total);
+        }
+      },
     });
     return res.data;
   },
@@ -201,9 +210,19 @@ export const api = {
     const res = await apiClient.get(`/admin/packages/${id}/versions`);
     return res.data;
   },
-  uploadPackageVersion: async (packageId: string, formData: FormData): Promise<PackageVersion> => {
+  uploadPackageVersion: async (
+    packageId: string,
+    formData: FormData,
+    onProgress?: (percent: number, loaded: number, total: number) => void
+  ): Promise<PackageVersion> => {
     const res = await apiClient.post(`/admin/packages/${packageId}/versions`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent, progressEvent.loaded, progressEvent.total);
+        }
+      },
     });
     return res.data;
   },

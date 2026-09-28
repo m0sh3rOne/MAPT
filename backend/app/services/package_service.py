@@ -90,33 +90,53 @@ class PackageService:
         if existing:
             raise HTTPException(status_code=400, detail="Un package avec ce nom existe déjà.")
 
-        package = Package(
-            name=name,
-            description=description,
-            package_type=package_type,
-            created_by=user_id
-        )
-        created = await self.package_repo.create(package)
+        try:
+            package = Package(
+                name=name,
+                description=description,
+                package_type=package_type,
+                created_by=user_id
+            )
+            created = await self.package_repo.create(package)
 
-        await self.upload_package_version(
-            package_id=created.id,
-            version_str=version_str,
-            filename=filename,
-            file_bytes=file_bytes,
-            run_with=run_with,
-            run_with_args=run_with_args,
-            package_args=package_args,
-            run_as_admin=run_as_admin,
-            is_interactive=is_interactive,
-            destination_folder=destination_folder,
-            install_command=install_command,
-            uninstall_command=uninstall_command,
-            user_id=user_id,
-            ip_address=ip_address
-        )
+            await self.audit_repo.create(
+                action=AuditAction.PACKAGE_CREATED,
+                entity_type="package",
+                user_id=user_id,
+                entity_id=created.id,
+                details={"name": created.name, "type": created.package_type, "version": version_str, "filename": filename},
+                ip_address=ip_address
+            )
 
-        refreshed = await self.package_repo.get_by_id(created.id)
-        return self._map_to_response(refreshed)
+            await self.upload_package_version(
+                package_id=created.id,
+                version_str=version_str,
+                filename=filename,
+                file_bytes=file_bytes,
+                run_with=run_with,
+                run_with_args=run_with_args,
+                package_args=package_args,
+                run_as_admin=run_as_admin,
+                is_interactive=is_interactive,
+                destination_folder=destination_folder,
+                install_command=install_command,
+                uninstall_command=uninstall_command,
+                user_id=user_id,
+                ip_address=ip_address
+            )
+
+            refreshed = await self.package_repo.get_by_id(created.id)
+            return self._map_to_response(refreshed)
+        except Exception as e:
+            await self.audit_repo.create(
+                action=AuditAction.PACKAGE_UPLOAD_FAILED,
+                entity_type="package",
+                user_id=user_id,
+                entity_id=None,
+                details={"name": name, "filename": filename, "error": str(e)},
+                ip_address=ip_address
+            )
+            raise
 
     async def upload_package_version(
         self,
@@ -139,60 +159,71 @@ class PackageService:
         if not package:
             raise HTTPException(status_code=404, detail="Package introuvable.")
 
-        # Upload vers MinIO/Disque local et calcul SHA-256
-        storage_key, sha256_hash, size_bytes = upload_file_bytes(file_bytes, filename)
+        try:
+            # Upload vers MinIO/Disque local et calcul SHA-256
+            storage_key, sha256_hash, size_bytes = upload_file_bytes(file_bytes, filename)
 
-        # Si run_with / arguments ne sont pas spécifiés, générer par défaut selon l'extension FOG-style
-        ext = filename.lower()
-        if not run_with and not install_command:
-            if ext.endswith(".msi"):
-                run_with = "c:\\windows\\system32\\msiexec.exe"
-                if not run_with_args:
-                    run_with_args = "/i"
-                if not package_args and not is_interactive:
-                    package_args = "/qn /norestart"
-            elif ext.endswith(".vbs"):
-                run_with = "c:\\windows\\system32\\cscript.exe"
-                if not run_with_args:
-                    run_with_args = "//nologo"
-            elif ext.endswith(".exe"):
-                pass
+            # Si run_with / arguments ne sont pas spécifiés, générer par défaut selon l'extension FOG-style
+            ext = filename.lower()
+            if not run_with and not install_command:
+                if ext.endswith(".msi"):
+                    run_with = "c:\\windows\\system32\\msiexec.exe"
+                    if not run_with_args:
+                        run_with_args = "/i"
+                    if not package_args and not is_interactive:
+                        package_args = "/qn /norestart"
+                elif ext.endswith(".vbs"):
+                    run_with = "c:\\windows\\system32\\cscript.exe"
+                    if not run_with_args:
+                        run_with_args = "//nologo"
+                elif ext.endswith(".exe"):
+                    pass
 
-        version = PackageVersion(
-            package_id=package.id,
-            version=version_str,
-            filename=filename,
-            storage_key=storage_key,
-            sha256=sha256_hash,
-            size_bytes=size_bytes,
-            run_with=run_with,
-            run_with_args=run_with_args,
-            package_args=package_args,
-            run_as_admin=run_as_admin,
-            is_interactive=is_interactive,
-            destination_folder=destination_folder or "%APPDATA%\\MAPT\\packages",
-            install_command=install_command,
-            uninstall_command=uninstall_command
-        )
-        created_version = await self.package_repo.add_version(version)
+            version = PackageVersion(
+                package_id=package.id,
+                version=version_str,
+                filename=filename,
+                storage_key=storage_key,
+                sha256=sha256_hash,
+                size_bytes=size_bytes,
+                run_with=run_with,
+                run_with_args=run_with_args,
+                package_args=package_args,
+                run_as_admin=run_as_admin,
+                is_interactive=is_interactive,
+                destination_folder=destination_folder or "%APPDATA%\\MAPT\\packages",
+                install_command=install_command,
+                uninstall_command=uninstall_command
+            )
+            created_version = await self.package_repo.add_version(version)
 
-        await self.audit_repo.create(
-            action=AuditAction.PACKAGE_VERSION_UPLOADED,
-            entity_type="package_version",
-            user_id=user_id,
-            entity_id=created_version.id,
-            details={
-                "package_name": package.name,
-                "version": version_str,
-                "filename": filename,
-                "sha256": sha256_hash,
-                "size_bytes": size_bytes,
-                "run_with": run_with,
-                "run_as_admin": run_as_admin
-            },
-            ip_address=ip_address
-        )
-        return PackageVersionResponse.model_validate(created_version)
+            await self.audit_repo.create(
+                action=AuditAction.PACKAGE_VERSION_UPLOADED,
+                entity_type="package_version",
+                user_id=user_id,
+                entity_id=created_version.id,
+                details={
+                    "package_name": package.name,
+                    "version": version_str,
+                    "filename": filename,
+                    "sha256": sha256_hash,
+                    "size_bytes": size_bytes,
+                    "run_with": run_with,
+                    "run_as_admin": run_as_admin
+                },
+                ip_address=ip_address
+            )
+            return PackageVersionResponse.model_validate(created_version)
+        except Exception as e:
+            await self.audit_repo.create(
+                action=AuditAction.PACKAGE_UPLOAD_FAILED,
+                entity_type="package_version",
+                user_id=user_id,
+                entity_id=package.id,
+                details={"package_name": package.name, "filename": filename, "version": version_str, "error": str(e)},
+                ip_address=ip_address
+            )
+            raise
 
     async def delete_package(self, package_id: UUID, user_id: Optional[UUID] = None, ip_address: Optional[str] = None) -> bool:
         package = await self.package_repo.get_by_id(package_id)
