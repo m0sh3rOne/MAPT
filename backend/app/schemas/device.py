@@ -33,8 +33,15 @@ class DeviceResponse(DeviceBase):
         from_attributes = True
 
 
+class WolDeviceRequest(BaseModel):
+    broadcast_ip: Optional[str] = None
+    port: Optional[int] = 9
+
+
 class WolBatchRequest(BaseModel):
     device_ids: List[UUID]
+    broadcast_ip: Optional[str] = None
+    port: Optional[int] = 9
 
 
 class WolCustomRequest(BaseModel):

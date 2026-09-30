@@ -127,6 +127,9 @@ def calculate_broadcast_ips(
 
     return broadcast_list
 
+import os
+import asyncio
+
 
 def send_magic_packet(
     mac: str,
@@ -136,7 +139,10 @@ def send_magic_packet(
     ports: Tuple[int, ...] = (9, 7)
 ) -> Dict[str, Any]:
     """
-    Envoie un paquet magique WoL pour une adresse MAC donnée sur l'ensemble des cibles réseau.
+    Envoie un paquet magique WoL pour une adresse MAC donnée.
+    Utilise le relai hôte physique en priorité (network_mode: host) pour garantir
+    l'émission de trames Ethernet physiques ff:ff:ff:ff:ff:ff et 255.255.255.255 sur ens18,
+    puis émet sur l'ensemble des cibles de diffusion calculées.
     """
     clean_mac = clean_mac_address(mac)
     if not clean_mac:
@@ -154,20 +160,36 @@ def send_magic_packet(
     sent_count = 0
     errors = []
 
-    for target in targets:
-        for port in ports:
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                    sock.settimeout(2.0)
-                    sock.sendto(packet, (target, port))
-                    sent_count += 1
-            except Exception as e:
-                errors.append(f"Erreur envoi vers {target}:{port} - {str(e)}")
+    # 1. Émission prioritaire vers le relai physique hôte (port 9009)
+    relay_host = os.getenv("WOL_RELAY_HOST", "172.18.0.1")
+    relay_port = int(os.getenv("WOL_RELAY_PORT", "9009"))
+    for rh in [relay_host, "192.168.224.236"]:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as r_sock:
+                r_sock.settimeout(0.5)
+                r_sock.sendto(packet, (rh, relay_port))
+                sent_count += 1
+                break
+        except Exception:
+            pass
+
+    # 2. Émission directe via sockets standards (salve double pour fiabilité)
+    for salvo in range(2):
+        for target in targets:
+            for port in ports:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                        sock.settimeout(1.0)
+                        sock.sendto(packet, (target, port))
+                        sent_count += 1
+                except Exception as e:
+                    if salvo == 0:
+                        errors.append(f"Erreur envoi vers {target}:{port} - {str(e)}")
 
     formatted = format_mac(clean_mac)
     primary_target = targets[0] if targets else "255.255.255.255"
-    logger.info(f"[Wake-on-LAN] Paquet magique émis pour {formatted} vers {targets} sur les ports {ports}")
+    logger.info(f"[Wake-on-LAN] Paquet magique émis pour {formatted} vers {targets} sur les ports {ports} (Relai hôte + direct)")
 
     return {
         "mac_address": formatted,
@@ -186,7 +208,11 @@ class WolService:
         self.db = db
 
     async def get_device_network_info(self, device: Device) -> Tuple[List[str], List[Dict[str, Any]], Optional[str]]:
-        """Extrait toutes les adresses MAC valides, les interfaces et la meilleure IP d'une machine."""
+        """
+        Extrait toutes les adresses MAC valides, en donnant la priorité absolue
+        aux cartes physiques connectées (Intel, Realtek, etc.) et en éliminant
+        les cartes virtuelles Windows WAN Miniport.
+        """
         macs = []
         interfaces = []
         best_ip = None
@@ -197,36 +223,58 @@ class WolService:
         inv = res.scalar_one_or_none()
         
         if inv:
-            # 1. mac_addresses liste
+            # 1. Analyse des network_interfaces détaillées en priorité
+            if inv.network_interfaces and isinstance(inv.network_interfaces, list):
+                interfaces = inv.network_interfaces
+                for iface in inv.network_interfaces:
+                    if isinstance(iface, dict):
+                        desc = str(iface.get("description", "")).lower()
+                        name = str(iface.get("name", "")).lower()
+                        
+                        # Ignorer les pseudo-interfaces WAN Miniport / Loopback
+                        if "wan miniport" in desc or "wan miniport" in name or "loopback" in desc:
+                            continue
+
+                        m = iface.get("mac_address") or iface.get("mac")
+                        cleaned = clean_mac_address(m)
+                        if not cleaned:
+                            continue
+
+                        is_phys = iface.get("is_physical", True)
+                        is_conn = iface.get("status") == "Connected" or iface.get("is_connected", False)
+
+                        # Priorité absolue aux cartes physiques connectées
+                        if is_phys and is_conn:
+                            if cleaned in macs:
+                                macs.remove(cleaned)
+                            macs.insert(0, cleaned)
+                        elif is_phys and cleaned not in macs:
+                            macs.append(cleaned)
+                        elif cleaned not in macs:
+                            macs.append(cleaned)
+                        
+                        # Extraire la meilleure IP réelle
+                        if not best_ip and is_conn and iface.get("primary_ip"):
+                            best_ip = iface.get("primary_ip")
+
+            # 2. Compléter avec la liste mac_addresses de l'inventaire si absentes
             if inv.mac_addresses and isinstance(inv.mac_addresses, list):
                 for m in inv.mac_addresses:
                     cleaned = clean_mac_address(m)
                     if cleaned and cleaned not in macs:
                         macs.append(cleaned)
 
-            # 2. network_interfaces liste
-            if inv.network_interfaces and isinstance(inv.network_interfaces, list):
-                interfaces = inv.network_interfaces
-                for iface in inv.network_interfaces:
-                    if isinstance(iface, dict):
-                        m = iface.get("mac_address") or iface.get("mac")
-                        cleaned = clean_mac_address(m)
-                        # Priorité aux cartes physiques connectées
-                        if iface.get("is_physical", True) and cleaned and cleaned not in macs:
-                            macs.insert(0, cleaned)
-                        elif cleaned and cleaned not in macs:
-                            macs.append(cleaned)
-                        
-                        # Extraire la meilleure IP réelle
-                        if not best_ip and iface.get("status") == "Connected" and iface.get("primary_ip"):
-                            best_ip = iface.get("primary_ip")
-
         if not best_ip and device.ip_address and not device.ip_address.startswith("172.18."):
             best_ip = device.ip_address
 
         return macs, interfaces, best_ip
 
-    async def wake_device(self, device_id: UUID) -> Dict[str, Any]:
+    async def wake_device(
+        self,
+        device_id: UUID,
+        broadcast_ip: Optional[str] = None,
+        port: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Réveille une machine unique par son identifiant MAPT."""
         res = await self.db.execute(select(Device).where(Device.id == device_id))
         device = res.scalar_one_or_none()
@@ -234,8 +282,8 @@ class WolService:
             return {
                 "device_id": str(device_id),
                 "mac_address": "",
-                "broadcast_ip": "255.255.255.255",
-                "port": 9,
+                "broadcast_ip": broadcast_ip or "255.255.255.255",
+                "port": port or 9,
                 "success": False,
                 "message": "Machine introuvable."
             }
@@ -246,19 +294,23 @@ class WolService:
                 "device_id": str(device.id),
                 "hostname": device.hostname,
                 "mac_address": "",
-                "broadcast_ip": "255.255.255.255",
-                "port": 9,
+                "broadcast_ip": broadcast_ip or "255.255.255.255",
+                "port": port or 9,
                 "success": False,
                 "message": f"Aucune adresse MAC connue dans l'inventaire de la machine {device.hostname}."
             }
 
         primary_mac_formatted = format_mac(macs[0])
         results = []
+        target_ports = (port,) if port else (9, 7)
+
         for mac_hex in macs:
             r = send_magic_packet(
                 mac_hex,
+                broadcast_ip=broadcast_ip,
                 device_ip=real_ip or device.ip_address,
-                network_interfaces=interfaces
+                network_interfaces=interfaces,
+                ports=target_ports
             )
             results.append(r)
 
@@ -275,23 +327,38 @@ class WolService:
             "hostname": device.hostname,
             "mac_address": primary_mac_formatted,
             "mac_addresses": [format_mac(m) for m in macs],
-            "broadcast_ip": targets_str or "255.255.255.255",
-            "port": 9,
+            "broadcast_ip": targets_str or broadcast_ip or "255.255.255.255",
+            "port": port or 9,
             "ip_address": real_ip or device.ip_address,
             "success": success,
             "mac_results": results,
             "message": f"Paquet magique Wake-on-LAN envoyé avec succès à {primary_mac_formatted} ({device.hostname}) sur {len(all_targets)} cibles réseau."
         }
 
-    async def wake_devices(self, device_ids: List[UUID]) -> List[Dict[str, Any]]:
-        """Réveille une liste de machines en parallèle et retourne les résultats."""
+    async def wake_devices(
+        self,
+        device_ids: List[UUID],
+        broadcast_ip: Optional[str] = None,
+        port: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Réveille une liste de machines en séquençant légèrement les envois (20ms)
+        pour éviter le filtrage des paquets broadcast par les switchs réseau.
+        """
         results = []
-        for d_id in device_ids:
-            res = await self.wake_device(d_id)
+        for idx, d_id in enumerate(device_ids):
+            res = await self.wake_device(d_id, broadcast_ip=broadcast_ip, port=port)
             results.append(res)
+            if idx < len(device_ids) - 1:
+                await asyncio.sleep(0.02)
         return results
 
-    async def wake_group(self, group_id: UUID) -> List[Dict[str, Any]]:
+    async def wake_group(
+        self,
+        group_id: UUID,
+        broadcast_ip: Optional[str] = None,
+        port: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """Réveille toutes les machines membres d'un groupe."""
         res = await self.db.execute(
             select(DeviceGroupMember.device_id).where(DeviceGroupMember.group_id == group_id)
@@ -302,12 +369,12 @@ class WolService:
             return [{
                 "device_id": str(group_id),
                 "mac_address": "",
-                "broadcast_ip": "255.255.255.255",
-                "port": 9,
+                "broadcast_ip": broadcast_ip or "255.255.255.255",
+                "port": port or 9,
                 "success": False,
                 "message": "Aucune machine membre dans ce groupe."
             }]
 
-        return await self.wake_devices(device_ids)
+        return await self.wake_devices(device_ids, broadcast_ip=broadcast_ip, port=port)
 
 

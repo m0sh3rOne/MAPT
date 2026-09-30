@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +7,7 @@ from app.schemas.device import (
     DeviceResponse,
     DeviceInventoryResponse,
     DeviceTargetHistoryResponse,
+    WolDeviceRequest,
     WolBatchRequest,
     WolCustomRequest,
     WolResultResponse,
@@ -159,6 +160,7 @@ async def delete_device(
 @router.post("/{device_id}/wol")
 async def wake_device(
     device_id: UUID,
+    payload: Optional[WolDeviceRequest] = None,
     current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
@@ -167,7 +169,9 @@ async def wake_device(
     """
     from app.services.wol_service import WolService
     wol_svc = WolService(db)
-    return await wol_svc.wake_device(device_id)
+    b_ip = payload.broadcast_ip if payload else None
+    port = payload.port if payload else None
+    return await wol_svc.wake_device(device_id, broadcast_ip=b_ip, port=port)
 
 
 @router.post("/wol/batch")
@@ -181,7 +185,7 @@ async def wake_devices_batch(
     """
     from app.services.wol_service import WolService
     wol_svc = WolService(db)
-    return await wol_svc.wake_devices(payload.device_ids)
+    return await wol_svc.wake_devices(payload.device_ids, broadcast_ip=payload.broadcast_ip, port=payload.port)
 
 
 @router.post("/wol/custom")

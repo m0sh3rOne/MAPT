@@ -80,10 +80,25 @@ services:
       INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-Admin123!}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@mapt.local}
+      WOL_RELAY_HOST: ${WOL_RELAY_HOST:-172.18.0.1}
+      WOL_RELAY_PORT: ${WOL_RELAY_PORT:-9009}
     volumes:
       - ../agent:/agent:ro
     ports:
       - "8000:8000"
+
+  wol-relay:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-http://192.168.224.245:3128}
+        HTTPS_PROXY: ${HTTPS_PROXY:-http://192.168.224.245:3128}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,192.168.224.236,192.168.224.245,192.168.224.0/20,mapt.local,backend,caddy,frontend,postgres,redis,minio}
+    container_name: mapt-wol-relay
+    restart: unless-stopped
+    network_mode: host
+    command: python -m app.services.wol_relay
 
   worker:
     build:

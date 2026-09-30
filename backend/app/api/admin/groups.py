@@ -1,10 +1,10 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import UserRole
-from app.schemas.device import DeviceGroupCreate, DeviceGroupResponse, AddDeviceToGroupRequest
+from app.schemas.device import DeviceGroupCreate, DeviceGroupResponse, AddDeviceToGroupRequest, WolDeviceRequest
 from app.services.group_service import GroupService
 from app.api.deps import get_current_user, require_roles
 from app.models.user import User
@@ -108,6 +108,7 @@ async def remove_device_from_group(
 @router.post("/{group_id}/wol")
 async def wake_group_devices(
     group_id: UUID,
+    payload: Optional[WolDeviceRequest] = None,
     current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
@@ -116,6 +117,8 @@ async def wake_group_devices(
     """
     from app.services.wol_service import WolService
     wol_svc = WolService(db)
-    return await wol_svc.wake_group(group_id)
+    b_ip = payload.broadcast_ip if payload else None
+    port = payload.port if payload else None
+    return await wol_svc.wake_group(group_id, broadcast_ip=b_ip, port=port)
 
 
