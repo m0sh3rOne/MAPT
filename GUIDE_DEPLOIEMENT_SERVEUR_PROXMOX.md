@@ -339,3 +339,83 @@ chmod +x install-server-production.sh
 sudo ./install-server-production.sh
 ```
 
+---
+
+### 5. Perte de connexion réseau après copie / clonage de la VM sur un autre Proxmox
+
+**Symptômes :**
+- La machine virtuelle démarre mais n'a plus d'adresse IP (`ip a` n'affiche que `lo`).
+- Impossible de se connecter en SSH (`Connection refused` ou `Host unreachable`).
+- Aucun accès à Internet depuis la VM.
+
+**Causes fréquentes :**
+1. **Changement du nom d'interface ou de l'adresse MAC** : Proxmox réassigne une nouvelle adresse MAC ou un nouvel ID PCI (ex: `ens18` devient `ens19` ou `enp0s18`), tandis qu'Ubuntu/Netplan attend toujours l'ancien nom.
+2. **Bridge Proxmox non connecté** : L'interface réseau de la VM pointe vers un bridge inexistant ou inactif (ex: `vmbr0`).
+3. **Plan d'adressage IP différent** : L'IP statique de la VM (ex: `192.168.224.236`) n'appartient pas au sous-réseau du nouveau réseau local (ex: `192.168.1.0/24`).
+
+**Procédure de résolution pas-à-pas :**
+
+#### Étape 1 — Vérifier le matériel dans Proxmox
+1. Dans l'interface Web Proxmox (`https://IP_PROXMOX:8006`), sélectionnez la VM.
+2. Allez dans **Hardware** > **Network Device (net0)** > **Edit** :
+   - Vérifiez que le **Bridge** est bien `vmbr0` (le bridge actif du serveur hôte).
+   - Vérifiez que la case **Disconnect** n'est **PAS** cochée.
+   - Vérifiez que le champ **VLAN Tag** est vide (sauf si votre réseau utilise des VLANs dédiés).
+
+#### Étape 2 — Ouvrir la Console NoVNC de la VM
+Comme le SSH ne fonctionne pas encore, ouvrez la **Console** Proxmox (bouton *Console* en haut à droite) et connectez-vous avec votre compte utilisateur.
+
+#### Étape 3 — Identifier le nom réel de la carte réseau
+Dans la console de la VM, tapez :
+```bash
+ip link
+```
+Repérez le nom de la carte réseau physique (ex: `ens18`, `ens19`, `enp0s18`, `eth0`). Notez s'il est à l'état `DOWN`.
+
+#### Étape 4 — Reconfigurer Netplan (DHCP ou IP Statique)
+Éditez le fichier de configuration réseau Netplan :
+```bash
+sudo nano /etc/netplan/00-installer-config.yaml
+# Si absent, vérifiez : sudo nano /etc/netplan/50-cloud-init.yaml ou tout fichier dans /etc/netplan/
+```
+
+**Option A : Configuration en DHCP (Recommandé pour récupérer une IP automatique)**
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens18:           # <--- Remplacez par le nom exact trouvé à l'Étape 3
+      dhcp4: true
+```
+
+**Option B : Configuration en IP Statique (adaptée au sous-réseau local)**
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens18:           # <--- Nom exact trouvé à l'Étape 3
+      addresses:
+        - 192.168.1.150/24    # <--- IP dans le sous-réseau du nouveau réseau
+      routes:
+        - to: default
+          via: 192.168.1.1    # <--- Passerelle (IP de la box / routeur)
+      nameservers:
+        addresses:
+          - 1.1.1.1
+          - 8.8.8.8
+```
+
+#### Étape 5 — Appliquer la configuration réseau
+```bash
+sudo netplan apply
+```
+
+Vérifiez que la VM a bien récupéré son adresse IP et communique avec l'extérieur :
+```bash
+ip a
+ping -c 3 1.1.1.1
+```
+Le réseau et l'accès SSH sont immédiatement rétablis.
+
