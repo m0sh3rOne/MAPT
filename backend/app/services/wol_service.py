@@ -273,9 +273,14 @@ class WolService:
         self,
         device_id: UUID,
         broadcast_ip: Optional[str] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        user_id: Optional[UUID] = None,
+        ip_address: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Réveille une machine unique par son identifiant MAPT."""
+        """Réveille une machine unique par son identifiant MAPT et consigne l'action dans le journal d'audit."""
+        from app.repositories.audit_repository import AuditRepository
+        from app.models.audit import AuditAction
+
         res = await self.db.execute(select(Device).where(Device.id == device_id))
         device = res.scalar_one_or_none()
         if not device:
@@ -290,6 +295,22 @@ class WolService:
 
         macs, interfaces, real_ip = await self.get_device_network_info(device)
         if not macs:
+            audit_repo = AuditRepository(self.db)
+            await audit_repo.create(
+                action=AuditAction.DEVICE_WOL,
+                entity_type="device",
+                entity_id=device.id,
+                user_id=user_id,
+                details={
+                    "hostname": device.hostname,
+                    "mac_address": "",
+                    "broadcast_ip": broadcast_ip or "255.255.255.255",
+                    "port": port or 9,
+                    "success": False,
+                    "message": f"Aucune adresse MAC connue dans l'inventaire de la machine {device.hostname}."
+                },
+                ip_address=ip_address
+            )
             return {
                 "device_id": str(device.id),
                 "hostname": device.hostname,
@@ -321,6 +342,33 @@ class WolService:
 
         success = any(r.get("success") for r in results)
         targets_str = ", ".join(list(all_targets)[:4])
+        total_packets = sum(r.get("packets_sent", 0) for r in results)
+        msg = (
+            f"Paquet magique Wake-on-LAN diffusé avec succès à {primary_mac_formatted} ({device.hostname}) sur {len(all_targets)} cible(s) réseau."
+            if success else
+            f"Échec de diffusion du paquet magique Wake-on-LAN pour {device.hostname}."
+        )
+
+        # Enregistrement systématique dans le journal d'audit
+        audit_repo = AuditRepository(self.db)
+        await audit_repo.create(
+            action=AuditAction.DEVICE_WOL,
+            entity_type="device",
+            entity_id=device.id,
+            user_id=user_id,
+            details={
+                "hostname": device.hostname,
+                "mac_address": primary_mac_formatted,
+                "mac_addresses": [format_mac(m) for m in macs],
+                "broadcast_ip": targets_str or broadcast_ip or "255.255.255.255",
+                "port": port or 9,
+                "ip_address": real_ip or device.ip_address,
+                "success": success,
+                "packets_sent": total_packets,
+                "message": msg
+            },
+            ip_address=ip_address
+        )
 
         return {
             "device_id": str(device.id),
@@ -332,14 +380,16 @@ class WolService:
             "ip_address": real_ip or device.ip_address,
             "success": success,
             "mac_results": results,
-            "message": f"Paquet magique Wake-on-LAN envoyé avec succès à {primary_mac_formatted} ({device.hostname}) sur {len(all_targets)} cibles réseau."
+            "message": msg
         }
 
     async def wake_devices(
         self,
         device_ids: List[UUID],
         broadcast_ip: Optional[str] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        user_id: Optional[UUID] = None,
+        ip_address: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Réveille une liste de machines en séquençant légèrement les envois (20ms)
@@ -347,7 +397,13 @@ class WolService:
         """
         results = []
         for idx, d_id in enumerate(device_ids):
-            res = await self.wake_device(d_id, broadcast_ip=broadcast_ip, port=port)
+            res = await self.wake_device(
+                d_id,
+                broadcast_ip=broadcast_ip,
+                port=port,
+                user_id=user_id,
+                ip_address=ip_address
+            )
             results.append(res)
             if idx < len(device_ids) - 1:
                 await asyncio.sleep(0.02)
@@ -357,9 +413,19 @@ class WolService:
         self,
         group_id: UUID,
         broadcast_ip: Optional[str] = None,
-        port: Optional[int] = None
+        port: Optional[int] = None,
+        user_id: Optional[UUID] = None,
+        ip_address: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Réveille toutes les machines membres d'un groupe."""
+        """Réveille toutes les machines membres d'un groupe et trace l'opération au niveau du groupe."""
+        from app.models.group import DeviceGroup
+        from app.repositories.audit_repository import AuditRepository
+        from app.models.audit import AuditAction
+
+        group_res = await self.db.execute(select(DeviceGroup).where(DeviceGroup.id == group_id))
+        group = group_res.scalar_one_or_none()
+        group_name = group.name if group else str(group_id)
+
         res = await self.db.execute(
             select(DeviceGroupMember.device_id).where(DeviceGroupMember.group_id == group_id)
         )
@@ -375,6 +441,31 @@ class WolService:
                 "message": "Aucune machine membre dans ce groupe."
             }]
 
-        return await self.wake_devices(device_ids, broadcast_ip=broadcast_ip, port=port)
+        results = await self.wake_devices(
+            device_ids,
+            broadcast_ip=broadcast_ip,
+            port=port,
+            user_id=user_id,
+            ip_address=ip_address
+        )
+
+        # Audit global au niveau du groupe
+        audit_repo = AuditRepository(self.db)
+        await audit_repo.create(
+            action=AuditAction.GROUP_WOL,
+            entity_type="group",
+            entity_id=group_id,
+            user_id=user_id,
+            details={
+                "group_name": group_name,
+                "devices_count": len(device_ids),
+                "success_count": sum(1 for r in results if r.get("success")),
+                "broadcast_ip": broadcast_ip or "auto",
+                "port": port or 9
+            },
+            ip_address=ip_address
+        )
+
+        return results
 
 

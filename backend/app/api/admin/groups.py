@@ -108,17 +108,25 @@ async def remove_device_from_group(
 @router.post("/{group_id}/wol")
 async def wake_group_devices(
     group_id: UUID,
+    request: Request,
     payload: Optional[WolDeviceRequest] = None,
     current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Envoie un paquet magique Wake-on-LAN à l'ensemble des machines du groupe.
+    Envoie un paquet magique Wake-on-LAN à l'ensemble des machines du groupe et consigne l'audit.
     """
     from app.services.wol_service import WolService
     wol_svc = WolService(db)
     b_ip = payload.broadcast_ip if payload else None
     port = payload.port if payload else None
-    return await wol_svc.wake_group(group_id, broadcast_ip=b_ip, port=port)
+    client_ip = request.client.host if request.client else None
+    return await wol_svc.wake_group(
+        group_id,
+        broadcast_ip=b_ip,
+        port=port,
+        user_id=current_user.id,
+        ip_address=client_ip
+    )
 
 

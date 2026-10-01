@@ -101,7 +101,7 @@ class AddDeviceToGroupRequest(BaseModel):
 
 class DeviceTargetHistoryResponse(BaseModel):
     id: UUID
-    deployment_id: UUID
+    deployment_id: Optional[UUID] = None
     deployment_name: str
     deployment_type: str
     custom_command: Optional[str] = None

@@ -85,7 +85,7 @@ export interface DeviceInventory {
 
 export interface DeviceActionHistory {
   id: string;
-  deployment_id: string;
+  deployment_id?: string | null;
   deployment_name: string;
   deployment_type: string;
   custom_command?: string;

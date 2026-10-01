@@ -224,7 +224,7 @@ class DeploymentService:
                 try:
                     from app.services.wol_service import WolService
                     wol_svc = WolService(self.db)
-                    await wol_svc.wake_devices(list(target_device_ids))
+                    await wol_svc.wake_devices(list(target_device_ids), user_id=user_id, ip_address=ip_address)
                 except Exception as e:
                     from app.core.logging import logger
                     logger.warning(f"Échec envoi Wake-on-LAN pour le déploiement {created.id}: {e}")

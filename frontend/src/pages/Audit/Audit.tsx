@@ -170,6 +170,9 @@ export const Audit: React.FC = () => {
     if (act.includes('DELETE') || act.includes('REMOVE') || act.includes('CANCEL')) {
       return 'bg-rose-950/80 text-rose-400 border-rose-800/60';
     }
+    if (act.includes('WOL') || act.includes('WAKE')) {
+      return 'bg-amber-950/80 text-amber-400 border-amber-700/60';
+    }
     if (act.includes('CREATE') || act.includes('ADD') || act.includes('ENROLL')) {
       return 'bg-emerald-950/80 text-emerald-400 border-emerald-800/60';
     }

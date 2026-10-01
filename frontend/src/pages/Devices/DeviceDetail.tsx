@@ -155,9 +155,24 @@ export const DeviceDetail: React.FC = () => {
 
   const { data: targetLogs = [], isLoading: loadingTargetLogs } = useQuery({
     queryKey: ['target-logs', selectedActionForLogs?.deployment_id, selectedActionForLogs?.id],
-    queryFn: () => api.getTargetLogs(selectedActionForLogs!.deployment_id, selectedActionForLogs!.id),
+    queryFn: async () => {
+      if (!selectedActionForLogs?.deployment_id) {
+        return [
+          {
+            id: 'wol-log-1',
+            deployment_target_id: selectedActionForLogs?.id || '',
+            timestamp: selectedActionForLogs?.created_at || new Date().toISOString(),
+            level: selectedActionForLogs?.status === 'succeeded' ? 'INFO' : 'ERROR',
+            message: selectedActionForLogs?.status === 'succeeded'
+              ? `Paquet magique Wake-on-LAN diffusé avec succès sur le réseau (${selectedActionForLogs?.custom_command || 'Broadcast'}).`
+              : (selectedActionForLogs?.error_message || 'Échec d\'envoi du paquet magique Wake-on-LAN.')
+          }
+        ];
+      }
+      return api.getTargetLogs(selectedActionForLogs.deployment_id, selectedActionForLogs.id);
+    },
     enabled: !!selectedActionForLogs,
-    refetchInterval: 3000,
+    refetchInterval: (query) => (selectedActionForLogs?.deployment_id ? 3000 : false),
   });
 
   // Action mutation
@@ -2072,8 +2087,14 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-xs">
-                        <span className="font-mono text-[11px] uppercase px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-300">
-                          {act.deployment_type}
+                        <span
+                          className={`font-mono text-[11px] uppercase px-2 py-0.5 rounded border ${
+                            act.deployment_type === 'wol'
+                              ? 'bg-amber-950/80 border-amber-700/60 text-amber-300 font-bold'
+                              : 'bg-slate-950 border-slate-800 text-slate-300'
+                          }`}
+                        >
+                          {act.deployment_type === 'wol' ? '⚡ WOL' : act.deployment_type}
                         </span>
                       </td>
                       <td className="px-5 py-3.5">{getStatusBadge(act.status)}</td>
