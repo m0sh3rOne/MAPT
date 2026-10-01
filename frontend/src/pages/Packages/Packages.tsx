@@ -26,7 +26,8 @@ import {
   FileCode,
   Layers,
   Wrench,
-  Check
+  Check,
+  Search
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
@@ -166,6 +167,7 @@ export const Packages: React.FC = () => {
   const [deployTargetType, setDeployTargetType] = useState<'all' | 'custom' | 'group'>('all');
   const [selectedDevices, setSelectedDevices] = useState<string[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState<string>('');
   const [deploySuccessMessage, setDeploySuccessMessage] = useState<string | null>(null);
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
     is_recurring: false,
@@ -471,11 +473,23 @@ export const Packages: React.FC = () => {
     );
   };
 
+  const filteredDeployDevices = devices.filter((device: any) => {
+    if (!deviceSearchQuery.trim()) return true;
+    const q = deviceSearchQuery.toLowerCase().trim();
+    const hostname = (device.hostname || '').toLowerCase();
+    const ip = (device.ip_address || '').toLowerCase();
+    const os = (device.os_name || '').toLowerCase();
+    return hostname.includes(q) || ip.includes(q) || os.includes(q);
+  });
+
   const selectAllDevices = () => {
-    if (selectedDevices.length === devices.length) {
-      setSelectedDevices([]);
+    if (filteredDeployDevices.length === 0) return;
+    const filteredIds = filteredDeployDevices.map((d: any) => d.id);
+    const allFilteredSelected = filteredIds.every((id: string) => selectedDevices.includes(id));
+    if (allFilteredSelected) {
+      setSelectedDevices((prev) => prev.filter((id) => !filteredIds.includes(id)));
     } else {
-      setSelectedDevices(devices.map((d: any) => d.id));
+      setSelectedDevices((prev) => Array.from(new Set([...prev, ...filteredIds])));
     }
   };
 
@@ -651,6 +665,7 @@ export const Packages: React.FC = () => {
                       setDeploySuccessMessage(null);
                       setPackageToDeploy(pkg);
                       setSelectedDevices([]);
+                      setDeviceSearchQuery('');
                       setDeployTargetType('all');
                       setScheduleConfig({
                         is_recurring: false,
@@ -1741,23 +1756,69 @@ export const Packages: React.FC = () => {
 
             {/* Target Type: Custom Devices Selection */}
             {deployTargetType === 'custom' && (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-400 uppercase">Machines disponibles</label>
+                  <div className="flex items-center space-x-2">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      Machines disponibles
+                    </label>
+                    <span className="text-[11px] font-semibold text-slate-500 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+                      {filteredDeployDevices.length} / {devices.length}
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={selectAllDevices}
-                    className="text-xs text-emerald-400 hover:text-emerald-300 font-medium"
+                    className="text-xs text-emerald-400 hover:text-emerald-300 font-medium transition"
                   >
-                    {selectedDevices.length === devices.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    {filteredDeployDevices.length > 0 &&
+                    filteredDeployDevices.every((d: any) => selectedDevices.includes(d.id))
+                      ? 'Tout désélectionner'
+                      : 'Tout sélectionner'}
                   </button>
                 </div>
 
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-2 max-h-48 overflow-y-auto space-y-1">
+                {/* Champ de Recherche / Filtrage */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={deviceSearchQuery}
+                    onChange={(e) => setDeviceSearchQuery(e.target.value)}
+                    placeholder="Filtrer par nom de machine, IP, OS..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500 transition"
+                  />
+                  {deviceSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setDeviceSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition"
+                      title="Effacer le filtre"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Liste des machines filtrées */}
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-2 max-h-52 overflow-y-auto space-y-1">
                   {devices.length === 0 ? (
                     <p className="text-xs text-slate-500 text-center py-4">Aucune machine enregistrée.</p>
+                  ) : filteredDeployDevices.length === 0 ? (
+                    <div className="text-center py-4 space-y-1">
+                      <p className="text-xs text-slate-500">
+                        Aucune machine ne correspond à « <span className="text-slate-300">{deviceSearchQuery}</span> »
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setDeviceSearchQuery('')}
+                        className="text-[11px] text-emerald-400 hover:underline"
+                      >
+                        Effacer la recherche
+                      </button>
+                    </div>
                   ) : (
-                    devices.map((device: any) => {
+                    filteredDeployDevices.map((device: any) => {
                       const isSelected = selectedDevices.includes(device.id);
                       return (
                         <div
@@ -1765,25 +1826,28 @@ export const Packages: React.FC = () => {
                           onClick={() => toggleDeviceSelection(device.id)}
                           className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition text-xs ${
                             isSelected
-                              ? 'bg-emerald-950/30 border border-emerald-800/50 text-slate-200'
+                              ? 'bg-emerald-950/30 border border-emerald-800/50 text-slate-200 shadow-sm shadow-emerald-950/40'
                               : 'hover:bg-slate-900 border border-transparent text-slate-400'
                           }`}
                         >
                           <div className="flex items-center space-x-2.5">
                             {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-emerald-400" />
+                              <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0" />
                             ) : (
-                              <Square className="w-4 h-4 text-slate-600" />
+                              <Square className="w-4 h-4 text-slate-600 shrink-0" />
                             )}
                             <div>
                               <p className="font-semibold text-slate-200">{device.hostname}</p>
-                              <p className="text-[10px] text-slate-500">{device.ip_address || 'IP inconnue'} &bull; {device.os_name}</p>
+                              <p className="text-[10px] text-slate-500">
+                                {device.ip_address || 'IP inconnue'} &bull; {device.os_name || 'Windows'}
+                              </p>
                             </div>
                           </div>
                           <span
                             className={`w-2 h-2 rounded-full ${
-                              device.is_online ? 'bg-emerald-400' : 'bg-slate-600'
+                              device.is_online ? 'bg-emerald-400 ring-4 ring-emerald-400/20' : 'bg-slate-600'
                             }`}
+                            title={device.is_online ? 'En ligne' : 'Hors ligne'}
                           />
                         </div>
                       );
