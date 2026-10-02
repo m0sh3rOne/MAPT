@@ -1,3 +1,4 @@
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Set, Union
 from uuid import UUID
 from fastapi import HTTPException
@@ -126,12 +127,12 @@ class DeploymentService:
                     status_code=403,
                     detail="En tant qu'opérateur, vous n'êtes pas autorisé à cibler l'ensemble du parc de machines."
                 )
-            assigned_group_ids = set(await self.group_repo.get_operator_group_ids(user_id))
-            assigned_device_ids = await self.group_repo.get_operator_device_ids(user_id)
+            assigned_group_ids = {str(g) for g in await self.group_repo.get_operator_group_ids(user_id)}
+            assigned_device_ids = {str(d) for d in await self.group_repo.get_operator_device_ids(user_id)}
 
             if dep_in.target_group_ids:
                 for gid in dep_in.target_group_ids:
-                    if gid not in assigned_group_ids:
+                    if str(gid) not in assigned_group_ids:
                         raise HTTPException(
                             status_code=403,
                             detail="Accès refusé : vous n'êtes pas assigné à ce groupe en tant qu'opérateur."
@@ -139,7 +140,7 @@ class DeploymentService:
 
             if dep_in.target_device_ids:
                 for did in dep_in.target_device_ids:
-                    if did not in assigned_device_ids:
+                    if str(did) not in assigned_device_ids:
                         raise HTTPException(
                             status_code=403,
                             detail="Accès refusé : cette machine n'appartient à aucun des groupes qui vous sont assignés."
