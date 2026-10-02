@@ -13,9 +13,7 @@ ENV no_proxy=$NO_PROXY
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm config set fetch-retry-maxtimeout 120000 && \
-    npm config set fetch-retry-mintimeout 20000 && \
-    npm install --no-audit
+RUN npm install --no-audit
 
 COPY . .
 RUN npm run build
