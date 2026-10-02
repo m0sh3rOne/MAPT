@@ -20,6 +20,7 @@ class DeviceCreate(DeviceBase):
 class DeviceResponse(DeviceBase):
     id: UUID
     device_uuid: UUID
+    is_approved: bool = True
     enabled: bool
     is_online: bool = False
     mac_address: Optional[str] = None
@@ -31,6 +32,10 @@ class DeviceResponse(DeviceBase):
 
     class Config:
         from_attributes = True
+
+
+class DeviceBatchApproveRequest(BaseModel):
+    device_ids: List[UUID]
 
 
 class WolDeviceRequest(BaseModel):
@@ -62,6 +67,10 @@ class WolResultResponse(BaseModel):
 
 
 class DeviceInventoryUpdate(BaseModel):
+    os_caption: Optional[str] = None
+    os_display_version: Optional[str] = None
+    os_build: Optional[str] = None
+    os_architecture: Optional[str] = None
     cpu_model: Optional[str] = None
     cpu_cores: Optional[int] = None
     total_memory_mb: Optional[int] = None

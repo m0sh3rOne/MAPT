@@ -14,7 +14,8 @@ from app.schemas.device import (
     WolCustomRequest,
     WolResultResponse,
     ActionCountResponse,
-    DeviceBatchDeleteRequest
+    DeviceBatchDeleteRequest,
+    DeviceBatchApproveRequest
 )
 from app.core.security import UserRole
 from app.services.device_service import DeviceService
@@ -219,6 +220,56 @@ async def disable_device(
     service = DeviceService(db)
     client_ip = request.client.host if request.client else None
     return await service.set_device_status(device_id, False, current_user.id, client_ip)
+
+
+@router.post("/{device_id}/approve", response_model=DeviceResponse)
+async def approve_device(
+    device_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Approuve administrativement une machine pour l'intégrer pleinement au parc actif.
+    """
+    service = DeviceService(db)
+    client_ip = request.client.host if request.client else None
+    return await service.approve_device(device_id, current_user.id, client_ip)
+
+
+@router.post("/{device_id}/unapprove", response_model=DeviceResponse)
+async def unapprove_device(
+    device_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Passe une machine sous le statut Non approuvé.
+    """
+    service = DeviceService(db)
+    client_ip = request.client.host if request.client else None
+    return await service.unapprove_device(device_id, current_user.id, client_ip)
+
+
+@router.post("/batch-approve")
+async def approve_devices_batch(
+    request: Request,
+    payload: DeviceBatchApproveRequest,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Approuve un lot de machines sélectionnées en une seule opération.
+    """
+    service = DeviceService(db)
+    client_ip = request.client.host if request.client else None
+    count = await service.approve_devices_batch(payload.device_ids, current_user.id, client_ip)
+    return {
+        "status": "success",
+        "count": count,
+        "message": f"{count} machine(s) approuvée(s) avec succès."
+    }
 
 
 @router.delete("/{device_id}")

@@ -19,6 +19,7 @@ export interface Device {
   mac_address?: string;
   mac_addresses?: string[];
   enabled: boolean;
+  is_approved?: boolean;
   is_online: boolean;
   last_seen_at?: string;
   created_at: string;

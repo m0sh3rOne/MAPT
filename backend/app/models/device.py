@@ -18,6 +18,7 @@ class Device(Base):
     agent_version = Column(String(50), nullable=True)
     ip_address = Column(String(100), nullable=True)
     agent_token = Column(String(255), nullable=True)
+    is_approved = Column(Boolean, default=True, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
     is_archived = Column(Boolean, default=False, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)

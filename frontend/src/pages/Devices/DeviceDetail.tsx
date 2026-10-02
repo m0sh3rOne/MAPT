@@ -247,6 +247,19 @@ export const DeviceDetail: React.FC = () => {
     },
   });
 
+  const approveMutation = useMutation({
+    mutationFn: () => api.approveDevice(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de l'approbation de la machine : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
   if (loadingDevice || !device) {
     return <div className="py-12 text-center text-slate-500">Chargement des données de la machine...</div>;
   }
@@ -730,15 +743,22 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
           <div>
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-black text-slate-100 tracking-tight">{device.hostname}</h1>
-              <span
-                className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
-                  device.is_online
-                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
-                }`}
-              >
-                {device.is_online ? 'En ligne' : 'Hors ligne'}
-              </span>
+              {device.is_approved === false ? (
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>Non approuvé</span>
+                </span>
+              ) : (
+                <span
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
+                    device.is_online
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                >
+                  {device.is_online ? 'En ligne' : 'Hors ligne'}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 font-mono mt-1">UUID: {device.device_uuid}</p>
           </div>
@@ -772,6 +792,18 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
 
       {/* Quick launch action button in header */}
       <div className="flex items-center gap-2.5">
+        {device.is_approved === false && (
+          <button
+            onClick={() => approveMutation.mutate()}
+            disabled={approveMutation.isPending}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/30 px-4 py-2 rounded-xl text-sm font-semibold transition shadow-sm disabled:opacity-50"
+            title="Approuver cette machine sur le serveur"
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>{approveMutation.isPending ? 'Approbation...' : 'Approuver la machine'}</span>
+          </button>
+        )}
+
         <button
           onClick={() => wakeMutation.mutate()}
           disabled={wakeMutation.isPending}

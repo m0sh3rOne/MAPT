@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -41,7 +40,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	// 1. Enrôlement initial si nécessaire (avec retry automatique sans couper le service)
 	for !r.cfg.IsEnrolled() {
 		r.logger.Info("Agent not enrolled yet. Initiating enrollment with server %s...", r.cfg.ServerURL)
-		err := r.client.Enroll(hostname, "Windows", runtime.GOOS, runtime.GOARCH, primaryIP)
+		osCap, osDispVer, osBld, _ := inventory.GetOSInfo()
+		err := r.client.Enroll(hostname, osCap, osDispVer, osBld, primaryIP)
 		if err != nil {
 			r.logger.Warn("Enrollment attempt failed: %v. Retrying in 5 seconds...", err)
 			select {

@@ -14,6 +14,10 @@ import (
 )
 
 type InventoryData struct {
+	OSCaption         string                   `json:"os_caption,omitempty"`
+	OSDisplayVersion  string                   `json:"os_display_version,omitempty"`
+	OSBuild           string                   `json:"os_build,omitempty"`
+	OSArchitecture    string                   `json:"os_architecture,omitempty"`
 	CPUModel          string                   `json:"cpu_model"`
 	CPUCores          int                      `json:"cpu_cores"`
 	TotalMemoryMB     int                      `json:"total_memory_mb"`
@@ -90,6 +94,7 @@ try {
     $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
     $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
     $drive = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'" -ErrorAction SilentlyContinue
+    $regNt = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
 
     $activeUser = if ($cs.UserName) { $cs.UserName } else { "" }
     if ($activeUser) { $res['current_user'] = $activeUser }
@@ -102,6 +107,19 @@ try {
     if ($os.LastBootUpTime) {
         $res['last_boot_at'] = $os.LastBootUpTime.ToString('o')
     }
+
+    # Détails complets du système d'exploitation (winver)
+    $dispVer = if ($regNt.DisplayVersion) { $regNt.DisplayVersion } elseif ($regNt.ReleaseId) { $regNt.ReleaseId } else { "" }
+    $ubr = if ($regNt.UBR) { $regNt.UBR } else { "" }
+    $bNum = if ($os.BuildNumber) { $os.BuildNumber } else { $regNt.CurrentBuild }
+    $fullBuild = if ($ubr) { "$bNum.$ubr" } else { "$bNum" }
+    $caption = if ($os.Caption) { $os.Caption.Replace("Microsoft ", "").Trim() } else { "Windows" }
+    $arch = if ($os.OSArchitecture) { $os.OSArchitecture } else { "64-bit" }
+
+    if ($caption) { $res['os_caption'] = $caption }
+    if ($dispVer) { $res['os_display_version'] = $dispVer }
+    if ($fullBuild) { $res['os_build'] = $fullBuild }
+    if ($arch) { $res['os_architecture'] = $arch }
 } catch {}
 
 try {
@@ -268,6 +286,10 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	var parsed struct {
+		OSCaption         string                   `json:"os_caption"`
+		OSDisplayVersion  string                   `json:"os_display_version"`
+		OSBuild           string                   `json:"os_build"`
+		OSArchitecture    string                   `json:"os_architecture"`
 		CurrentUser       string                   `json:"current_user"`
 		CPUModel          string                   `json:"cpu_model"`
 		TotalMemoryMB     int                      `json:"total_memory_mb"`
@@ -280,6 +302,18 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &parsed); err == nil {
+		if parsed.OSCaption != "" {
+			data.OSCaption = parsed.OSCaption
+		}
+		if parsed.OSDisplayVersion != "" {
+			data.OSDisplayVersion = parsed.OSDisplayVersion
+		}
+		if parsed.OSBuild != "" {
+			data.OSBuild = parsed.OSBuild
+		}
+		if parsed.OSArchitecture != "" {
+			data.OSArchitecture = parsed.OSArchitecture
+		}
 		if parsed.CurrentUser != "" {
 			data.CurrentUser = parsed.CurrentUser
 		}
@@ -320,6 +354,55 @@ $res | ConvertTo-Json -Depth 4 -Compress
 			}
 		}
 	}
+}
+
+// GetOSInfo retourne le nom d'affichage précis (winver), la version (23H2), le build complet et l'architecture
+func GetOSInfo() (caption, displayVersion, build, arch string) {
+	caption = "Windows"
+	displayVersion = ""
+	build = ""
+	arch = "64-bit"
+
+	if runtime.GOOS != "windows" {
+		return runtime.GOOS, "", runtime.GOARCH, runtime.GOARCH
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	cmdStr := `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
+$os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue;
+$regNt = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue;
+$dispVer = if ($regNt.DisplayVersion) { $regNt.DisplayVersion } elseif ($regNt.ReleaseId) { $regNt.ReleaseId } else { "" };
+$ubr = if ($regNt.UBR) { $regNt.UBR } else { "" };
+$bNum = if ($os.BuildNumber) { $os.BuildNumber } else { $regNt.CurrentBuild };
+$fullBuild = if ($ubr) { "$bNum.$ubr" } else { "$bNum" };
+$cap = if ($os.Caption) { $os.Caption.Replace("Microsoft ", "").Trim() } else { "Windows" };
+$arc = if ($os.OSArchitecture) { $os.OSArchitecture } else { "64-bit" };
+@{caption=$cap; displayVersion=$dispVer; build=$fullBuild; arch=$arc} | ConvertTo-Json -Compress
+`
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", cmdStr)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err == nil {
+		var res struct {
+			Caption        string `json:"caption"`
+			DisplayVersion string `json:"displayVersion"`
+			Build          string `json:"build"`
+			Arch           string `json:"arch"`
+		}
+		if json.Unmarshal(out.Bytes(), &res) == nil {
+			if res.Caption != "" {
+				caption = res.Caption
+			}
+			displayVersion = res.DisplayVersion
+			build = res.Build
+			if res.Arch != "" {
+				arch = res.Arch
+			}
+		}
+	}
+	return
 }
 
 func GetPrimaryIP() string {

@@ -86,6 +86,10 @@ class DeviceService:
             if best_ip:
                 effective_ip = best_ip
 
+        is_appr = getattr(device, "is_approved", True)
+        if is_appr is None:
+            is_appr = True
+
         return DeviceResponse(
             id=device.id,
             device_uuid=device.device_uuid,
@@ -95,6 +99,7 @@ class DeviceService:
             os_build=device.os_build,
             agent_version=device.agent_version,
             ip_address=effective_ip,
+            is_approved=is_appr,
             enabled=device.enabled,
             is_online=self._is_online(device.last_seen_at),
             mac_address=primary_mac,
@@ -133,6 +138,68 @@ class DeviceService:
             ip_address=ip_address
         )
         return self._map_to_response(updated)
+
+    async def approve_device(self, device_id: UUID, user_id: UUID, ip_address: Optional[str] = None) -> DeviceResponse:
+        device = await self.device_repo.get_by_id(device_id)
+        if not device:
+            raise HTTPException(status_code=404, detail="Machine introuvable.")
+        device.is_approved = True
+        device.enabled = True
+        device.updated_at = datetime.now(timezone.utc)
+        updated = await self.device_repo.update(device)
+
+        await self.audit_repo.create(
+            action=AuditAction.DEVICE_APPROVED,
+            entity_type="device",
+            user_id=user_id,
+            entity_id=device.id,
+            details={"hostname": device.hostname, "is_approved": True},
+            ip_address=ip_address
+        )
+        return self._map_to_response(updated)
+
+    async def unapprove_device(self, device_id: UUID, user_id: UUID, ip_address: Optional[str] = None) -> DeviceResponse:
+        device = await self.device_repo.get_by_id(device_id)
+        if not device:
+            raise HTTPException(status_code=404, detail="Machine introuvable.")
+        device.is_approved = False
+        device.updated_at = datetime.now(timezone.utc)
+        updated = await self.device_repo.update(device)
+
+        await self.audit_repo.create(
+            action=AuditAction.DEVICE_UNAPPROVED,
+            entity_type="device",
+            user_id=user_id,
+            entity_id=device.id,
+            details={"hostname": device.hostname, "is_approved": False},
+            ip_address=ip_address
+        )
+        return self._map_to_response(updated)
+
+    async def approve_devices_batch(self, device_ids: List[UUID], user_id: UUID, ip_address: Optional[str] = None) -> int:
+        if not device_ids:
+            return 0
+        approved_count = 0
+        for d_id in device_ids:
+            device = await self.device_repo.get_by_id(d_id)
+            if not device or device.is_archived:
+                continue
+            device.is_approved = True
+            device.enabled = True
+            device.updated_at = datetime.now(timezone.utc)
+            await self.device_repo.update(device)
+
+            await self.audit_repo.create(
+                action=AuditAction.DEVICE_APPROVED,
+                entity_type="device",
+                user_id=user_id,
+                entity_id=device.id,
+                details={"hostname": device.hostname, "is_approved": True, "batch": True},
+                ip_address=ip_address
+            )
+            approved_count += 1
+        await self.db.commit()
+        return approved_count
 
     async def delete_device(self, device_id: UUID, user_id: UUID, ip_address: Optional[str] = None, uninstall_agent: bool = True):
         device = await self.device_repo.get_by_id(device_id)

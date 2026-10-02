@@ -77,6 +77,7 @@ class AgentService:
                 agent_version=enroll_in.agent_version,
                 ip_address=ip_address or enroll_in.ip_address,
                 agent_token=agent_token,
+                is_approved=True,
                 enabled=True,
                 last_seen_at=now
             )
@@ -265,5 +266,24 @@ class AgentService:
     async def update_inventory(self, device: Device, inventory_in: DeviceInventoryUpdate):
         from app.core.sanitizer import sanitize_data
         raw_dict = inventory_in.model_dump(exclude_unset=True)
+
+        # Si l'inventaire contient les informations d'OS détaillées (type winver)
+        updated_os = False
+        if inventory_in.os_caption:
+            device.os_name = inventory_in.os_caption
+            updated_os = True
+        if inventory_in.os_display_version is not None:
+            device.os_version = inventory_in.os_display_version
+            updated_os = True
+        if inventory_in.os_build is not None:
+            device.os_build = inventory_in.os_build
+            updated_os = True
+        if updated_os:
+            await self.device_repo.update(device)
+
+        # Retirer les champs spécifiques à l'OS avant d'upsert dans device_inventory
+        for k in ["os_caption", "os_display_version", "os_build", "os_architecture"]:
+            raw_dict.pop(k, None)
+
         cleaned_dict = sanitize_data(raw_dict)
         await self.device_repo.upsert_inventory(device.id, cleaned_dict)

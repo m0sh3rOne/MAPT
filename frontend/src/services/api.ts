@@ -111,6 +111,20 @@ export const api = {
     const res = await apiClient.post(`/admin/devices/${id}/disable`);
     return res.data;
   },
+  approveDevice: async (id: string): Promise<Device> => {
+    const res = await apiClient.post(`/admin/devices/${id}/approve`);
+    return res.data;
+  },
+  unapproveDevice: async (id: string): Promise<Device> => {
+    const res = await apiClient.post(`/admin/devices/${id}/unapprove`);
+    return res.data;
+  },
+  approveDevicesBatch: async (deviceIds: string[]): Promise<{ status: string; count: number; message: string }> => {
+    const res = await apiClient.post('/admin/devices/batch-approve', {
+      device_ids: deviceIds
+    });
+    return res.data;
+  },
   deleteDevice: async (id: string, uninstallAgent: boolean = true) => {
     const res = await apiClient.delete(`/admin/devices/${id}`, {
       params: { uninstall_agent: uninstallAgent }
