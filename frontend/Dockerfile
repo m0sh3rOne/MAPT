@@ -12,8 +12,14 @@ ENV no_proxy=$NO_PROXY
 
 WORKDIR /app
 
+# Configuration optimisée pour proxy d'établissement / académique (Squid / EOLE / Amon)
+RUN npm config set strict-ssl false && \
+    npm config set registry http://registry.npmjs.org/ && \
+    npm config set maxsockets 5 && \
+    npm config set fetch-retry-maxtimeout 60000
+
 COPY package*.json ./
-RUN npm install --no-audit
+RUN npm install --no-audit --no-fund
 
 COPY . .
 RUN npm run build
