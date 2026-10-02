@@ -52,21 +52,7 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}[2/6] ⚛️  Compilation du Frontend Web (React / Vite)...${NC}"
-
-if command -v npm >/dev/null 2>&1; then
-    cd "$DIR/frontend"
-    echo "    Installation des dépendances npm et build..."
-    npm install --silent >/dev/null 2>&1 || npm install
-    npm run build
-    cd "$DIR"
-    echo -e "${GREEN}[✓] Frontend compilé avec succès dans frontend/dist.${NC}"
-else
-    echo -e "${YELLOW}[!] Node/npm non présent sur l'hôte. La compilation s'effectuera automatiquement dans Docker (multi-stage).${NC}"
-fi
-
-echo ""
-echo -e "${BLUE}[3/6] 🛠️  Recompilation de l'Agent Windows (mapt-agent.exe)...${NC}"
+echo -e "${BLUE}[2/5] 🛠️  Recompilation de l'Agent Windows (mapt-agent.exe)...${NC}"
 
 if command -v go >/dev/null 2>&1; then
     mkdir -p "$DIR/agent"
@@ -83,7 +69,7 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}[4/6] 🐳 Reconstruction et redémarrage des conteneurs Docker...${NC}"
+echo -e "${BLUE}[3/5] 🐳 Reconstruction et redémarrage des conteneurs Docker...${NC}"
 
 COMPOSE_FILE="$DIR/infrastructure/docker-compose.yml"
 if [ ! -f "$COMPOSE_FILE" ]; then
@@ -97,14 +83,14 @@ docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate
 echo -e "${GREEN}[✓] Conteneurs Docker reconstruits et redémarrés.${NC}"
 
 echo ""
-echo -e "${BLUE}[5/6] 🗄️  Vérification et migration des tables de la base de données...${NC}"
+echo -e "${BLUE}[4/5] 🗄️  Vérification et migration des tables de la base de données...${NC}"
 sleep 2
 docker exec -i mapt-postgres psql -U mapt -d mapt -c "ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE;" >/dev/null 2>&1 || true
 docker exec -i mapt-postgres psql -U mapt -d mapt -c "ALTER TABLE deployments ADD COLUMN IF NOT EXISTS max_concurrency INTEGER DEFAULT 8;" >/dev/null 2>&1 || true
 echo -e "${GREEN}[✓] Schéma de base de données validé.${NC}"
 
 echo ""
-echo -e "${BLUE}[6/6] 🧹 Nettoyage des anciennes images Docker orphelines...${NC}"
+echo -e "${BLUE}[5/5] 🧹 Nettoyage des anciennes images Docker orphelines...${NC}"
 docker image prune -f >/dev/null 2>&1 || true
 echo -e "${GREEN}[✓] Nettoyage Docker terminé.${NC}"
 

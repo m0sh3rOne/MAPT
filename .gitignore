@@ -8,7 +8,7 @@ backend/.venv/
 
 # Build artifacts & Binaries
 dist/
-frontend/dist/
+!frontend/dist/
 *.exe
 *.new.exe
 agent/*.exe

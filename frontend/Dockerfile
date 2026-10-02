@@ -1,35 +1,7 @@
-# ==============================================================================
-# Étape 1 : Compilation du frontend React / TypeScript avec Node.js
-# ==============================================================================
-FROM node:20-alpine AS builder
-
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ENV http_proxy=$HTTP_PROXY
-ENV https_proxy=$HTTPS_PROXY
-ENV no_proxy=$NO_PROXY
-
-WORKDIR /app
-
-# Configuration optimisée pour proxy d'établissement / académique (Squid / EOLE / Amon)
-RUN npm config set strict-ssl false && \
-    npm config set registry http://registry.npmjs.org/ && \
-    npm config set maxsockets 5 && \
-    npm config set fetch-retry-maxtimeout 60000
-
-COPY package*.json ./
-RUN npm install --no-audit --no-fund
-
-COPY . .
-RUN npm run build
-
-# ==============================================================================
-# Étape 2 : Serveur Nginx pour servir les fichiers statiques compilés
-# ==============================================================================
+# Serveur Nginx ultra-rapide pour le frontend MAPT de production
 FROM nginx:alpine
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

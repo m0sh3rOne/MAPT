@@ -25,7 +25,7 @@ Voici les consignes précises à suivre étape par étape :
    ```
 
 ### 3. Reconstruction et redémarrage des conteneurs Docker
-1. Reconstruis et relance l'ensemble de la pile Docker Compose (Frontend Vite/Nginx multi-stage, Backend FastAPI, Worker, Relai WoL) :
+1. Reconstruis et relance l'ensemble de la pile Docker Compose (Frontend Nginx, Backend FastAPI, Worker, Relai WoL) :
    ```bash
    sudo docker compose -f infrastructure/docker-compose.yml up -d --build --force-recreate
    ```
