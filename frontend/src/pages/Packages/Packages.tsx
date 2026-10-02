@@ -224,7 +224,7 @@ export const Packages: React.FC = () => {
     setEditDestinationFolder(p.destinationFolder);
   };
 
-  // Automatically apply FOG presets when file is chosen
+  // Automatically apply presets when file is chosen
   const handleFileSelection = (selectedFile: File) => {
     setFile(selectedFile);
     const parts = selectedFile.name.split('.');
@@ -236,7 +236,7 @@ export const Packages: React.FC = () => {
       else if (ext === 'exe') matchedId = 'exe';
       else if (ext === 'ps1') matchedId = 'ps1';
       else if (ext === 'bat' || ext === 'cmd') matchedId = 'bat';
-      
+
       applyPreset(matchedId, ext);
 
       const lowerName = selectedFile.name.toLowerCase();
@@ -507,7 +507,7 @@ export const Packages: React.FC = () => {
           <div className="flex items-center space-x-2">
             <h1 className="text-2xl font-black text-slate-100 tracking-tight">Dépôt des Packages & Snapins</h1>
             <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs px-2.5 py-0.5 rounded-full font-medium">
-              FOG-Style & Intégration Windows
+              Gestion des packages d'applications Windows
             </span>
           </div>
           <p className="text-sm text-slate-400 mt-1">
@@ -786,11 +786,10 @@ export const Packages: React.FC = () => {
                         key={p.id}
                         type="button"
                         onClick={() => applyPresetToEdit(p.id)}
-                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs font-medium transition text-left ${
-                          isSelected
-                            ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                        }`}
+                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs font-medium transition text-left ${isSelected
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          }`}
                       >
                         <span className="text-base">{p.icon}</span>
                         <div className="truncate">
@@ -850,7 +849,7 @@ export const Packages: React.FC = () => {
                   <div className="flex items-center space-x-2">
                     <Wrench className="w-4 h-4 text-emerald-400" />
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                      Configuration Snapin FOG & Exécution Distante
+                      Configuration Snapin & Exécution Distante
                     </span>
                   </div>
                   <button
@@ -918,11 +917,10 @@ export const Packages: React.FC = () => {
                         key={idx}
                         type="button"
                         onClick={() => setEditPackageArgs(opt.val)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
-                          editPackageArgs === opt.val
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${editPackageArgs === opt.val
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
+                          }`}
                       >
                         {opt.label}
                       </button>
@@ -939,11 +937,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setEditIsInteractive(false)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        !editIsInteractive
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${!editIsInteractive
+                        ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
@@ -957,11 +954,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setEditIsInteractive(true)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        editIsInteractive
-                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${editIsInteractive
+                        ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
@@ -1132,11 +1128,10 @@ export const Packages: React.FC = () => {
                         key={p.id}
                         type="button"
                         onClick={() => applyPreset(p.id)}
-                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs font-medium transition text-left ${
-                          isSelected
-                            ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                        }`}
+                        className={`flex items-center space-x-2 p-2.5 rounded-xl border text-xs font-medium transition text-left ${isSelected
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                          }`}
                       >
                         <span className="text-base">{p.icon}</span>
                         <div className="truncate">
@@ -1261,11 +1256,10 @@ export const Packages: React.FC = () => {
                         key={idx}
                         type="button"
                         onClick={() => setPackageArgs(opt.val)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
-                          packageArgs === opt.val
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${packageArgs === opt.val
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
+                          }`}
                       >
                         {opt.label}
                       </button>
@@ -1282,11 +1276,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsInteractive(false)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        !isInteractive
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${!isInteractive
+                        ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
@@ -1300,11 +1293,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsInteractive(true)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        isInteractive
-                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${isInteractive
+                        ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
@@ -1476,7 +1468,7 @@ export const Packages: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <Settings2 className="w-4 h-4 text-emerald-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                    Paramètres Snapin FOG
+                    Paramètres Snapin
                   </span>
                 </div>
 
@@ -1529,11 +1521,10 @@ export const Packages: React.FC = () => {
                         key={idx}
                         type="button"
                         onClick={() => setPackageArgs(opt.val)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
-                          packageArgs === opt.val
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
-                            : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${packageArgs === opt.val
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 font-bold'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-850'
+                          }`}
                       >
                         {opt.label}
                       </button>
@@ -1550,11 +1541,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsInteractive(false)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        !isInteractive
-                          ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${!isInteractive
+                        ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-slate-200">Silencieux (Arrière-plan)</span>
@@ -1568,11 +1558,10 @@ export const Packages: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsInteractive(true)}
-                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                        isInteractive
-                          ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
-                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
-                      }`}
+                      className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${isInteractive
+                        ? 'bg-blue-500/15 border-blue-500/50 text-blue-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
                     >
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-blue-300">Interactif (Graphique)</span>
@@ -1714,11 +1703,10 @@ export const Packages: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setDeployTargetType('all')}
-                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${
-                    deployTargetType === 'all'
-                      ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
+                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'all'
+                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
                 >
                   Toutes les machines ({devices.length})
                 </button>
@@ -1726,11 +1714,10 @@ export const Packages: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setDeployTargetType('custom')}
-                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${
-                    deployTargetType === 'custom'
-                      ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
+                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'custom'
+                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
                 >
                   Sélection manuelle ({selectedDevices.length})
                 </button>
@@ -1738,11 +1725,10 @@ export const Packages: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setDeployTargetType('group')}
-                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${
-                    deployTargetType === 'group'
-                      ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
+                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'group'
+                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
                 >
                   Par Groupe ({groups.length})
                 </button>
@@ -1786,7 +1772,7 @@ export const Packages: React.FC = () => {
                     className="text-xs text-emerald-400 hover:text-emerald-300 font-medium transition"
                   >
                     {filteredDeployDevices.length > 0 &&
-                    filteredDeployDevices.every((d: any) => selectedDevices.includes(d.id))
+                      filteredDeployDevices.every((d: any) => selectedDevices.includes(d.id))
                       ? 'Tout désélectionner'
                       : 'Tout sélectionner'}
                   </button>
@@ -1838,11 +1824,10 @@ export const Packages: React.FC = () => {
                         <div
                           key={device.id}
                           onClick={() => toggleDeviceSelection(device.id)}
-                          className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition text-xs ${
-                            isSelected
-                              ? 'bg-emerald-950/30 border border-emerald-800/50 text-slate-200 shadow-sm shadow-emerald-950/40'
-                              : 'hover:bg-slate-900 border border-transparent text-slate-400'
-                          }`}
+                          className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition text-xs ${isSelected
+                            ? 'bg-emerald-950/30 border border-emerald-800/50 text-slate-200 shadow-sm shadow-emerald-950/40'
+                            : 'hover:bg-slate-900 border border-transparent text-slate-400'
+                            }`}
                         >
                           <div className="flex items-center space-x-2.5">
                             {isSelected ? (
@@ -1858,9 +1843,8 @@ export const Packages: React.FC = () => {
                             </div>
                           </div>
                           <span
-                            className={`w-2 h-2 rounded-full ${
-                              device.is_online ? 'bg-emerald-400 ring-4 ring-emerald-400/20' : 'bg-slate-600'
-                            }`}
+                            className={`w-2 h-2 rounded-full ${device.is_online ? 'bg-emerald-400 ring-4 ring-emerald-400/20' : 'bg-slate-600'
+                              }`}
                             title={device.is_online ? 'En ligne' : 'Hors ligne'}
                           />
                         </div>

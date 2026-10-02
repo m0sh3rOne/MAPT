@@ -18,7 +18,7 @@ export const Navbar: React.FC = () => {
   const defaultHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
     ? 'localhost'
     : window.location.hostname;
-  
+
   // En dev (port 5173), l'API tourne sur 8088 par défaut. En prod (80/443), c'est direct.
   const defaultPort = window.location.port === '5173' ? '8088' : (window.location.port ? window.location.port : '');
   const [customHost, setCustomHost] = useState(defaultHost);
@@ -32,7 +32,7 @@ export const Navbar: React.FC = () => {
             setEnrollToken(data.enrollment_token);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [showAgentModal]);
 
@@ -43,7 +43,7 @@ export const Navbar: React.FC = () => {
   // Commande universelle PowerShell (PS 2.0 à 7+)
   const universalPs1Command = `Set-ExecutionPolicy Bypass -Scope Process -Force; try { [System.Net.ServicePointManager]::SecurityProtocol = 3072 -bor 768 -bor 192 } catch {}; (New-Object System.Net.WebClient).DownloadString('${baseScriptUrl}/scripts/install-agent.ps1') | iex`;
 
-  // Commande Invite de commandes (cmd.exe / GPO / Snapin FOG)
+  // Commande Invite de commandes (cmd.exe / GPO / Snapin)
   const universalCmdCommand = `powershell -Command "[System.Net.ServicePointManager]::SecurityProtocol = 3072; (New-Object System.Net.WebClient).DownloadString('${baseScriptUrl}/scripts/install-agent.ps1') | iex"`;
 
   // Commandes manuelles

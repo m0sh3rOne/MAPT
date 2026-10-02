@@ -201,5 +201,5 @@ MAPT/
 ## 5. Documentation & Guides Pratiques
 
 - 📘 [Guide de Déploiement Serveur Proxmox / Production](file:///c:/Users/Admin/Documents/Github/MAPT/GUIDE_DEPLOIEMENT_SERVEUR_PROXMOX.md) : Déploiement complet automatisé du serveur MAPT sur une machine virtuelle Ubuntu.
-- 📦 [Guide d'Utilisation des Packages & Snapins FOG](file:///c:/Users/Admin/Documents/Github/MAPT/GUIDE_UTILISATION_PACKAGES_SNAPINS.md) : Création, gestion, arguments d'installation silencieuse et déploiement de logiciels (.MSI, .EXE, .VBS).
+- 📦 [Guide d'Utilisation des Packages & Snapins](file:///c:/Users/Admin/Documents/Github/MAPT/GUIDE_UTILISATION_PACKAGES_SNAPINS.md) : Création, gestion, arguments d'installation silencieuse et déploiement de logiciels (.MSI, .EXE, .VBS).
 - 📜 [Documentation d'Architecture](file:///c:/Users/Admin/Documents/Github/MAPT/documentation_architecture_plateforme_deploiement.md) : Spécifications techniques complètes de la plateforme.
