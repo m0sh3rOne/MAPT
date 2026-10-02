@@ -99,6 +99,12 @@ export const Login: React.FC = () => {
             {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>Se connecter</span>}
           </button>
         </form>
+
+        <div className="mt-6 pt-5 border-t border-slate-800/80 text-center">
+          <p className="text-xs text-slate-500 font-medium">
+            &copy; {new Date().getFullYear()} Emmanuel POIRSON &bull; Tous droits r&eacute;serv&eacute;s
+          </p>
+        </div>
       </div>
     </div>
   );
