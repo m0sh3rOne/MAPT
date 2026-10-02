@@ -3,10 +3,19 @@
 # ==============================================================================
 FROM node:20-alpine AS builder
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ENV http_proxy=$HTTP_PROXY
+ENV https_proxy=$HTTPS_PROXY
+ENV no_proxy=$NO_PROXY
+
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+RUN npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm install --no-audit
 
 COPY . .
 RUN npm run build
