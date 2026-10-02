@@ -19,7 +19,12 @@ import {
   Search,
   Monitor,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  Download,
+  Upload,
+  FileJson,
+  FileUp,
+  AlertTriangle
 } from 'lucide-react';
 
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
@@ -37,8 +42,21 @@ export const Scripts: React.FC = () => {
 
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedScriptForEdit, setSelectedScriptForEdit] = useState<any | null>(null);
   const [selectedScriptForExecute, setSelectedScriptForExecute] = useState<any | null>(null);
+
+  // Script Import State
+  const [importJsonText, setImportJsonText] = useState('');
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importParsed, setImportParsed] = useState<{
+    name: string;
+    description: string;
+    language: string;
+    timeout_seconds: number;
+    content: string;
+  } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // Script Create Form
   const [name, setName] = useState('');
@@ -235,6 +253,106 @@ export const Scripts: React.FC = () => {
     }
   };
 
+  const handleExport = (sc: any) => {
+    const exportData = {
+      $schema: 'https://mapt.local/schemas/script-export-v1.json',
+      export_version: '1.0',
+      exported_at: new Date().toISOString(),
+      script: {
+        name: sc.name,
+        description: sc.description || '',
+        language: sc.language || 'powershell',
+        timeout_seconds: sc.latest_version?.timeout_seconds || 300,
+        content: sc.latest_version?.content || '',
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const cleanName = (sc.name || 'script').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    a.download = `mapt_script_${cleanName}.json`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    setSuccessMessage(`Script "${sc.name}" exporté avec succès en JSON.`);
+    setTimeout(() => setSuccessMessage(null), 5000);
+  };
+
+  const parseImportJson = (text: string) => {
+    setImportError(null);
+    try {
+      if (!text.trim()) {
+        setImportParsed(null);
+        return;
+      }
+      const parsed = JSON.parse(text);
+      const s = parsed.script || parsed;
+      const scriptName = s.name || s.title || '';
+      const scriptContent = s.content || s.initial_content || s.code || s.script_content || '';
+      const scriptLanguage = (s.language || s.type || 'powershell').toLowerCase();
+      const scriptDesc = s.description || '';
+      const scriptTimeout = parseInt(s.timeout_seconds || s.timeout) || 300;
+
+      if (!scriptName.trim()) {
+        throw new Error("Le fichier JSON doit contenir au minimum le champ 'name' pour le script.");
+      }
+      if (!scriptContent.trim()) {
+        throw new Error("Le fichier JSON doit contenir le code du script dans le champ 'content' ou 'initial_content'.");
+      }
+
+      setImportParsed({
+        name: scriptName,
+        description: scriptDesc,
+        language: ['powershell', 'python', 'cmd', 'vbscript', 'batch'].includes(scriptLanguage)
+          ? (scriptLanguage === 'batch' ? 'cmd' : scriptLanguage)
+          : 'powershell',
+        timeout_seconds: scriptTimeout,
+        content: scriptContent
+      });
+    } catch (err: any) {
+      setImportParsed(null);
+      setImportError(err.message || "Erreur lors de l'analyse du fichier JSON.");
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setImportJsonText(content);
+      parseImportJson(content);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importParsed) return;
+    try {
+      await createMutation.mutateAsync({
+        name: importParsed.name,
+        description: importParsed.description,
+        language: importParsed.language,
+        initial_content: importParsed.content,
+        timeout_seconds: importParsed.timeout_seconds,
+      });
+      setSuccessMessage(`Script "${importParsed.name}" importé avec succès !`);
+      setShowImportModal(false);
+      setImportParsed(null);
+      setImportJsonText('');
+      setImportFileName(null);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || "Erreur lors de l'importation du script.");
+    }
+  };
+
   const handleLanguageChange = (newLang: string) => {
     setLanguage(newLang);
     // If the content is empty or matches one of the default templates, switch to the new default template
@@ -281,6 +399,21 @@ export const Scripts: React.FC = () => {
 
           <button
             onClick={() => {
+              setImportJsonText('');
+              setImportFileName(null);
+              setImportParsed(null);
+              setImportError(null);
+              setShowImportModal(true);
+            }}
+            className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-cyan-500/30 hover:border-cyan-500/50 text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm transition whitespace-nowrap"
+            title="Importer un script depuis un fichier JSON"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Importer JSON</span>
+          </button>
+
+          <button
+            onClick={() => {
               setError(null);
               setName('');
               setDescription('');
@@ -306,7 +439,7 @@ export const Scripts: React.FC = () => {
               className="bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-6 flex flex-col justify-between space-y-4 transition shadow-lg shadow-black/20"
             >
               <div>
-                {/* Card Top: Type & Delete */}
+                {/* Card Top: Type & Actions (Export / Delete) */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center space-x-2">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${langMeta.iconClass}`}>
@@ -317,13 +450,23 @@ export const Scripts: React.FC = () => {
                     </span>
                   </div>
 
-                  <button
-                    onClick={() => handleDelete(sc)}
-                    className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-rose-500/30 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                    title="Supprimer ce script"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => handleExport(sc)}
+                      className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-cyan-500/40 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 transition"
+                      title="Exporter ce script au format JSON"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDelete(sc)}
+                      className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-rose-500/30 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                      title="Supprimer ce script"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <h3 className="text-lg font-bold text-slate-100">{sc.name}</h3>
@@ -798,6 +941,189 @@ export const Scripts: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Script Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <FileJson className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-100">Importer un Script (JSON)</h3>
+                  <p className="text-xs text-slate-400">
+                    Charger un fichier exporté ou coller le format JSON d'un script
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowImportModal(false)}
+                className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {importError && (
+              <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            {/* File Upload Drop Area */}
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-2">
+                1. Sélectionner un fichier .json
+              </label>
+              <div className="relative border-2 border-dashed border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 text-center transition bg-slate-950/40">
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleFileUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="flex flex-col items-center justify-center space-y-2 pointer-events-none">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+                    <FileUp className="w-5 h-5" />
+                  </div>
+                  <div className="text-xs text-slate-300 font-medium">
+                    {importFileName ? (
+                      <span className="text-cyan-400 font-bold font-mono">{importFileName}</span>
+                    ) : (
+                      <>
+                        <span className="text-cyan-400 font-bold">Cliquez pour parcourir</span> ou glissez-déposez votre fichier .json ici
+                      </>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">Formats supportés : export MAPT JSON ou structures personnalisées</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Raw JSON / Editor Area */}
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-1">
+                2. Ou collez directement le contenu JSON
+              </label>
+              <textarea
+                rows={importParsed ? 4 : 8}
+                value={importJsonText}
+                onChange={(e) => {
+                  setImportJsonText(e.target.value);
+                  parseImportJson(e.target.value);
+                }}
+                placeholder='{\n  "script": {\n    "name": "Mon Script",\n    "language": "powershell",\n    "timeout_seconds": 300,\n    "content": "Write-Output \\"Hello\\""\n  }\n}'
+                className="w-full bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-3 outline-none focus:border-cyan-500 leading-relaxed"
+              />
+            </div>
+
+            {/* Preview of Parsed Script */}
+            {importParsed && (
+              <div className="space-y-4 pt-4 border-t border-slate-800/80 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Check className="w-4 h-4" />
+                    <span>Aperçu et Paramètres du script à importer</span>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Nom du script *</label>
+                    <input
+                      type="text"
+                      required
+                      value={importParsed.name}
+                      onChange={(e) => setImportParsed({ ...importParsed, name: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Langage / Interpréteur</label>
+                    <select
+                      value={importParsed.language}
+                      onChange={(e) => setImportParsed({ ...importParsed, language: e.target.value })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    >
+                      <option value="powershell">PowerShell (.ps1)</option>
+                      <option value="python">Python (.py)</option>
+                      <option value="cmd">CMD / Batch (.bat)</option>
+                      <option value="vbscript">VBScript (.vbs)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Description</label>
+                    <input
+                      type="text"
+                      value={importParsed.description}
+                      onChange={(e) => setImportParsed({ ...importParsed, description: e.target.value })}
+                      placeholder="Optionnel"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Timeout (s)</label>
+                    <input
+                      type="number"
+                      min={10}
+                      max={86400}
+                      value={importParsed.timeout_seconds}
+                      onChange={(e) => setImportParsed({ ...importParsed, timeout_seconds: parseInt(e.target.value) || 300 })}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Aperçu du Code</label>
+                  <textarea
+                    rows={6}
+                    value={importParsed.content}
+                    onChange={(e) => setImportParsed({ ...importParsed, content: e.target.value })}
+                    className="w-full bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-3 outline-none focus:border-cyan-500 leading-relaxed"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 font-medium"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                disabled={!importParsed || createMutation.isPending}
+                className="flex items-center space-x-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-cyan-600/20 transition disabled:opacity-50"
+              >
+                {createMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Importation...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4" />
+                    <span>Importer le Script</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
