@@ -2,6 +2,9 @@
 
 Ce guide décrit l'installation pas-à-pas et automatisée de la plateforme **MAPT (Modular Automated Provisioning & Tracking)** sur une machine virtuelle Ubuntu dédiée (ou conteneur LXC) hébergée sur votre infrastructure **Proxmox VE**.
 
+> 💡 **Vous avez déjà un serveur MAPT installé et souhaitez le mettre à jour ?**  
+> Consultez le guide dédié : [**GUIDE_MISE_A_JOUR_MAPT.md**](file:///c:/Users/Admin/Documents/Github/MAPT/GUIDE_MISE_A_JOUR_MAPT.md) (ou lancez `sudo ./scripts/update-server-production.sh`).
+
 ---
 
 ## 1. Prérequis sur Proxmox VE
