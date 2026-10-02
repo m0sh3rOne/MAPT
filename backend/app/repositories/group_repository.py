@@ -76,6 +76,20 @@ class GroupRepository:
         )
         await self.db.flush()
 
+    async def remove_device_from_all_groups(self, device_id: UUID):
+        await self.db.execute(
+            delete(DeviceGroupMember).where(DeviceGroupMember.device_id == device_id)
+        )
+        await self.db.flush()
+
+    async def remove_devices_from_all_groups(self, device_ids: List[UUID]):
+        if not device_ids:
+            return
+        await self.db.execute(
+            delete(DeviceGroupMember).where(DeviceGroupMember.device_id.in_(device_ids))
+        )
+        await self.db.flush()
+
     async def get_group_device_ids(self, group_id: UUID) -> List[UUID]:
         result = await self.db.execute(
             select(DeviceGroupMember.device_id).where(DeviceGroupMember.group_id == group_id)

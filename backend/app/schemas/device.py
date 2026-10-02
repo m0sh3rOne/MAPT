@@ -44,6 +44,11 @@ class WolBatchRequest(BaseModel):
     port: Optional[int] = 9
 
 
+class DeviceBatchDeleteRequest(BaseModel):
+    device_ids: List[UUID]
+    uninstall_agent: bool = True
+
+
 class WolCustomRequest(BaseModel):
     mac_address: str
     broadcast_ip: Optional[str] = None

@@ -117,6 +117,13 @@ export const api = {
     });
     return res.data;
   },
+  deleteDevicesBatch: async (deviceIds: string[], uninstallAgent: boolean = true): Promise<{ status: string; count: number; message: string }> => {
+    const res = await apiClient.post('/admin/devices/batch-delete', {
+      device_ids: deviceIds,
+      uninstall_agent: uninstallAgent
+    });
+    return res.data;
+  },
   wakeDevice: async (id: string, broadcastIp?: string, port?: number): Promise<WolResult> => {
     const res = await apiClient.post(`/admin/devices/${id}/wol`, {
       broadcast_ip: broadcastIp,

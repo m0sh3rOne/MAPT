@@ -19,6 +19,8 @@ import {
   Send,
   X,
   AlertCircle,
+  AlertTriangle,
+  Loader2,
   Check,
   ShieldCheck,
   ShieldAlert
@@ -30,6 +32,10 @@ export const Devices: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONLINE' | 'OFFLINE'>('ALL');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+
+  // Batch Delete Modal State
+  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
+  const [batchUninstallAgent, setBatchUninstallAgent] = useState(true);
 
   // WoL Custom Modal State
   const [showCustomWolModal, setShowCustomWolModal] = useState(false);
@@ -90,6 +96,9 @@ export const Devices: React.FC = () => {
         message: `Ordre de désinstallation de l'agent envoyé et machine ${variables.hostname} supprimée du parc.`,
       });
       queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
       setSelectedDeviceIds((prev) => prev.filter((dId) => dId !== variables.id));
       refetch();
       setTimeout(() => setNotification(null), 7000);
@@ -98,6 +107,34 @@ export const Devices: React.FC = () => {
       setNotification({
         type: 'error',
         message: err?.response?.data?.detail || "Erreur lors de la suppression de la machine",
+      });
+      setTimeout(() => setNotification(null), 7000);
+    },
+  });
+
+  // Batch Delete Mutation
+  const batchDeleteMutation = useMutation({
+    mutationFn: async ({ ids, uninstallAgent }: { ids: string[]; uninstallAgent: boolean }) => {
+      return api.deleteDevicesBatch(ids, uninstallAgent);
+    },
+    onSuccess: (data, variables) => {
+      setNotification({
+        type: 'success',
+        message: `${variables.ids.length} machine(s) supprimée(s) du parc et retirée(s) de leurs groupes avec succès.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+      setSelectedDeviceIds([]);
+      setShowBatchDeleteModal(false);
+      refetch();
+      setTimeout(() => setNotification(null), 7000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors de la suppression en lot des machines",
       });
       setTimeout(() => setNotification(null), 7000);
     },
@@ -456,6 +493,16 @@ export const Devices: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setShowBatchDeleteModal(true)}
+              disabled={batchDeleteMutation.isPending}
+              className="flex items-center space-x-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/60 text-xs px-2.5 py-1.5 rounded-lg font-bold transition disabled:opacity-50"
+              title="Supprimer les machines sélectionnées et les retirer des groupes"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Supprimer ({selectedDeviceIds.length})</span>
+            </button>
+
+            <button
               onClick={() => setSelectedDeviceIds([])}
               className="text-slate-500 hover:text-slate-300 p-1"
               title="Désélectionner tout"
@@ -770,6 +817,112 @@ export const Devices: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Delete Confirmation Modal */}
+      {showBatchDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-100">
+                    Supprimer {selectedDeviceIds.length} machine{selectedDeviceIds.length > 1 ? 's' : ''}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Retrait de l'inventaire et désassignation des groupes
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBatchDeleteModal(false)}
+                className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm text-slate-300">
+              <p className="leading-relaxed">
+                Êtes-vous sûr de vouloir supprimer les{' '}
+                <span className="font-bold text-white font-mono bg-slate-800 px-2 py-0.5 rounded">
+                  {selectedDeviceIds.length}
+                </span>{' '}
+                machines sélectionnées du parc ?
+              </p>
+
+              <div className="p-3.5 bg-rose-950/20 border border-rose-900/40 rounded-xl text-xs text-rose-300 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Conséquences de la suppression en lot :</span>
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 ml-1">
+                  <li>Les machines seront masquées de l'inventaire actif de MAPT.</li>
+                  <li>
+                    Elles seront <strong>automatiquement retirées de tous les groupes</strong> auxquels elles appartiennent.
+                  </li>
+                  <li>Les historiques et journaux d'audit de cette action seront conservés.</li>
+                </ul>
+              </div>
+
+              <div className="pt-2">
+                <label className="flex items-start space-x-3 p-3 bg-slate-950/60 border border-slate-800/80 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                  <input
+                    type="checkbox"
+                    checked={batchUninstallAgent}
+                    onChange={(e) => setBatchUninstallAgent(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-rose-500 focus:ring-offset-slate-900"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-200 block">
+                      Désinstaller proprement l'Agent Windows
+                    </span>
+                    <span className="text-slate-400 block mt-0.5">
+                      Transmet un ordre d'arrêt, de suppression du service Windows et de nettoyage des fichiers locaux sur les machines en ligne.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setShowBatchDeleteModal(false)}
+                disabled={batchDeleteMutation.isPending}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 font-medium transition"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  batchDeleteMutation.mutate({
+                    ids: selectedDeviceIds,
+                    uninstallAgent: batchUninstallAgent
+                  });
+                }}
+                disabled={batchDeleteMutation.isPending}
+                className="flex items-center space-x-2 bg-rose-600 hover:bg-rose-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-rose-600/20 transition disabled:opacity-50"
+              >
+                {batchDeleteMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Suppression en cours...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirmer la suppression ({selectedDeviceIds.length})</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

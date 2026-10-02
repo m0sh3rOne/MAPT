@@ -7,6 +7,7 @@ from app.models.device import Device
 from app.models.inventory import DeviceInventory
 from app.models.audit import AuditAction
 from app.repositories.device_repository import DeviceRepository
+from app.repositories.group_repository import GroupRepository
 from app.repositories.audit_repository import AuditRepository
 from app.schemas.device import DeviceResponse, DeviceInventoryResponse
 from app.core.config import settings
@@ -16,6 +17,7 @@ class DeviceService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.device_repo = DeviceRepository(db)
+        self.group_repo = GroupRepository(db)
         self.audit_repo = AuditRepository(db)
 
     def _is_online(self, last_seen_at: Optional[datetime]) -> bool:
@@ -137,6 +139,9 @@ class DeviceService:
         if not device:
             raise HTTPException(status_code=404, detail="Machine introuvable.")
 
+        # Retrait préalable de la machine de tous les groupes
+        await self.group_repo.remove_device_from_all_groups(device.id)
+
         # Si demandé et que l'agent a un token d'accès, on émet immédiatement un job de désinstallation propre
         if uninstall_agent and device.agent_token:
             try:
@@ -203,6 +208,88 @@ class DeviceService:
             ip_address=ip_address
         )
         await self.db.commit()
+
+    async def delete_devices_batch(self, device_ids: List[UUID], user_id: UUID, ip_address: Optional[str] = None, uninstall_agent: bool = True) -> int:
+        if not device_ids:
+            return 0
+
+        # Retrait préalable des machines de tous les groupes
+        await self.group_repo.remove_devices_from_all_groups(device_ids)
+
+        deleted_count = 0
+        for d_id in device_ids:
+            device = await self.device_repo.get_by_id(d_id)
+            if not device or device.is_archived:
+                continue
+
+            # Création du job de désinstallation si applicable
+            if uninstall_agent and device.agent_token:
+                try:
+                    from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
+                    import base64
+                    ps_script = (
+                        "$procArgs = @(\n"
+                        "    '-NoProfile',\n"
+                        "    '-NonInteractive',\n"
+                        "    '-ExecutionPolicy', 'Bypass',\n"
+                        "    '-Command',\n"
+                        "    \"Start-Sleep -Seconds 4; Stop-Service -Name 'mapt-agent' -Force -ErrorAction SilentlyContinue; & 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service stop; & 'C:\\Program Files\\MAPT\\mapt-agent.exe' -service uninstall; sc.exe delete 'mapt-agent'; Start-Sleep -Seconds 2; Remove-Item -Path 'C:\\Program Files\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path 'HKLM:\\Software\\MAPT' -Recurse -Force -ErrorAction SilentlyContinue\"\n"
+                        ")\n"
+                        "Start-Process powershell.exe -ArgumentList $procArgs -WindowStyle Hidden\n"
+                        "Write-Host 'Ordre de désinstallation détaché initié avec succès.'\n"
+                    )
+                    b64_cmd = base64.b64encode(ps_script.encode('utf-16le')).decode('ascii')
+                    uninstall_ps = f"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {b64_cmd}"
+                    dep = Deployment(
+                        name=f"🗑️ Désinstallation de l'agent - {device.hostname}",
+                        description="Désinstallation propre de l'agent et suppression du service Windows avant retrait du parc",
+                        deployment_type="command",
+                        custom_command=uninstall_ps,
+                        created_by=user_id,
+                        target_all_devices=False,
+                        target_device_ids=[str(device.id)],
+                        target_group_ids=[],
+                        status=DeploymentStatus.RUNNING,
+                        is_recurring=False,
+                        schedule_type="immediate"
+                    )
+                    self.db.add(dep)
+                    await self.db.flush()
+
+                    target = DeploymentTarget(
+                        deployment_id=dep.id,
+                        device_id=device.id,
+                        status=TargetStatus.PENDING,
+                        retry_count=0,
+                        max_retries=1
+                    )
+                    self.db.add(target)
+                except Exception as e:
+                    from app.core.logging import logger
+                    logger.error(f"Erreur désinstallation batch pour {device.hostname}: {e}")
+
+            device.is_archived = True
+            device.updated_at = datetime.now(timezone.utc)
+            await self.device_repo.update(device)
+
+            await self.audit_repo.create(
+                action=AuditAction.DEVICE_DELETED,
+                entity_type="device",
+                user_id=user_id,
+                entity_id=device.id,
+                details={
+                    "hostname": device.hostname,
+                    "ip_address": device.ip_address,
+                    "mac_address": getattr(device, "mac_address", None),
+                    "uninstalled_agent": uninstall_agent,
+                    "batch": True
+                },
+                ip_address=ip_address
+            )
+            deleted_count += 1
+
+        await self.db.commit()
+        return deleted_count
 
     async def get_device_inventory(self, device_id: UUID) -> Optional[DeviceInventoryResponse]:
         from app.core.sanitizer import sanitize_data, sanitize_string

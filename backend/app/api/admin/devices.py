@@ -13,7 +13,8 @@ from app.schemas.device import (
     WolBatchRequest,
     WolCustomRequest,
     WolResultResponse,
-    ActionCountResponse
+    ActionCountResponse,
+    DeviceBatchDeleteRequest
 )
 from app.core.security import UserRole
 from app.services.device_service import DeviceService
@@ -232,6 +233,31 @@ async def delete_device(
     client_ip = request.client.host if request.client else None
     await service.delete_device(device_id, current_user.id, client_ip, uninstall_agent=uninstall_agent)
     return {"status": "success", "message": "Ordre de désinstallation de l'agent envoyé et machine supprimée du parc."}
+
+
+@router.post("/batch-delete")
+async def delete_devices_batch(
+    request: Request,
+    payload: DeviceBatchDeleteRequest,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Supprime un lot de machines du parc, les retire de leurs groupes et désinstalle l'agent si demandé.
+    """
+    service = DeviceService(db)
+    client_ip = request.client.host if request.client else None
+    count = await service.delete_devices_batch(
+        payload.device_ids,
+        current_user.id,
+        client_ip,
+        uninstall_agent=payload.uninstall_agent
+    )
+    return {
+        "status": "success",
+        "count": count,
+        "message": f"{count} machine(s) supprimée(s) du parc et retirée(s) des groupes."
+    }
 
 
 @router.post("/{device_id}/wol")
