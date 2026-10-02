@@ -25,7 +25,7 @@ async def list_scripts(
 async def create_script(
     script_in: ScriptCreate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)
@@ -58,7 +58,7 @@ async def add_script_version(
     script_id: UUID,
     version_in: ScriptVersionCreate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)
@@ -70,7 +70,7 @@ async def add_script_version(
 async def delete_script(
     script_id: UUID,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)

@@ -37,10 +37,22 @@ MAPT est une solution client/serveur d'administration et de gestion de parc info
 - **Déploiement de Packages MSI / EXE** : Upload avec calcul automatique du hash SHA-256, stockage S3 sur MinIO, téléchargement vérifié et installation silencieuse (`msiexec.exe`).
 - **Exécution de Scripts PowerShell & Python** : Édition avec versioning immuable (chaque modification crée une nouvelle version), exécution isolée avec timeout strict, capture des codes retour et streaming des logs.
 - **Inventaire Matériel & Réseau** : Remontée automatique des CPU, RAM, Stockage (total/libre), adresses MAC, interfaces réseau et utilisateur connecté.
-- **Gestion des Groupes** : Organisation logique des postes pour le ciblage massif.
+- **Gestion des Groupes & Assignation des Opérateurs** : Organisation logique des postes pour le ciblage massif et assignation fine d'opérateurs habilités par groupe.
+- **Modèle de Rôles & Sécurité (RBAC)** : Ségrégation stricte des privilèges (Super Admin, Administrateur, Opérateur restreint, Lecteur).
 - **Machine à États Robuste** : `PENDING` $\rightarrow$ `OFFERED` $\rightarrow$ `ACKED` $\rightarrow$ `RUNNING` $\rightarrow$ (`SUCCEEDED` / `FAILED` / `TIMED_OUT` / `CANCELLED`).
 - **Journal d'Audit Intégral** : Traçabilité immuable de toutes les actions administratives.
 - **Relance (Retry)** : Bouton de relance granulaire par machine en cas d'échec.
+
+### Tableau des Rôles & Permissions
+
+| Rôle | Création / Modif Packages & Scripts | Gestion des Groupes & Assignation | Déploiement & Actions Distantes | Gestion Utilisateurs |
+| :--- | :---: | :---: | :---: | :---: |
+| 🛡️ **Super Admin** | ✅ Oui | ✅ Oui | ✅ Tout le parc | ✅ Complète |
+| 👑 **Administrateur** | ✅ Oui | ✅ Oui | ✅ Tout le parc | ❌ Non |
+| ⚙️ **Opérateur** | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ✅ **Groupes assignés uniquement** | ❌ Non |
+| 👁️ **Lecteur** | ❌ **Non** | ❌ **Non** | ❌ **Non** | ❌ Non |
+
+> 📖 *Pour consulter le détail exhaustif des permissions, référez-vous au [GUIDE_GESTION_ROLES_PERMISSIONS.md](file:///c:/Users/Admin/Documents/Github/MAPT/GUIDE_GESTION_ROLES_PERMISSIONS.md).*
 
 ---
 

@@ -1,11 +1,12 @@
-from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Union
 from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
 from app.models.job import JobLog
 from app.models.audit import AuditAction
+from app.models.user import User
+from app.core.security import UserRole
 from app.repositories.deployment_repository import DeploymentRepository
 from app.repositories.group_repository import GroupRepository
 from app.repositories.device_repository import DeviceRepository
@@ -112,9 +113,38 @@ class DeploymentService:
     async def create_deployment(
         self,
         dep_in: DeploymentCreate,
-        user_id: UUID,
+        user_or_id: Union[User, UUID],
         ip_address: Optional[str] = None
     ) -> DeploymentResponse:
+        user_id = user_or_id.id if isinstance(user_or_id, User) else user_or_id
+        user_role = user_or_id.role if isinstance(user_or_id, User) else None
+
+        # Contrôle des droits Opérateur : assignation obligatoire au groupe / machines
+        if user_role == UserRole.OPERATOR:
+            if dep_in.target_all_devices:
+                raise HTTPException(
+                    status_code=403,
+                    detail="En tant qu'opérateur, vous n'êtes pas autorisé à cibler l'ensemble du parc de machines."
+                )
+            assigned_group_ids = set(await self.group_repo.get_operator_group_ids(user_id))
+            assigned_device_ids = await self.group_repo.get_operator_device_ids(user_id)
+
+            if dep_in.target_group_ids:
+                for gid in dep_in.target_group_ids:
+                    if gid not in assigned_group_ids:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Accès refusé : vous n'êtes pas assigné à ce groupe en tant qu'opérateur."
+                        )
+
+            if dep_in.target_device_ids:
+                for did in dep_in.target_device_ids:
+                    if did not in assigned_device_ids:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Accès refusé : cette machine n'appartient à aucun des groupes qui vous sont assignés."
+                        )
+
         # Résolution des cibles
         target_device_ids: Set[UUID] = set(dep_in.target_device_ids)
         if dep_in.target_all_devices:
@@ -126,6 +156,7 @@ class DeploymentService:
 
         if not target_device_ids:
             raise HTTPException(status_code=400, detail="Au moins une machine ou un groupe cible doit être spécifié.")
+
 
         # Validation de la version selon le type
         if dep_in.deployment_type == "package":

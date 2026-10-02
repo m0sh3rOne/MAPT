@@ -160,12 +160,12 @@ export const api = {
     });
     return res.data;
   },
-  createGroup: async (name: string, description?: string): Promise<DeviceGroup> => {
-    const res = await apiClient.post('/admin/groups', { name, description });
+  createGroup: async (name: string, description?: string, operator_ids?: string[]): Promise<DeviceGroup> => {
+    const res = await apiClient.post('/admin/groups', { name, description, operator_ids });
     return res.data;
   },
-  updateGroup: async (id: string, name: string, description?: string): Promise<DeviceGroup> => {
-    const res = await apiClient.put(`/admin/groups/${id}`, { name, description });
+  updateGroup: async (id: string, name: string, description?: string, operator_ids?: string[]): Promise<DeviceGroup> => {
+    const res = await apiClient.put(`/admin/groups/${id}`, { name, description, operator_ids });
     return res.data;
   },
   deleteGroup: async (id: string) => {

@@ -25,7 +25,7 @@ async def list_groups(
 async def create_group(
     group_in: DeviceGroupCreate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)
@@ -48,7 +48,7 @@ async def update_group(
     group_id: UUID,
     group_in: DeviceGroupCreate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)
@@ -60,7 +60,7 @@ async def update_group(
 async def delete_group(
     group_id: UUID,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)
@@ -73,7 +73,7 @@ async def delete_group(
 async def add_devices_to_group(
     group_id: UUID,
     req: AddDeviceToGroupRequest,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)
@@ -85,7 +85,7 @@ async def add_devices_to_group(
 async def set_group_devices(
     group_id: UUID,
     req: AddDeviceToGroupRequest,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)
@@ -97,7 +97,7 @@ async def set_group_devices(
 async def remove_device_from_group(
     group_id: UUID,
     device_id: UUID,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = GroupService(db)

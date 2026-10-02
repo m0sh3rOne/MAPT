@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { DeviceGroup, WolResult, Package as PackageType, Script as ScriptType } from '../../types';
+import { DeviceGroup, WolResult, Package as PackageType, Script as ScriptType, User as UserType } from '../../types';
 import {
   FolderKanban,
   Plus,
@@ -32,9 +33,17 @@ import {
   Terminal,
   Play,
   Info,
+  Shield,
+  ShieldAlert,
 } from 'lucide-react';
 
 export const Groups: React.FC = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+  const isOperator = user?.role === 'operator';
+  const isViewer = user?.role === 'viewer';
+
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState<DeviceGroup | null>(null);
@@ -51,6 +60,7 @@ export const Groups: React.FC = () => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+  const [selectedOperatorIds, setSelectedOperatorIds] = useState<string[]>([]);
   const [searchGroupQuery, setSearchGroupQuery] = useState('');
   const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +127,14 @@ export const Groups: React.FC = () => {
     enabled: !!selectedGroupForActions,
   });
 
+  const { data: allUsers = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: api.getUsers,
+    enabled: isAdmin,
+  });
+
+  const operatorUsers = allUsers.filter((u) => u.role === 'operator' || u.role === 'administrator' || u.role === 'super_admin');
+
   // Wake-on-LAN Mutation
   const wakeGroupMutation = useMutation({
     mutationFn: async (groupId: string) => {
@@ -171,25 +189,28 @@ export const Groups: React.FC = () => {
 
   // Group CRUD Mutations
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; description?: string }) => api.createGroup(data.name, data.description),
+    mutationFn: (data: { name: string; description?: string; operator_ids?: string[] }) =>
+      api.createGroup(data.name, data.description, data.operator_ids),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       setShowCreateModal(false);
       setName('');
       setDescription('');
+      setSelectedOperatorIds([]);
       setError(null);
     },
     onError: (err: any) => setError(err.response?.data?.detail || 'Erreur lors de la création du groupe'),
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { id: string; name: string; description?: string }) =>
-      api.updateGroup(data.id, data.name, data.description),
+    mutationFn: (data: { id: string; name: string; description?: string; operator_ids?: string[] }) =>
+      api.updateGroup(data.id, data.name, data.description, data.operator_ids),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       setEditingGroup(null);
       setName('');
       setDescription('');
+      setSelectedOperatorIds([]);
       setError(null);
     },
     onError: (err: any) => setError(err.response?.data?.detail || 'Erreur lors de la modification du groupe'),
@@ -231,6 +252,7 @@ export const Groups: React.FC = () => {
     setEditingGroup(grp);
     setName(grp.name);
     setDescription(grp.description || '');
+    setSelectedOperatorIds(grp.operator_ids || []);
     setError(null);
   };
 
@@ -562,18 +584,21 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
             />
           </div>
 
-          <button
-            onClick={() => {
-              setError(null);
-              setName('');
-              setDescription('');
-              setShowCreateModal(true);
-            }}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nouveau Groupe</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setError(null);
+                setName('');
+                setDescription('');
+                setSelectedOperatorIds([]);
+                setShowCreateModal(true);
+              }}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nouveau Groupe</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -586,68 +611,108 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
       ) : (
         /* Groups Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredGroups.map((grp) => (
-            <div
-              key={grp.id}
-              className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-6 flex flex-col justify-between space-y-4 transition shadow-lg relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none -mr-10 -mt-10" />
+          {filteredGroups.map((grp) => {
+            const canRunGroupActions = isAdmin || (isOperator && grp.operator_ids?.includes(user?.id || ''));
 
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-                    <FolderKanban className="w-5 h-5" />
+            return (
+              <div
+                key={grp.id}
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-6 flex flex-col justify-between space-y-4 transition shadow-lg relative overflow-hidden group"
+              >
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-2xl pointer-events-none -mr-10 -mt-10" />
+
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
+                      <FolderKanban className="w-5 h-5" />
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {grp.operators && grp.operators.length > 0 && (
+                        <span
+                          className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-950 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5"
+                          title={`Opérateurs assignés: ${grp.operators.map((o) => o.username).join(', ')}`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          {grp.operators.length} op.
+                        </span>
+                      )}
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-950 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                        <Monitor className="w-3.5 h-3.5" />
+                        {grp.device_count || 0} machine{(grp.device_count || 0) > 1 ? 's' : ''}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-950 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-                    <Monitor className="w-3.5 h-3.5" />
-                    {grp.device_count || 0} machine{(grp.device_count || 0) > 1 ? 's' : ''}
-                  </span>
+
+                  <h3 className="text-lg font-bold text-slate-100 group-hover:text-emerald-400 transition">{grp.name}</h3>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                    {grp.description || 'Aucune description spécifiée.'}
+                  </p>
+
+                  {grp.operators && grp.operators.length > 0 && (
+                    <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] text-slate-500 font-medium">Opérateurs :</span>
+                      {grp.operators.map((op) => (
+                        <span key={op.id} className="text-[10px] bg-slate-950 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-md font-mono">
+                          {op.username}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                <h3 className="text-lg font-bold text-slate-100 group-hover:text-emerald-400 transition">{grp.name}</h3>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                  {grp.description || 'Aucune description spécifiée.'}
-                </p>
+                {/* Group Card Action Bar */}
+                <div className="flex items-center space-x-2 pt-4 border-t border-slate-800/80">
+                  <button
+                    onClick={() => handleOpenMembers(grp)}
+                    className="flex-1 flex items-center justify-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-2.5 rounded-xl text-xs font-semibold transition border border-slate-700/50"
+                    title="Gérer les machines membres"
+                  >
+                    <Users className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Membres ({grp.device_count || 0})</span>
+                  </button>
+
+                  {!isViewer && (
+                    <button
+                      onClick={() => canRunGroupActions && handleOpenQuickActions(grp)}
+                      disabled={!canRunGroupActions}
+                      className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-white transition text-xs font-semibold shadow-md shrink-0 ${
+                        canRunGroupActions
+                          ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
+                      }`}
+                      title={
+                        canRunGroupActions
+                          ? 'Lancer une action rapide sur tout le groupe (Wake-on-LAN, Redémarrage, Arrêt, Scripts, Packages...)'
+                          : "Assignation requise : vous n'êtes pas assigné à ce groupe en tant qu'opérateur."
+                      }
+                    >
+                      <Zap className={`w-3.5 h-3.5 ${canRunGroupActions ? 'text-amber-300 fill-current' : 'text-slate-500'}`} />
+                      <span>Actions</span>
+                    </button>
+                  )}
+
+                  {isAdmin && (
+                    <>
+                      <button
+                        onClick={() => handleOpenEdit(grp)}
+                        className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/50 text-slate-300 hover:text-white transition"
+                        title="Modifier le groupe et assigner les opérateurs"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setGroupToDelete(grp)}
+                        className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition"
+                        title="Supprimer le groupe"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-
-              {/* Group Card Action Bar */}
-              <div className="flex items-center space-x-2 pt-4 border-t border-slate-800/80">
-                <button
-                  onClick={() => handleOpenMembers(grp)}
-                  className="flex-1 flex items-center justify-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 py-2 px-2.5 rounded-xl text-xs font-semibold transition border border-slate-700/50"
-                  title="Gérer les machines membres"
-                >
-                  <Users className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Membres ({grp.device_count || 0})</span>
-                </button>
-
-                {/* Quick Actions Button (Replaces standalone WoL button) */}
-                <button
-                  onClick={() => handleOpenQuickActions(grp)}
-                  className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition text-xs font-semibold shadow-md shadow-emerald-900/30 shrink-0"
-                  title="Lancer une action rapide sur tout le groupe (Wake-on-LAN, Redémarrage, Arrêt, Scripts, Packages...)"
-                >
-                  <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
-                  <span>Actions Rapides</span>
-                </button>
-
-                <button
-                  onClick={() => handleOpenEdit(grp)}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/50 text-slate-300 hover:text-white transition"
-                  title="Modifier le groupe"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setGroupToDelete(grp)}
-                  className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 transition"
-                  title="Supprimer le groupe"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1342,9 +1407,9 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
               onSubmit={(e) => {
                 e.preventDefault();
                 if (editingGroup) {
-                  updateMutation.mutate({ id: editingGroup.id, name, description });
+                  updateMutation.mutate({ id: editingGroup.id, name, description, operator_ids: selectedOperatorIds });
                 } else {
-                  createMutation.mutate({ name, description });
+                  createMutation.mutate({ name, description, operator_ids: selectedOperatorIds });
                 }
               }}
               className="space-y-4"
@@ -1368,13 +1433,69 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                   Description
                 </label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="Ex: Postes fixes de la salle informatique..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:border-emerald-500 outline-none transition"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-500 focus:border-emerald-500 outline-none transition"
                 />
               </div>
+
+              {/* Assignation des Opérateurs par l'Administrateur */}
+              {isAdmin && (
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Opérateurs Assignés</span>
+                    </label>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {selectedOperatorIds.length} sélectionné{selectedOperatorIds.length > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Les opérateurs assignés sont les seuls autorisés à déployer des packages et exécuter des actions sur ce groupe.
+                  </p>
+
+                  <div className="max-h-36 overflow-y-auto space-y-1.5 bg-slate-950 border border-slate-800 rounded-xl p-2">
+                    {operatorUsers.length === 0 ? (
+                      <p className="text-xs text-slate-500 italic py-2 text-center">Aucun compte utilisateur disponible.</p>
+                    ) : (
+                      operatorUsers.map((u) => {
+                        const isSelected = selectedOperatorIds.includes(u.id);
+                        return (
+                          <div
+                            key={u.id}
+                            onClick={() => {
+                              setSelectedOperatorIds((prev) =>
+                                isSelected ? prev.filter((id) => id !== u.id) : [...prev, u.id]
+                              );
+                            }}
+                            className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition text-xs select-none ${
+                              isSelected
+                                ? 'bg-indigo-950/40 border border-indigo-500/40 text-indigo-200'
+                                : 'bg-slate-900/80 border border-slate-800/80 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2">
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-indigo-400 shrink-0" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-600 shrink-0" />
+                              )}
+                              <span className="font-semibold text-slate-200">{u.username}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800">
+                                {u.role}
+                              </span>
+                            </div>
+                            {u.email && <span className="text-[11px] text-slate-500 truncate max-w-[120px]">{u.email}</span>}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
                 <button

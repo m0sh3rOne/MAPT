@@ -97,12 +97,21 @@ export interface DeviceActionHistory {
   error_message?: string;
 }
 
+export interface GroupOperator {
+  id: string;
+  username: string;
+  email?: string;
+  role: string;
+}
+
 export interface DeviceGroup {
   id: string;
   name: string;
   description?: string;
   device_count: number;
   device_ids?: string[];
+  operator_ids?: string[];
+  operators?: GroupOperator[];
   created_at: string;
 }
 

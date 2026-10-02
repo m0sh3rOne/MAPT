@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -37,6 +38,11 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
 };
 
 export const Scripts: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+  const isOperator = user?.role === 'operator';
+  const isViewer = user?.role === 'viewer';
+
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -397,35 +403,39 @@ export const Scripts: React.FC = () => {
             />
           </div>
 
-          <button
-            onClick={() => {
-              setImportJsonText('');
-              setImportFileName(null);
-              setImportParsed(null);
-              setImportError(null);
-              setShowImportModal(true);
-            }}
-            className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-cyan-500/30 hover:border-cyan-500/50 text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm transition whitespace-nowrap"
-            title="Importer un script depuis un fichier JSON"
-          >
-            <Upload className="w-4 h-4" />
-            <span>Importer JSON</span>
-          </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => {
+                  setImportJsonText('');
+                  setImportFileName(null);
+                  setImportParsed(null);
+                  setImportError(null);
+                  setShowImportModal(true);
+                }}
+                className="flex items-center space-x-2 bg-slate-900 hover:bg-slate-800 text-cyan-400 border border-cyan-500/30 hover:border-cyan-500/50 text-sm font-semibold px-4 py-2.5 rounded-xl shadow-sm transition whitespace-nowrap"
+                title="Importer un script depuis un fichier JSON"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Importer JSON</span>
+              </button>
 
-          <button
-            onClick={() => {
-              setError(null);
-              setName('');
-              setDescription('');
-              setLanguage('powershell');
-              setInitialContent(DEFAULT_TEMPLATES.powershell);
-              setShowCreateModal(true);
-            }}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nouveau Script</span>
-          </button>
+              <button
+                onClick={() => {
+                  setError(null);
+                  setName('');
+                  setDescription('');
+                  setLanguage('powershell');
+                  setInitialContent(DEFAULT_TEMPLATES.powershell);
+                  setShowCreateModal(true);
+                }}
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nouveau Script</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -459,13 +469,15 @@ export const Scripts: React.FC = () => {
                       <Download className="w-4 h-4" />
                     </button>
 
-                    <button
-                      onClick={() => handleDelete(sc)}
-                      className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-rose-500/30 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                      title="Supprimer ce script"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(sc)}
+                        className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-rose-500/30 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                        title="Supprimer ce script"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -496,28 +508,32 @@ export const Scripts: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
-                <button
-                  onClick={() => openExecuteModal(sc)}
-                  disabled={!sc.latest_version}
-                  className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white py-2.5 rounded-xl text-xs font-semibold shadow-md shadow-emerald-600/20 transition"
-                  title="Lancer l'exécution sur une ou plusieurs machines"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Exécuter le Script</span>
-                </button>
+                {!isViewer && (
+                  <button
+                    onClick={() => openExecuteModal(sc)}
+                    disabled={!sc.latest_version}
+                    className="w-full flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white py-2.5 rounded-xl text-xs font-semibold shadow-md shadow-emerald-600/20 transition"
+                    title="Lancer l'exécution sur une ou plusieurs machines"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Exécuter le Script</span>
+                  </button>
+                )}
 
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setSelectedScriptForEdit(sc);
-                    setVersionContent(sc.latest_version?.content || '');
-                    setVersionTimeout(sc.latest_version?.timeout_seconds || 300);
-                  }}
-                  className="w-full flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-semibold transition border border-slate-700/60"
-                >
-                  <Edit3 className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Modifier (Nouvelle Version)</span>
-                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      setError(null);
+                      setSelectedScriptForEdit(sc);
+                      setVersionContent(sc.latest_version?.content || '');
+                      setVersionTimeout(sc.latest_version?.timeout_seconds || 300);
+                    }}
+                    className="w-full flex items-center justify-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-semibold transition border border-slate-700/60"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Modifier (Nouvelle Version)</span>
+                  </button>
+                )}
               </div>
             </div>
           );

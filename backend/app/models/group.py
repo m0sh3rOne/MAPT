@@ -15,6 +15,7 @@ class DeviceGroup(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     members = relationship("DeviceGroupMember", back_populates="group", cascade="all, delete-orphan")
+    operators = relationship("DeviceGroupOperator", back_populates="group", cascade="all, delete-orphan")
 
 
 class DeviceGroupMember(Base):
@@ -26,3 +27,15 @@ class DeviceGroupMember(Base):
 
     device = relationship("Device", back_populates="group_memberships")
     group = relationship("DeviceGroup", back_populates="members")
+
+
+class DeviceGroupOperator(Base):
+    __tablename__ = "device_group_operators"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("device_groups.id", ondelete="CASCADE"), primary_key=True)
+    assigned_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User")
+    group = relationship("DeviceGroup", back_populates="operators")
+

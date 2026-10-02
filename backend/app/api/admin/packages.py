@@ -31,7 +31,7 @@ async def list_packages(
 async def create_package(
     package_in: PackageCreate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)
@@ -55,7 +55,7 @@ async def create_package_with_file(
     install_command: Optional[str] = Form(None),
     uninstall_command: Optional[str] = Form(None),
     request: Request = None,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)
@@ -99,7 +99,7 @@ async def update_package(
     package_id: UUID,
     package_in: PackageUpdate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)
@@ -111,7 +111,7 @@ async def update_package(
 async def delete_package(
     package_id: UUID,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)
@@ -128,7 +128,7 @@ async def update_package_version(
     version_id: UUID,
     version_in: PackageVersionUpdate,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)
@@ -160,7 +160,7 @@ async def upload_package_version(
     install_command: Optional[str] = Form(None),
     uninstall_command: Optional[str] = Form(None),
     request: Request = None,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = PackageService(db)

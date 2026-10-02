@@ -6,7 +6,7 @@ from app.models.group import DeviceGroup
 from app.models.audit import AuditAction
 from app.repositories.group_repository import GroupRepository
 from app.repositories.audit_repository import AuditRepository
-from app.schemas.device import DeviceGroupCreate, DeviceGroupResponse
+from app.schemas.device import DeviceGroupCreate, DeviceGroupResponse, GroupOperatorResponse
 
 
 class GroupService:
@@ -19,12 +19,28 @@ class GroupService:
         device_ids = []
         if "members" in group.__dict__ and group.members is not None:
             device_ids = [m.device_id for m in group.members]
+
+        operator_ids = []
+        operators = []
+        if "operators" in group.__dict__ and group.operators is not None:
+            for op in group.operators:
+                operator_ids.append(op.user_id)
+                if op.user:
+                    operators.append(GroupOperatorResponse(
+                        id=op.user.id,
+                        username=op.user.username,
+                        email=op.user.email,
+                        role=op.user.role
+                    ))
+
         return DeviceGroupResponse(
             id=group.id,
             name=group.name,
             description=group.description,
             device_count=len(device_ids),
             device_ids=device_ids,
+            operator_ids=operator_ids,
+            operators=operators,
             created_at=group.created_at
         )
 
@@ -46,12 +62,16 @@ class GroupService:
         group = DeviceGroup(name=group_in.name, description=group_in.description)
         created = await self.group_repo.create(group)
 
+        if group_in.operator_ids is not None:
+            await self.group_repo.set_group_operators(created.id, group_in.operator_ids)
+            created = await self.group_repo.get_by_id(created.id)
+
         await self.audit_repo.create(
             action=AuditAction.GROUP_CREATED,
             entity_type="group",
             user_id=user_id,
             entity_id=created.id,
-            details={"name": created.name},
+            details={"name": created.name, "operator_count": len(created.operators) if created.operators else 0},
             ip_address=ip_address
         )
         return self._map_to_response(created)
@@ -68,6 +88,9 @@ class GroupService:
 
         group.name = group_in.name
         group.description = group_in.description
+        if group_in.operator_ids is not None:
+            await self.group_repo.set_group_operators(group_id, group_in.operator_ids)
+
         updated = await self.group_repo.update(group)
 
         await self.audit_repo.create(
@@ -75,10 +98,11 @@ class GroupService:
             entity_type="group",
             user_id=user_id,
             entity_id=group_id,
-            details={"name": updated.name},
+            details={"name": updated.name, "operator_count": len(updated.operators) if updated.operators else 0},
             ip_address=ip_address
         )
         return self._map_to_response(updated)
+
 
     async def delete_group(self, group_id: UUID, user_id: UUID, ip_address: Optional[str] = None):
         group = await self.group_repo.get_by_id(group_id)

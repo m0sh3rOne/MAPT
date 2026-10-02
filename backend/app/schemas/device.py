@@ -83,9 +83,20 @@ class DeviceInventoryResponse(DeviceInventoryUpdate):
         from_attributes = True
 
 
+class GroupOperatorResponse(BaseModel):
+    id: UUID
+    username: str
+    email: Optional[str] = None
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
 class DeviceGroupCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    operator_ids: Optional[List[UUID]] = None
 
 
 class DeviceGroupResponse(BaseModel):
@@ -94,10 +105,13 @@ class DeviceGroupResponse(BaseModel):
     description: Optional[str] = None
     device_count: int = 0
     device_ids: List[UUID] = []
+    operator_ids: List[UUID] = []
+    operators: List[GroupOperatorResponse] = []
     created_at: datetime
 
     class Config:
         from_attributes = True
+
 
 
 class AddDeviceToGroupRequest(BaseModel):

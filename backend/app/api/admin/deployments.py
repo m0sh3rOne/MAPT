@@ -37,7 +37,7 @@ async def create_deployment(
 ):
     service = DeploymentService(db)
     client_ip = request.client.host if request.client else None
-    return await service.create_deployment(dep_in, current_user.id, client_ip)
+    return await service.create_deployment(dep_in, current_user, client_ip)
 
 
 @router.delete("/clear-finished", response_model=ActionCountResponse)
