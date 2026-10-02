@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         try:
             await conn.execute(text("ALTER TABLE deployments ADD COLUMN IF NOT EXISTS max_concurrency INTEGER DEFAULT 8;"))
+            await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE;"))
         except Exception as e:
             logger.warning(f"Note on column check: {e}")
 
