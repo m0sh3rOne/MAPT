@@ -29,6 +29,9 @@ class AgentHeartbeatRequest(BaseModel):
     device_uuid: UUID
     agent_version: str = "1.0.0"
     ip_address: Optional[str] = None
+    os_name: Optional[str] = None
+    os_version: Optional[str] = None
+    os_build: Optional[str] = None
     timestamp: datetime
 
 

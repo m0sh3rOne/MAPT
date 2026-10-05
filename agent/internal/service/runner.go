@@ -59,7 +59,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	}
 
 	// 2. Premier Heartbeat et envoi initial de l'inventaire
-	_ = r.client.Heartbeat(primaryIP)
+	osCap, osDispVer, osBld, _ := inventory.GetOSInfo()
+	_ = r.client.Heartbeat(primaryIP, osCap, osDispVer, osBld)
 	invData := inventory.CollectInventory()
 	if err := r.client.SendInventory(invData); err != nil {
 		r.logger.Warn("Initial inventory submission failed: %v", err)
@@ -92,7 +93,8 @@ func (r *Runner) Run(ctx context.Context) error {
 				return
 			case <-hbTicker.C:
 				currIP := inventory.GetPrimaryIP()
-				if err := r.client.Heartbeat(currIP); err != nil {
+				cap, dispVer, bld, _ := inventory.GetOSInfo()
+				if err := r.client.Heartbeat(currIP, cap, dispVer, bld); err != nil {
 					r.logger.Warn("Heartbeat failed: %v", err)
 				}
 			}

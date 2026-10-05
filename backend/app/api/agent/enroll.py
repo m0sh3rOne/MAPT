@@ -235,7 +235,7 @@ if (-not $downloadSuccess -or -not (Test-Path $agentExe)) {
 $fileSize = (Get-Item $agentExe).Length
 Write-Host "[+] Binaire téléchargé avec succès ($fileSize octets)" -ForegroundColor Green
 
-# 5. Configuration du client avec identifiant machine persistant
+# 5. Configuration du client avec identifiant machine persistant et détection OS
 Write-Host "[*] Configuration de l'identifiant machine persistant..." -ForegroundColor Yellow
 $deviceUuid = ""
 if (Test-Path $configFile) {
@@ -271,12 +271,41 @@ if ($isCloneConflict -or -not $deviceUuid) {
     Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name "MachineGuid" -Value $deviceUuid -Force -ErrorAction SilentlyContinue
 }
 
+# Détection précise et instantanée du système d'exploitation (style winver)
+Write-Host "[*] Détection des caractéristiques du système d'exploitation..." -ForegroundColor Yellow
+$regNt = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+$csOs = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+$dispVer = if ($regNt.DisplayVersion) { $regNt.DisplayVersion } elseif ($regNt.ReleaseId) { $regNt.ReleaseId } else { "" }
+$ubr = if ($regNt.UBR) { $regNt.UBR } else { "" }
+$bNum = if ($csOs.BuildNumber) { $csOs.BuildNumber } else { $regNt.CurrentBuild }
+$fullBuild = if ($ubr) { "$bNum.$ubr" } else { "$bNum" }
+$caption = if ($csOs.Caption) { $csOs.Caption.Replace("Microsoft ", "").Trim() } elseif ($regNt.ProductName) { $regNt.ProductName } else { "Windows" }
+
+$agentToken = ""
+try {
+    $enrollObj = @{
+        device_uuid = $deviceUuid
+        hostname = $env:COMPUTERNAME
+        os_name = $caption
+        os_version = $dispVer
+        os_build = $fullBuild
+        agent_version = "1.0.0"
+        enrollment_token = $enrollToken
+    }
+    $enrollJson = $enrollObj | ConvertTo-Json -Compress
+    $enrollResp = Invoke-RestMethod -Uri "$serverUrl/agent/enroll" -Method Post -Body $enrollJson -ContentType "application/json; charset=utf-8" -TimeoutSec 8 -ErrorAction SilentlyContinue
+    if ($enrollResp -and $enrollResp.agent_token) {
+        $agentToken = $enrollResp.agent_token
+        Write-Host "[+] Enrôlement réussi : $caption ($dispVer) Build $fullBuild" -ForegroundColor Green
+    }
+} catch {}
+
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $configContent = @'
 {
   "server_url": "__SERVER_URL__",
   "enrollment_token": "__ENROLL_TOKEN__",
-  "agent_token": "",
+  "agent_token": "__AGENT_TOKEN__",
   "device_uuid": "__DEVICE_UUID__",
   "log_level": "info",
   "heartbeat_interval_seconds": 30,
@@ -284,7 +313,7 @@ $configContent = @'
   "inventory_interval_seconds": 3600
 }
 '@
-$configContent = $configContent.Replace("__SERVER_URL__", $serverUrl).Replace("__ENROLL_TOKEN__", $enrollToken).Replace("__DEVICE_UUID__", $deviceUuid)
+$configContent = $configContent.Replace("__SERVER_URL__", $serverUrl).Replace("__ENROLL_TOKEN__", $enrollToken).Replace("__AGENT_TOKEN__", $agentToken).Replace("__DEVICE_UUID__", $deviceUuid)
 
 if (-not (Test-Path $configFile)) {
     [System.IO.File]::WriteAllText($configFile, $configContent, $utf8NoBom)
@@ -293,6 +322,7 @@ if (-not (Test-Path $configFile)) {
         $existingCfg = Get-Content $configFile -Raw | ConvertFrom-Json
         $existingCfg.server_url = $serverUrl
         if ($enrollToken) { $existingCfg.enrollment_token = $enrollToken }
+        if ($agentToken) { $existingCfg.agent_token = $agentToken }
         if (-not $existingCfg.device_uuid) { $existingCfg.device_uuid = $deviceUuid }
         $jsonStr = $existingCfg | ConvertTo-Json -Depth 5
         [System.IO.File]::WriteAllText($configFile, $jsonStr, $utf8NoBom)

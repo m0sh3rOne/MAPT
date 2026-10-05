@@ -130,6 +130,25 @@ class AgentService:
             ip_address=ip_address or heartbeat_in.ip_address,
             agent_version=heartbeat_in.agent_version
         )
+
+        # Mise à jour automatique et dynamique de la version de l'OS si transmise dans le heartbeat
+        updated_os = False
+        if heartbeat_in.os_name and heartbeat_in.os_name.strip() and heartbeat_in.os_name.lower() != "windows":
+            if device.os_name != heartbeat_in.os_name:
+                device.os_name = heartbeat_in.os_name
+                updated_os = True
+        if heartbeat_in.os_version and heartbeat_in.os_version.strip() and heartbeat_in.os_version.lower() != "windows":
+            if device.os_version != heartbeat_in.os_version:
+                device.os_version = heartbeat_in.os_version
+                updated_os = True
+        if heartbeat_in.os_build and heartbeat_in.os_build.strip() and heartbeat_in.os_build.lower() not in ["amd64", "x86_64", "x64"]:
+            if device.os_build != heartbeat_in.os_build:
+                device.os_build = heartbeat_in.os_build
+                updated_os = True
+
+        if updated_os:
+            await self.device_repo.update(device)
+
         return AgentHeartbeatResponse(
             acknowledged=True,
             server_time=datetime.now(timezone.utc),
@@ -269,15 +288,18 @@ class AgentService:
 
         # Si l'inventaire contient les informations d'OS détaillées (type winver)
         updated_os = False
-        if inventory_in.os_caption:
-            device.os_name = inventory_in.os_caption
-            updated_os = True
-        if inventory_in.os_display_version is not None:
-            device.os_version = inventory_in.os_display_version
-            updated_os = True
-        if inventory_in.os_build is not None:
-            device.os_build = inventory_in.os_build
-            updated_os = True
+        if inventory_in.os_caption and inventory_in.os_caption.strip() and inventory_in.os_caption.lower() != "windows":
+            if device.os_name != inventory_in.os_caption:
+                device.os_name = inventory_in.os_caption
+                updated_os = True
+        if inventory_in.os_display_version is not None and inventory_in.os_display_version.strip() and inventory_in.os_display_version.lower() != "windows":
+            if device.os_version != inventory_in.os_display_version:
+                device.os_version = inventory_in.os_display_version
+                updated_os = True
+        if inventory_in.os_build is not None and inventory_in.os_build.strip() and inventory_in.os_build.lower() not in ["amd64", "x86_64", "x64"]:
+            if device.os_build != inventory_in.os_build:
+                device.os_build = inventory_in.os_build
+                updated_os = True
         if updated_os:
             await self.device_repo.update(device)
 

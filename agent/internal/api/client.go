@@ -105,11 +105,14 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 	return c.cfg.Save()
 }
 
-func (c *Client) Heartbeat(ipAddress string) error {
+func (c *Client) Heartbeat(ipAddress string, osName string, osVersion string, osBuild string) error {
 	payload := map[string]interface{}{
 		"device_uuid":   c.cfg.DeviceUUID,
 		"agent_version": c.cfg.AgentVersion,
 		"ip_address":    ipAddress,
+		"os_name":       osName,
+		"os_version":    osVersion,
+		"os_build":      osBuild,
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 	}
 	return c.doRequest("POST", "/agent/heartbeat", payload, nil, true)
