@@ -42,6 +42,7 @@ export const Groups: React.FC = () => {
   const isSuperAdmin = user?.role === 'super_admin';
   const isAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
   const isOperator = user?.role === 'operator';
+  const isAppStoreClient = user?.role === 'app_store_client';
   const isViewer = user?.role === 'viewer';
 
   const queryClient = useQueryClient();
@@ -133,7 +134,9 @@ export const Groups: React.FC = () => {
     enabled: isAdmin,
   });
 
-  const operatorUsers = allUsers.filter((u) => u.role === 'operator' || u.role === 'administrator' || u.role === 'super_admin');
+  const assignableMembers = allUsers.filter(
+    (u) => u.role === 'operator' || u.role === 'app_store_client' || u.role === 'administrator' || u.role === 'super_admin'
+  );
 
   // Wake-on-LAN Mutation
   const wakeGroupMutation = useMutation({
@@ -258,7 +261,7 @@ export const Groups: React.FC = () => {
 
   const handleOpenQuickActions = (grp: DeviceGroup) => {
     setSelectedGroupForActions(grp);
-    setActiveActionTab('wol');
+    setActiveActionTab(isAppStoreClient ? 'package' : 'wol');
     setActionDelay(10);
     setActionForce(true);
     setActionMessage('Opération initiée par votre administrateur MAPT.');
@@ -612,7 +615,8 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
         /* Groups Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredGroups.map((grp) => {
-            const canRunGroupActions = isAdmin || (isOperator && grp.operator_ids?.includes(user?.id || ''));
+            const canRunGroupActions =
+              isAdmin || ((isOperator || isAppStoreClient) && grp.operator_ids?.includes(user?.id || ''));
 
             return (
               <div
@@ -630,10 +634,10 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                       {grp.operators && grp.operators.length > 0 && (
                         <span
                           className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-950 text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5"
-                          title={`Opérateurs assignés: ${grp.operators.map((o) => o.username).join(', ')}`}
+                          title={`Membres assignés: ${grp.operators.map((o) => o.username).join(', ')}`}
                         >
                           <UserCheck className="w-3.5 h-3.5" />
-                          {grp.operators.length} op.
+                          {grp.operators.length} membre{grp.operators.length > 1 ? 's' : ''}
                         </span>
                       )}
                       <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-950 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
@@ -650,7 +654,7 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
 
                   {grp.operators && grp.operators.length > 0 && (
                     <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[11px] text-slate-500 font-medium">Opérateurs :</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Membres assignés :</span>
                       {grp.operators.map((op) => (
                         <span key={op.id} className="text-[10px] bg-slate-950 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-md font-mono">
                           {op.username}
@@ -683,7 +687,7 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                       title={
                         canRunGroupActions
                           ? 'Lancer une action rapide sur tout le groupe (Wake-on-LAN, Redémarrage, Arrêt, Scripts, Packages...)'
-                          : "Assignation requise : vous n'êtes pas assigné à ce groupe en tant qu'opérateur."
+                          : "Assignation requise : vous n'êtes pas assigné à ce groupe en tant que membre."
                       }
                     >
                       <Zap className={`w-3.5 h-3.5 ${canRunGroupActions ? 'text-amber-300 fill-current' : 'text-slate-500'}`} />
@@ -764,98 +768,110 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
             )}
 
             {/* Action Tabs Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('wol'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'wol'
-                    ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm shadow-amber-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <Zap className="w-4 h-4 text-amber-400" />
-                <span>Wake-on-LAN</span>
-              </button>
+            {isAppStoreClient ? (
+              <div className="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-between text-xs">
+                <div className="flex items-center space-x-2 text-indigo-300 font-semibold">
+                  <Package className="w-4 h-4 text-indigo-400" />
+                  <span>Déploiement Package MSI/EXE sur {selectedGroupForActions.name}</span>
+                </div>
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono">
+                  Rôle Client App Store
+                </span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('wol'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'wol'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-amber-300 shadow-sm shadow-amber-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>Wake-on-LAN</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('restart'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'restart'
-                    ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <RotateCw className="w-4 h-4" />
-                <span>Redémarrer</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('restart'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'restart'
+                      ? 'bg-amber-600 text-white border-amber-500 shadow-sm shadow-amber-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <RotateCw className="w-4 h-4" />
+                  <span>Redémarrer</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('shutdown'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'shutdown'
-                    ? 'bg-rose-600 text-white border-rose-500 shadow-sm shadow-rose-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <Power className="w-4 h-4" />
-                <span>Éteindre</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('shutdown'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'shutdown'
+                      ? 'bg-rose-600 text-white border-rose-500 shadow-sm shadow-rose-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <Power className="w-4 h-4" />
+                  <span>Éteindre</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('message'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'message'
-                    ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>Message</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('message'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'message'
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Message</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('script'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'script'
-                    ? 'bg-cyan-600 text-white border-cyan-500 shadow-sm shadow-cyan-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <FileCode className="w-4 h-4" />
-                <span>Script PS/Py</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('script'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'script'
+                      ? 'bg-cyan-600 text-white border-cyan-500 shadow-sm shadow-cyan-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <FileCode className="w-4 h-4" />
+                  <span>Script PS/Py</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('package'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
-                  activeActionTab === 'package'
-                    ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <Package className="w-4 h-4" />
-                <span>Package MSI</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('package'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'package'
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-sm shadow-blue-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  <span>Package MSI</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => { setActiveActionTab('logon'); setError(null); }}
-                className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 col-span-2 sm:col-span-2 transition ${
-                  activeActionTab === 'logon'
-                    ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-900/30'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
-                }`}
-              >
-                <UserCheck className="w-4 h-4" />
-                <span>Ouvrir une Session (AutoLogon)</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('logon'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 col-span-2 sm:col-span-2 transition ${
+                    activeActionTab === 'logon'
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Ouvrir une Session (AutoLogon)</span>
+                </button>
+              </div>
+            )}
 
             {/* TAB 1: Wake-on-LAN */}
             {activeActionTab === 'wol' && (
@@ -1441,27 +1457,27 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                 />
               </div>
 
-              {/* Assignation des Opérateurs par l'Administrateur */}
+              {/* Assignation des Membres par l'Administrateur */}
               {isAdmin && (
                 <div className="space-y-2 pt-2 border-t border-slate-800">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                       <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Opérateurs Assignés</span>
+                      <span>Membres Assignés</span>
                     </label>
                     <span className="text-[10px] text-slate-500 font-mono">
                       {selectedOperatorIds.length} sélectionné{selectedOperatorIds.length > 1 ? 's' : ''}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Les opérateurs assignés sont les seuls autorisés à déployer des packages et exécuter des actions sur ce groupe.
+                    Les membres assignés (opérateurs et clients app store) sont autorisés à déployer des packages et exécuter des actions sur ce groupe.
                   </p>
 
                   <div className="max-h-36 overflow-y-auto space-y-1.5 bg-slate-950 border border-slate-800 rounded-xl p-2">
-                    {operatorUsers.length === 0 ? (
+                    {assignableMembers.length === 0 ? (
                       <p className="text-xs text-slate-500 italic py-2 text-center">Aucun compte utilisateur disponible.</p>
                     ) : (
-                      operatorUsers.map((u) => {
+                      assignableMembers.map((u) => {
                         const isSelected = selectedOperatorIds.includes(u.id);
                         return (
                           <div
@@ -1485,7 +1501,7 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                               )}
                               <span className="font-semibold text-slate-200">{u.username}</span>
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800">
-                                {u.role}
+                                {u.role === 'app_store_client' ? 'Client App Store' : u.role}
                               </span>
                             </div>
                             {u.email && <span className="text-[11px] text-slate-500 truncate max-w-[120px]">{u.email}</span>}

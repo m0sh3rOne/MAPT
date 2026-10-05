@@ -120,12 +120,18 @@ class DeploymentService:
         user_id = user_or_id.id if isinstance(user_or_id, User) else user_or_id
         user_role = user_or_id.role if isinstance(user_or_id, User) else None
 
-        # Contrôle des droits Opérateur : assignation obligatoire au groupe / machines
-        if user_role == UserRole.OPERATOR:
+        # Contrôle des droits Opérateur & Client App Store : assignation obligatoire au groupe / machines
+        if user_role in [UserRole.OPERATOR, UserRole.APP_STORE_CLIENT]:
+            if user_role == UserRole.APP_STORE_CLIENT and dep_in.deployment_type != "package":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Le rôle Client App Store est exclusivement autorisé à déployer des packages MSI/EXE."
+                )
+
             if dep_in.target_all_devices:
                 raise HTTPException(
                     status_code=403,
-                    detail="En tant qu'opérateur, vous n'êtes pas autorisé à cibler l'ensemble du parc de machines."
+                    detail="Vous n'êtes pas autorisé à cibler l'ensemble du parc de machines."
                 )
             assigned_group_ids = {str(g) for g in await self.group_repo.get_operator_group_ids(user_id)}
             assigned_device_ids = {str(d) for d in await self.group_repo.get_operator_device_ids(user_id)}
@@ -135,7 +141,7 @@ class DeploymentService:
                     if str(gid) not in assigned_group_ids:
                         raise HTTPException(
                             status_code=403,
-                            detail="Accès refusé : vous n'êtes pas assigné à ce groupe en tant qu'opérateur."
+                            detail="Accès refusé : vous n'êtes pas assigné à ce groupe en tant que membre."
                         )
 
             if dep_in.target_device_ids:

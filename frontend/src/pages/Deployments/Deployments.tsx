@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
 import {
   Rocket,
@@ -32,6 +33,13 @@ import {
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
 
 export const Deployments: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+  const isOperator = user?.role === 'operator';
+  const isAppStoreClient = user?.role === 'app_store_client';
+  const isViewer = user?.role === 'viewer';
+  const isRestrictedRole = isOperator || isAppStoreClient;
+
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'active' | 'recurring' | 'completed'>('all');
@@ -175,7 +183,7 @@ export const Deployments: React.FC = () => {
   const resetForm = () => {
     setName('');
     setDescription('');
-    setDeploymentType('script');
+    setDeploymentType(isAppStoreClient ? 'package' : 'script');
     setPackageVersionId('');
     setScriptVersionId('');
     setCustomCommand('');
@@ -322,16 +330,18 @@ export const Deployments: React.FC = () => {
             <span>Purger terminés ({finishedDeploymentsCount})</span>
           </button>
 
-          <button
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Créer un Déploiement</span>
-          </button>
+          {!isViewer && (
+            <button
+              onClick={() => {
+                resetForm();
+                setShowModal(true);
+              }}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Créer un Déploiement</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -676,46 +686,58 @@ export const Deployments: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                   Type d'action
                 </label>
-                <div className="grid grid-cols-3 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setDeploymentType('script')}
-                    className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
-                      deploymentType === 'script'
-                        ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Code2 className="w-4 h-4" />
-                    <span>Script PS/Python</span>
-                  </button>
+                {isAppStoreClient ? (
+                  <div className="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-2xl flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2 text-indigo-300 font-semibold">
+                      <Package className="w-4 h-4 text-indigo-400" />
+                      <span>Déploiement de Package MSI/EXE</span>
+                    </div>
+                    <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono">
+                      Rôle Client App Store
+                    </span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setDeploymentType('script')}
+                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                        deploymentType === 'script'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Code2 className="w-4 h-4" />
+                      <span>Script PS/Python</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setDeploymentType('package')}
-                    className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
-                      deploymentType === 'package'
-                        ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Package className="w-4 h-4" />
-                    <span>Package MSI/EXE</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeploymentType('package')}
+                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                        deploymentType === 'package'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Package className="w-4 h-4" />
+                      <span>Package MSI/EXE</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setDeploymentType('command')}
-                    className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
-                      deploymentType === 'command'
-                        ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Terminal className="w-4 h-4" />
-                    <span>Commande Directe</span>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setDeploymentType('command')}
+                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                        deploymentType === 'command'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                      }`}
+                    >
+                      <Terminal className="w-4 h-4" />
+                      <span>Commande Directe</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Package Selection */}
@@ -1034,35 +1056,41 @@ export const Deployments: React.FC = () => {
               </div>
 
               {/* Targets: Groups selection */}
-              {groups.length > 0 && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Ou cibler des Groupes entiers
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {groups.map((grp) => (
-                      <button
-                        key={grp.id}
-                        type="button"
-                        onClick={() => {
-                          if (selectedGroupIds.includes(grp.id)) {
-                            setSelectedGroupIds(selectedGroupIds.filter((id) => id !== grp.id));
-                          } else {
-                            setSelectedGroupIds([...selectedGroupIds, grp.id]);
-                          }
-                        }}
-                        className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
-                          selectedGroupIds.includes(grp.id)
-                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
-                        }`}
-                      >
-                        {grp.name} ({grp.device_count} machines)
-                      </button>
-                    ))}
+              {(() => {
+                const targetableGroups = isRestrictedRole
+                  ? groups.filter((grp) => grp.operator_ids?.includes(user?.id || ''))
+                  : groups;
+                if (targetableGroups.length === 0) return null;
+                return (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Ou cibler des Groupes entiers {isRestrictedRole && <span className="text-slate-500 font-normal lowercase">(vos groupes assignés)</span>}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {targetableGroups.map((grp) => (
+                        <button
+                          key={grp.id}
+                          type="button"
+                          onClick={() => {
+                            if (selectedGroupIds.includes(grp.id)) {
+                              setSelectedGroupIds(selectedGroupIds.filter((id) => id !== grp.id));
+                            } else {
+                              setSelectedGroupIds([...selectedGroupIds, grp.id]);
+                            }
+                          }}
+                          className={`text-xs px-3 py-1.5 rounded-xl border font-semibold transition ${
+                            selectedGroupIds.includes(grp.id)
+                              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                          }`}
+                        >
+                          {grp.name} ({grp.device_count} machines)
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Wake-on-LAN Option */}
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between">

@@ -12,9 +12,12 @@ from app.models.user import User
 router = APIRouter(prefix="/scripts", tags=["Admin - Scripts"])
 
 
+SCRIPT_READ_ROLES = [UserRole.SUPER_ADMIN, UserRole.ADMINISTRATOR, UserRole.OPERATOR, UserRole.VIEWER]
+
+
 @router.get("", response_model=List[ScriptResponse])
 async def list_scripts(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(SCRIPT_READ_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)
@@ -36,7 +39,7 @@ async def create_script(
 @router.get("/{script_id}", response_model=ScriptResponse)
 async def get_script(
     script_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(SCRIPT_READ_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)
@@ -46,7 +49,7 @@ async def get_script(
 @router.get("/{script_id}/versions", response_model=List[ScriptVersionResponse])
 async def get_script_versions(
     script_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(SCRIPT_READ_ROLES)),
     db: AsyncSession = Depends(get_db)
 ):
     service = ScriptService(db)

@@ -6,82 +6,85 @@ Ce document décrit en détail le modèle de sécurité et de contrôle d'accès
 
 ## 1. Vue d'ensemble des Rôles
 
-La plateforme MAPT définit 4 niveaux de privilèges hiérarchiques :
+La plateforme MAPT définit **5 niveaux de privilèges hiérarchiques** :
 
 | Rôle | Identifiant technique | Description générale |
 | :--- | :--- | :--- |
 | 🛡️ **Super Administrateur** | `super_admin` | Contrôle absolu sur la plateforme, les utilisateurs, la configuration système et l'audit. |
-| 👑 **Administrateur** | `administrator` | Gestion complète du catalogue de packages/scripts, des groupes, des machines et de l'assignation des opérateurs. |
-| ⚙️ **Opérateur** | `operator` | Déploiement et actions rapides **exclusivement restreints aux groupes assignés** par un administrateur. Création/modification de scripts, packages et groupes **interdite**. |
-| 👁️ **Lecteur** | `viewer` | Consultation en lecture seule stricte (monitoring, inventaire, logs) sans aucun droit d'action ni d'écriture. |
+| 👑 **Administrateur** | `administrator` | Gestion complète du catalogue de packages/scripts, des groupes, des machines et de l'assignation des membres. |
+| ⚙️ **Opérateur** | `operator` | Déploiement de packages, exécution de scripts et actions rapides **exclusivement restreints aux groupes où il est membre assigné**. Création/modification de scripts, packages et groupes **interdite**. |
+| 🛍️ **Client App Store** | `app_store_client` | Déploiement et accès aux **Packages MSI/EXE uniquement**, strictement restreint aux machines des groupes auxquels il est rattaché en tant que **membre assigné**. Accès aux scripts PowerShell/Python/Batch, modifications et actions avancées **interdits**. |
+| 👁️ **Lecteur** | `viewer` | Consultation en lecture seule stricte (monitoring, inventaire) sans aucun droit d'action ni d'écriture. |
 
 ---
 
 ## 2. Tableau Récapitulatif des Droits & Permissions
 
-| Fonctionnalité / Action | Super Admin (`super_admin`) | Administrateur (`administrator`) | Opérateur (`operator`) | Lecteur (`viewer`) |
-| :--- | :---: | :---: | :---: | :---: |
-| **📦 Packages & Snapins** | | | | |
-| Consulter le catalogue des packages | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Créer / Uploader un nouveau package (MSI, EXE, VBS, etc.) | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Modifier la configuration Snapin / arguments | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Uploader une nouvelle version de binaire | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Supprimer un package | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Déployer un package sur tout le parc / n'importe quel groupe | ✅ Oui | ✅ Oui | ❌ **Non** | ❌ **Non** |
-| Déployer un package sur **ses groupes assignés** | ✅ Oui | ✅ Oui | ✅ **Oui (Assigné uniquement)** | ❌ **Non** |
-| **📜 Scripts PowerShell, Python, VBS, Batch** | | | | |
-| Consulter les scripts et l'historique des versions | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Créer un nouveau script | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Éditer / Publier une nouvelle version de code | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Importer un script depuis un fichier JSON | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Exporter un script au format JSON | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Supprimer un script | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Exécuter un script sur tout le parc / groupes libres | ✅ Oui | ✅ Oui | ❌ **Non** | ❌ **Non** |
-| Exécuter un script sur **ses groupes assignés** | ✅ Oui | ✅ Oui | ✅ **Oui (Assigné uniquement)** | ❌ **Non** |
-| **📁 Groupes de Machines** | | | | |
-| Consulter les groupes et leurs machines membres | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Créer un nouveau groupe | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Modifier un groupe (Nom, description) | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| **Assigner des Opérateurs à un groupe** | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Gérer les machines membres d'un groupe | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Supprimer un groupe | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Lancer des Actions Rapides de groupe (WoL, Reboot, Net Send...) | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non** |
-| **💻 Machines du Parc** | | | | |
-| Consulter la liste des machines et leur statut | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Consulter l'inventaire matériel, réseau, logiciels, comptes | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Activer / Désactiver une machine | ✅ Oui | ✅ Oui | ❌ **Non** | ❌ **Non** |
-| Supprimer une machine du parc (individuelle ou en lot) | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non** |
-| Réveil Wake-on-LAN (Individuel, lot, groupe, MAC personnalisée) | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non** |
-| Actions distantes (Redémarrage, Arrêt, Annulation de job) | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non** |
-| **👥 Gestion des Utilisateurs & Sécurité** | | | | |
-| Créer / Modifier / Désactiver des utilisateurs | ✅ Oui | ✅ Oui | ❌ **Non** | ❌ **Non** |
-| Modifier les rôles utilisateurs | ✅ **Super Admin** | ❌ Non | ❌ **Non** | ❌ **Non** |
-| Modifier son propre mot de passe & profil | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
-| Consulter le journal d'audit des actions administratives | ✅ Oui | ✅ Oui | ❌ **Non** | ❌ **Non** |
+| Fonctionnalité / Action | Super Admin (`super_admin`) | Administrateur (`administrator`) | Opérateur (`operator`) | Client App Store (`app_store_client`) | Lecteur (`viewer`) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **📦 Packages & Snapins (MSI/EXE/ZIP)** | | | | | |
+| Consulter le catalogue des packages | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
+| Déployer un package sur tout le parc libre | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
+| Déployer un package sur **ses groupes assignés** | ✅ Oui | ✅ Oui | ✅ **Oui (Assigné)** | ✅ **Oui (Assigné)** | ❌ Non |
+| Exporter un package sous forme de ZIP (.zip) | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
+| Créer / Uploader un nouveau package | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Importer un package depuis un fichier ZIP | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Modifier la configuration Snapin / arguments | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Uploader une nouvelle version de binaire | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Supprimer ou archiver un package | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| **📜 Scripts PowerShell, Python, VBS, Batch** | | | | | |
+| Consulter les scripts et versions | ✅ Oui | ✅ Oui | ✅ Oui | ❌ **Non (Masqué)** | ✅ Oui |
+| Exécuter un script sur tout le parc | ✅ Oui | ✅ Oui | ❌ Non | ❌ **Non (Interdit)** | ❌ Non |
+| Exécuter un script sur **ses groupes assignés** | ✅ Oui | ✅ Oui | ✅ **Oui (Assigné)** | ❌ **Non (Interdit)** | ❌ Non |
+| Créer / Éditer / Supprimer un script | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Importer / Exporter des scripts JSON | ✅ Oui | ✅ Oui | ❌ Non / Exporter ✅ | ❌ **Non (Interdit)** | Exporter ✅ |
+| **📁 Groupes de Machines** | | | | | |
+| Consulter les groupes et machines membres | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
+| Créer / Modifier / Supprimer un groupe | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| **Assigner des Membres (Opérateurs & App Store)** | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Gérer les machines membres d'un groupe | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Lancer un Déploiement Package depuis le groupe | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ✅ **Oui (Groupes assignés)** | ❌ Non |
+| Actions Rapides (WoL, Reboot, Shutdown, Msg, AutoLogon) | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non (Interdit)** | ❌ Non |
+| **💻 Machines du Parc** | | | | | |
+| Consulter la liste et l'inventaire matériel/logiciel | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
+| Activer / Désactiver / Approuver des machines | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
+| Supprimer une machine du parc | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
+| Réveil Wake-on-LAN et actions distantes directes | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non** | ❌ Non |
+| **👥 Gestion des Utilisateurs & Sécurité** | | | | | |
+| Créer / Modifier / Désactiver des utilisateurs | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
+| Modifier les rôles utilisateurs | ✅ **Super Admin** | ❌ Non | ❌ Non | ❌ Non | ❌ Non |
+| Modifier son propre mot de passe & profil | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui | ✅ Oui |
+| Consulter le journal d'audit administratif | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
 
 ---
 
-## 3. Fonctionnement de l'Assignation des Opérateurs aux Groupes
+## 3. Fonctionnement de l'Assignation des Membres aux Groupes
 
-### A. Principe de Ségrégation
-Pour garantir la sécurité et éviter les modifications accidentelles sur le parc :
-1. **Les Opérateurs ne peuvent ni créer ni modifier** le code des scripts ou les packages exécutables. Ils utilisent exclusivement les packages et scripts certifiés et validés par les administrateurs.
-2. **Un Opérateur ne peut pas cibler la totalité du parc** (`target_all_devices`).
-3. **Un Opérateur n'a accès aux déploiements et aux actions rapides (WoL, redémarrage, arrêt, session...) que sur les groupes pour lesquels il a été explicitement désigné comme opérateur**.
-4. Toute tentative de déploiement d'un opérateur en dehors de ses groupes assignés est bloquée tant côté **Interface Web** (boutons désactivés/masqués) que côté **Backend API** avec renvoi d'une erreur HTTP `403 Forbidden` (`Accès refusé : vous n'êtes pas assigné à ce groupe`).
+### A. Principe de Ségrégation & Moindre Privilège
+Pour garantir la sécurité de l'infrastructure et éviter les déploiements non autorisés :
+1. **Membres Assignés** : Les comptes ayant le rôle **Opérateur** ou **Client App Store** doivent obligatoirement être attachés à un groupe par un administrateur pour pouvoir agir dessus.
+2. **Client App Store** :
+   - Conçu pour les gestionnaires applicatifs ou enseignants / référents de salles.
+   - Accès exclusif aux **Packages MSI/EXE** certifiés dans le catalogue.
+   - Les menus et actions liés aux scripts personnalisés, aux commandes directes du terminal et aux extinctions distantes sont masqués et interdits via l'API (HTTP `403 Forbidden`).
+3. **Opérateur** :
+   - Déploie des packages et des scripts certifiés, et exécute les actions rapides de maintenance (WoL, Redémarrage, Auto-Logon...) **uniquement sur ses groupes assignés**.
+4. **Ciblage Global Interdit** : Ni l'Opérateur ni le Client App Store ne peuvent cibler la totalité du parc (`target_all_devices`).
+5. **Contrôle Backend Rigoureux** : Toute tentative de contournement déclenche un rejet immédiat côté serveur avec enregistrement dans le journal d'audit.
 
 ### B. Procédure d'Assignation par un Administrateur
 1. Rendez-vous dans le menu **Groupes** de l'interface web.
 2. Cliquez sur l'icône de modification d'un groupe (ou sur **Nouveau Groupe**).
-3. Dans la section **Opérateurs Assignés**, cochez les comptes opérateurs autorisés à intervenir sur ce groupe.
-4. Cliquez sur **Enregistrer** : l'assignation est immédiatement effective.
-5. Sur la vignette du groupe, un badge `👤 X op.` récapitule les opérateurs habilités.
+3. Dans la section **Membres Assignés**, cochez les comptes (Opérateurs ou Clients App Store) autorisés à intervenir sur ce groupe.
+4. Cliquez sur **Enregistrer** : l'assignation est immédiatement prise en compte.
+5. Sur la vignette du groupe, un badge `👤 X membre(s)` récapitule les membres habilités.
 
 ---
 
-## 4. Matrice de Référence pour les Audits
+## 4. Matrice de Traçabilité & Audit
 
-Toutes les opérations d'assignation, de création, d'exécution ou de déploiement sont tracées de façon immuable dans la table `audit_logs` avec :
-- L'identifiant de l'utilisateur initiateur (`user_id`), son rôle et son adresse IP (`ip_address`).
-- Le type d'action (`group_created`, `group_updated`, `deployment_created`, `device_wol`, `device_deleted`, etc.).
-- Les cibles exactes et les détails de l'assignation.
+Toutes les opérations d'assignation de membres, de déploiement de packages, d'exécution ou d'approbation sont enregistrées dans le journal d'audit (`audit_logs`) avec :
+- L'identifiant utilisateur (`user_id`), son nom et son rôle (`super_admin`, `administrator`, `operator`, `app_store_client`, `viewer`).
+- L'adresse IP de la session (`ip_address`).
+- Le type d'action (`group_created`, `group_updated`, `deployment_created`, `device_wol`, `package_imported`, etc.).
+- Les cibles exactes (identifiants de groupes et de machines).

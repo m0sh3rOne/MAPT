@@ -131,7 +131,9 @@ export const Packages: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
   const isOperator = user?.role === 'operator';
+  const isAppStoreClient = user?.role === 'app_store_client';
   const isViewer = user?.role === 'viewer';
+  const isRestrictedRole = isOperator || isAppStoreClient;
 
   const queryClient = useQueryClient();
 
@@ -828,7 +830,7 @@ export const Packages: React.FC = () => {
                         setPackageToDeploy(pkg);
                         setSelectedDevices([]);
                         setDeviceSearchQuery('');
-                        setDeployTargetType('all');
+                        setDeployTargetType(isRestrictedRole ? 'group' : 'all');
                         setScheduleConfig({
                           is_recurring: false,
                           schedule_type: 'immediate',
@@ -1850,16 +1852,29 @@ export const Packages: React.FC = () => {
             {/* Target Mode Selector */}
             <div className="space-y-3">
               <label className="block text-xs font-bold text-slate-400 uppercase">Cible du déploiement</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid ${isRestrictedRole ? 'grid-cols-2' : 'grid-cols-3'} gap-2`}>
+                {!isRestrictedRole && (
+                  <button
+                    type="button"
+                    onClick={() => setDeployTargetType('all')}
+                    className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'all'
+                      ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                  >
+                    Toutes les machines ({devices.length})
+                  </button>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => setDeployTargetType('all')}
-                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'all'
+                  onClick={() => setDeployTargetType('group')}
+                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'group'
                     ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                     }`}
                 >
-                  Toutes les machines ({devices.length})
+                  Par Groupe ({isRestrictedRole ? groups.filter((g: any) => g.operator_ids?.includes(user?.id || '')).length : groups.length})
                 </button>
 
                 <button
@@ -1871,17 +1886,6 @@ export const Packages: React.FC = () => {
                     }`}
                 >
                   Sélection manuelle ({selectedDevices.length})
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDeployTargetType('group')}
-                  className={`p-3 rounded-xl border text-xs font-semibold text-center transition ${deployTargetType === 'group'
-                    ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                    }`}
-                >
-                  Par Groupe ({groups.length})
                 </button>
               </div>
             </div>
@@ -1896,7 +1900,10 @@ export const Packages: React.FC = () => {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-200 outline-none focus:border-emerald-500"
                 >
                   <option value="">-- Sélectionnez un groupe --</option>
-                  {groups.map((g: any) => (
+                  {(isRestrictedRole
+                    ? groups.filter((g: any) => g.operator_ids?.includes(user?.id || ''))
+                    : groups
+                  ).map((g: any) => (
                     <option key={g.id} value={g.id}>
                       {g.name} ({g.device_count || 0} machine{g.device_count > 1 ? 's' : ''})
                     </option>

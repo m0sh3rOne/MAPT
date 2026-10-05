@@ -2,7 +2,7 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  role: 'super_admin' | 'administrator' | 'operator' | 'viewer';
+  role: 'super_admin' | 'administrator' | 'operator' | 'app_store_client' | 'viewer';
   is_active: boolean;
   last_login_at?: string;
 }

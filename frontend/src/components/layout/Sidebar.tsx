@@ -27,6 +27,13 @@ const navItems = [
 export const Sidebar: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdminOrAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+  const isAppStoreClient = user?.role === 'app_store_client';
+
+  const visibleNavItems = navItems.filter((item) => {
+    if (isAppStoreClient && item.to === '/scripts') return false;
+    if (item.to === '/audit' && !isSuperAdminOrAdmin) return false;
+    return true;
+  });
 
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen sticky top-0">
@@ -46,7 +53,7 @@ export const Sidebar: React.FC = () => {
         <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-3 mb-2">
           Gestion du Parc
         </div>
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink

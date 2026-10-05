@@ -23,7 +23,8 @@ import {
   Mail,
   AlertTriangle,
   Lock,
-  Sparkles
+  Sparkles,
+  Package
 } from 'lucide-react';
 
 const roleBadge = (role: string) => {
@@ -45,6 +46,12 @@ const roleBadge = (role: string) => {
         label: 'Opérateur',
         color: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
         icon: Shield,
+      };
+    case 'app_store_client':
+      return {
+        label: 'Client App Store',
+        color: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+        icon: Package,
       };
     default:
       return {
@@ -319,6 +326,7 @@ export const Users: React.FC = () => {
             <option value="super_admin">Super Admin</option>
             <option value="administrator">Administrateur</option>
             <option value="operator">Opérateur</option>
+            <option value="app_store_client">Client App Store</option>
             <option value="viewer">Lecteur</option>
           </select>
         </div>
@@ -547,6 +555,7 @@ export const Users: React.FC = () => {
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-slate-200 focus:border-emerald-500 outline-none transition"
                 >
                   <option value="operator">Opérateur (Déploiements, scripts & actions)</option>
+                  <option value="app_store_client">Client App Store (Packages MSI/EXE sur groupes assignés)</option>
                   <option value="administrator">Administrateur (Gestion complète hors Super Admin)</option>
                   <option value="super_admin">Super Administrateur (Tous les droits)</option>
                   <option value="viewer">Lecteur (Lecture seule)</option>
@@ -621,6 +630,7 @@ export const Users: React.FC = () => {
                   <option value="super_admin">Super Administrateur</option>
                   <option value="administrator">Administrateur</option>
                   <option value="operator">Opérateur</option>
+                  <option value="app_store_client">Client App Store</option>
                   <option value="viewer">Lecteur</option>
                 </select>
               </div>
