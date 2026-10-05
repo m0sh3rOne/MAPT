@@ -84,6 +84,13 @@ export interface DeviceInventory {
   updated_at: string;
 }
 
+export interface DeviceActionLogItem {
+  id: string;
+  timestamp: string;
+  level: string;
+  message: string;
+}
+
 export interface DeviceActionHistory {
   id: string;
   deployment_id?: string | null;
@@ -96,6 +103,7 @@ export interface DeviceActionHistory {
   completed_at?: string;
   exit_code?: number;
   error_message?: string;
+  logs?: DeviceActionLogItem[];
 }
 
 export interface GroupOperator {

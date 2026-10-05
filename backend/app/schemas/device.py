@@ -127,6 +127,16 @@ class AddDeviceToGroupRequest(BaseModel):
     device_ids: List[UUID]
 
 
+class DeviceTargetLogItem(BaseModel):
+    id: UUID
+    timestamp: datetime
+    level: str = "INFO"
+    message: str
+
+    class Config:
+        from_attributes = True
+
+
 class DeviceTargetHistoryResponse(BaseModel):
     id: UUID
     deployment_id: Optional[UUID] = None
@@ -139,6 +149,7 @@ class DeviceTargetHistoryResponse(BaseModel):
     completed_at: Optional[datetime] = None
     exit_code: Optional[int] = None
     error_message: Optional[str] = None
+    logs: List[DeviceTargetLogItem] = []
 
     class Config:
         from_attributes = True

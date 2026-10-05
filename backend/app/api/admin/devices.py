@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.database import get_db
@@ -9,6 +9,7 @@ from app.schemas.device import (
     DeviceResponse,
     DeviceInventoryResponse,
     DeviceTargetHistoryResponse,
+    DeviceTargetLogItem,
     WolDeviceRequest,
     WolBatchRequest,
     WolCustomRequest,
@@ -60,7 +61,7 @@ async def get_device_inventory(
 @router.get("/{device_id}/actions", response_model=List[DeviceTargetHistoryResponse])
 async def get_device_actions(
     device_id: UUID,
-    limit: int = 50,
+    limit: int = 100,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -80,7 +81,16 @@ async def get_device_actions(
             started_at=t.started_at,
             completed_at=t.completed_at,
             exit_code=t.exit_code,
-            error_message=t.error_message
+            error_message=t.error_message,
+            logs=[
+                DeviceTargetLogItem(
+                    id=l.id,
+                    timestamp=l.timestamp,
+                    level=l.level,
+                    message=l.message
+                )
+                for l in (t.logs or [])
+            ]
         )
         for t in targets
     ]
@@ -105,6 +115,7 @@ async def get_device_actions(
         bcast = details.get("broadcast_ip", "")
         port = details.get("port", 9)
         summary_str = f"MAC: {mac} | Broadcast: {bcast}:{port}" if mac else f"Broadcast: {bcast}:{port}"
+        wol_msg = f"Paquet magique Wake-on-LAN diffusé avec succès sur le réseau ({summary_str})." if success else (details.get("message") or "Échec d'envoi du paquet magique Wake-on-LAN.")
         
         history_items.append(
             DeviceTargetHistoryResponse(
@@ -118,7 +129,15 @@ async def get_device_actions(
                 started_at=log.created_at,
                 completed_at=log.created_at,
                 exit_code=0 if success else 1,
-                error_message=None if success else details.get("message")
+                error_message=None if success else details.get("message"),
+                logs=[
+                    DeviceTargetLogItem(
+                        id=log.id,
+                        timestamp=log.created_at,
+                        level="INFO" if success else "ERROR",
+                        message=wol_msg
+                    )
+                ]
             )
         )
 
@@ -128,6 +147,72 @@ async def get_device_actions(
         reverse=True
     )
     return history_items[:limit]
+
+
+@router.get("/{device_id}/execution-logs/export")
+async def export_device_execution_logs(
+    device_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Exporte l'ensemble des logs d'exécution de déploiements et actions pour une machine sous format fichier texte .txt.
+    """
+    service = DeviceService(db)
+    device = await service.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Machine introuvable")
+
+    dep_repo = DeploymentRepository(db)
+    targets = await dep_repo.get_targets_for_device(device_id, limit=200)
+
+    now = datetime.now(timezone.utc)
+    timestamp_str = now.strftime("%Y%m%d_%H%M%S")
+    formatted_now = now.strftime("%d/%m/%Y à %H:%M:%S UTC")
+
+    lines = []
+    lines.append("=" * 80)
+    lines.append(f" RAPPORT DES LOGS D'EXÉCUTION & DÉPLOIEMENTS - MACHINE : {device.hostname}")
+    lines.append(f" Date d'export : {formatted_now}")
+    lines.append(f" IP : {device.ip_address or 'N/A'} | OS : {device.os_name} {device.os_version or ''}")
+    lines.append(f" Nombre total d'exécutions enregistrées : {len(targets)}")
+    lines.append("=" * 80)
+    lines.append("")
+
+    for idx, t in enumerate(targets, 1):
+        dep_name = t.deployment.name if t.deployment else "Action Rapide"
+        dep_type = t.deployment.deployment_type if t.deployment else "command"
+        created_str = t.created_at.strftime("%d/%m/%Y %H:%M:%S") if t.created_at else "N/A"
+        started_str = t.started_at.strftime("%d/%m/%Y %H:%M:%S") if t.started_at else "-"
+        completed_str = t.completed_at.strftime("%d/%m/%Y %H:%M:%S") if t.completed_at else "-"
+        exit_code_str = str(t.exit_code) if t.exit_code is not None else "N/A"
+
+        lines.append(f"[{idx}/{len(targets)}] {created_str} | {dep_name} | STATUT: {t.status} | CODE RETOUR: {exit_code_str}")
+        lines.append(f" Type      : {dep_type}")
+        lines.append(f" Début     : {started_str} | Fin : {completed_str}")
+        if t.deployment and t.deployment.custom_command:
+            lines.append(f" Commande  : {t.deployment.custom_command}")
+        if t.error_message:
+            lines.append(f" Erreur    : {t.error_message}")
+        
+        lines.append(" --- SORTIE CONSOLE & LOGS ---")
+        if t.logs and len(t.logs) > 0:
+            for log in t.logs:
+                l_time = log.timestamp.strftime("%H:%M:%S") if log.timestamp else ""
+                lines.append(f" [{l_time}] [{log.level}] {log.message}")
+        else:
+            lines.append(" (Aucune sortie textuelle enregistrée pour cette exécution)")
+        lines.append("-" * 80)
+        lines.append("")
+
+    content = "\n".join(lines)
+    filename = f"mapt_execution_logs_{device.hostname}_{timestamp_str}.txt"
+
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.delete("/{device_id}/actions", response_model=ActionCountResponse)

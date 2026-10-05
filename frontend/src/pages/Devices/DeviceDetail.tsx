@@ -50,14 +50,26 @@ import {
   Plus,
   ChevronUp,
   ChevronDown,
-  ListOrdered
+  ListOrdered,
+  Download,
+  Copy,
+  CheckCheck,
+  ScrollText,
+  FileText
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 
 export const DeviceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'inventory' | 'software' | 'network' | 'general' | 'actions'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'software' | 'network' | 'general' | 'actions' | 'logs'>('inventory');
+
+  // Execution Logs tab search & filter state
+  const [logsSearchTerm, setLogsSearchTerm] = useState('');
+  const [logsStatusFilter, setLogsStatusFilter] = useState<'all' | 'SUCCEEDED' | 'FAILED' | 'RUNNING' | 'PENDING'>('all');
+  const [expandedLogIds, setExpandedLogIds] = useState<string[]>([]);
+  const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+  const [isExportingAllLogs, setIsExportingAllLogs] = useState<boolean>(false);
 
   // Software search & filter state
   const [softwareSearch, setSoftwareSearch] = useState('');
@@ -242,6 +254,116 @@ export const DeviceDetail: React.FC = () => {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  // Execution Logs helpers
+  const toggleExpandLog = (logId: string) => {
+    setExpandedLogIds((prev) =>
+      prev.includes(logId) ? prev.filter((i) => i !== logId) : [...prev, logId]
+    );
+  };
+
+  const expandAllLogs = () => {
+    setExpandedLogIds(actions.map((a) => a.id));
+  };
+
+  const collapseAllLogs = () => {
+    setExpandedLogIds([]);
+  };
+
+  const handleCopySingleLog = (action: DeviceActionHistory) => {
+    const lines: string[] = [];
+    lines.push(`=== LOG D'EXÉCUTION : ${action.deployment_name} ===`);
+    lines.push(`Machine : ${device?.hostname || ''} (${device?.ip_address || ''})`);
+    lines.push(`Date : ${new Date(action.created_at).toLocaleString('fr-FR')}`);
+    lines.push(`Statut : ${action.status} | Code retour : ${action.exit_code !== null && action.exit_code !== undefined ? action.exit_code : 'N/A'}`);
+    if (action.custom_command) lines.push(`Commande : ${action.custom_command}`);
+    if (action.error_message) lines.push(`Erreur : ${action.error_message}`);
+    lines.push(`\n--- SORTIE CONSOLE ---`);
+    if (action.logs && action.logs.length > 0) {
+      action.logs.forEach((l) => {
+        lines.push(`[${new Date(l.timestamp).toLocaleTimeString()}] [${l.level}] ${l.message}`);
+      });
+    } else {
+      lines.push(`(Aucune sortie console enregistrée)`);
+    }
+    const fullText = lines.join('\n');
+    navigator.clipboard.writeText(fullText);
+    setCopiedLogId(action.id);
+    setTimeout(() => setCopiedLogId(null), 2000);
+  };
+
+  const handleDownloadSingleLog = (action: DeviceActionHistory) => {
+    const lines: string[] = [];
+    lines.push(`================================================================================`);
+    lines.push(` RAPPORT D'EXÉCUTION - ${action.deployment_name.toUpperCase()}`);
+    lines.push(` Machine : ${device?.hostname || 'Machine'} (${device?.ip_address || 'IP N/A'})`);
+    lines.push(` Date : ${new Date(action.created_at).toLocaleString('fr-FR')}`);
+    lines.push(` Statut : ${action.status} | Code retour : ${action.exit_code !== null && action.exit_code !== undefined ? action.exit_code : 'N/A'}`);
+    if (action.started_at) lines.push(` Début : ${new Date(action.started_at).toLocaleString('fr-FR')}`);
+    if (action.completed_at) lines.push(` Fin   : ${new Date(action.completed_at).toLocaleString('fr-FR')}`);
+    if (action.custom_command) lines.push(` Commande : ${action.custom_command}`);
+    if (action.error_message) lines.push(` Message d'erreur : ${action.error_message}`);
+    lines.push(`================================================================================\n`);
+    lines.push(`--- SORTIE CONSOLE / LOGS DE L'AGENT ---`);
+
+    if (action.logs && action.logs.length > 0) {
+      action.logs.forEach((l) => {
+        lines.push(`[${new Date(l.timestamp).toLocaleTimeString()}] [${l.level}] ${l.message}`);
+      });
+    } else {
+      lines.push(`(Aucune sortie console textuelle enregistrée pour cette action)`);
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = action.deployment_name.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+    const dateStr = new Date(action.created_at).toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = url;
+    a.download = `log_${device?.hostname || 'device'}_${safeName}_${dateStr}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
+  const handleExportAllLogs = async () => {
+    if (!device) return;
+    setIsExportingAllLogs(true);
+    try {
+      const { blob, filename } = await api.exportDeviceExecutionLogs(device.id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert("Erreur lors de l'export des logs : " + (err.response?.data?.detail || err.message));
+    } finally {
+      setIsExportingAllLogs(false);
+    }
+  };
+
+  const filteredExecutionLogs = actions.filter((act) => {
+    const matchSearch =
+      !logsSearchTerm.trim() ||
+      act.deployment_name.toLowerCase().includes(logsSearchTerm.toLowerCase()) ||
+      (act.custom_command && act.custom_command.toLowerCase().includes(logsSearchTerm.toLowerCase())) ||
+      (act.error_message && act.error_message.toLowerCase().includes(logsSearchTerm.toLowerCase())) ||
+      (act.logs && act.logs.some((l) => l.message.toLowerCase().includes(logsSearchTerm.toLowerCase())));
+
+    const matchStatus =
+      logsStatusFilter === 'all' ||
+      (logsStatusFilter === 'SUCCEEDED' && (act.status.toUpperCase() === 'SUCCEEDED' || act.status === 'succeeded')) ||
+      (logsStatusFilter === 'FAILED' && (act.status.toUpperCase() === 'FAILED' || act.status === 'failed' || act.status === 'timed_out')) ||
+      (logsStatusFilter === 'RUNNING' && (act.status.toUpperCase() === 'RUNNING' || act.status === 'running' || act.status === 'acked' || act.status === 'offered')) ||
+      (logsStatusFilter === 'PENDING' && (act.status.toUpperCase() === 'PENDING' || act.status === 'pending'));
+
+    return matchSearch && matchStatus;
+  });
 
   const wakeMutation = useMutation({
     mutationFn: () => api.wakeDevice(id!),
@@ -1211,6 +1333,23 @@ Write-Output "Operation terminee avec succes pour '$u'."
         >
           <Zap className="w-4 h-4" />
           <span>Actions & Télémaintenance</span>
+          {actions.length > 0 && (
+            <span className="ml-1 px-1.5 py-0.2 text-[10px] font-mono rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              {actions.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`pb-3 border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            activeTab === 'logs'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+          }`}
+        >
+          <Terminal className="w-4 h-4" />
+          <span>Logs d'Exécution</span>
           {actions.length > 0 && (
             <span className="ml-1 px-1.5 py-0.2 text-[10px] font-mono rounded-full bg-slate-800 text-slate-300 border border-slate-700">
               {actions.length}
@@ -2627,6 +2766,466 @@ Write-Output "Operation terminee avec succes pour '$u'."
           </div>
         </div>
       )}
+
+      {/* Tab 5: Execution Logs (NEW!) */}
+      {activeTab === 'logs' && (() => {
+        const totalCount = actions.length;
+        const succeededCount = actions.filter((a) => a.status.toUpperCase() === 'SUCCEEDED' || a.status === 'succeeded').length;
+        const failedCount = actions.filter((a) => a.status.toUpperCase() === 'FAILED' || a.status === 'failed' || a.status === 'timed_out').length;
+        const runningCount = actions.filter((a) => a.status.toUpperCase() === 'RUNNING' || a.status === 'running' || a.status === 'acked' || a.status === 'offered').length;
+
+        return (
+          <div className="space-y-6">
+            {/* Header Stats Banner */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center shrink-0">
+                  <Terminal className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Exécutions</div>
+                  <div className="text-xl font-bold font-mono text-slate-100">{totalCount}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Succès</div>
+                  <div className="text-xl font-bold font-mono text-emerald-300">{succeededCount}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">Échecs</div>
+                  <div className="text-xl font-bold font-mono text-rose-300">{failedCount}</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
+                  <Activity className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">En cours / Offerts</div>
+                  <div className="text-xl font-bold font-mono text-sky-300">{runningCount}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Toolbar / Search & Global Actions */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+              {/* Search input & Filter pills */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                <div className="relative flex-1 max-w-md">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={logsSearchTerm}
+                    onChange={(e) => setLogsSearchTerm(e.target.value)}
+                    placeholder="Filtrer par nom, commande, sortie console..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-emerald-500"
+                  />
+                  {logsSearchTerm && (
+                    <button
+                      onClick={() => setLogsSearchTerm('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status selector */}
+                <div className="flex items-center space-x-1.5 bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
+                  <button
+                    onClick={() => setLogsStatusFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                      logsStatusFilter === 'all'
+                        ? 'bg-slate-800 text-slate-200 font-semibold'
+                        : 'text-slate-400 hover:text-slate-300'
+                    }`}
+                  >
+                    Tous ({actions.length})
+                  </button>
+                  <button
+                    onClick={() => setLogsStatusFilter('SUCCEEDED')}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                      logsStatusFilter === 'SUCCEEDED'
+                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 font-semibold'
+                        : 'text-slate-400 hover:text-emerald-400'
+                    }`}
+                  >
+                    Succès ({succeededCount})
+                  </button>
+                  <button
+                    onClick={() => setLogsStatusFilter('FAILED')}
+                    className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                      logsStatusFilter === 'FAILED'
+                        ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60 font-semibold'
+                        : 'text-slate-400 hover:text-rose-400'
+                    }`}
+                  >
+                    Échecs ({failedCount})
+                  </button>
+                  {runningCount > 0 && (
+                    <button
+                      onClick={() => setLogsStatusFilter('RUNNING')}
+                      className={`px-2.5 py-1 rounded-lg font-medium transition ${
+                        logsStatusFilter === 'RUNNING'
+                          ? 'bg-sky-950/80 text-sky-300 border border-sky-800/60 font-semibold'
+                          : 'text-slate-400 hover:text-sky-400'
+                      }`}
+                    >
+                      En cours ({runningCount})
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons: Expand/Collapse All, Download All, Clear All */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={expandedLogIds.length === actions.length && actions.length > 0 ? collapseAllLogs : expandAllLogs}
+                  disabled={actions.length === 0}
+                  className="px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-40"
+                  title="Tout déplier ou tout replier"
+                >
+                  <ListOrdered className="w-3.5 h-3.5 text-slate-400" />
+                  <span>{expandedLogIds.length === actions.length && actions.length > 0 ? 'Tout replier' : 'Tout déplier'}</span>
+                </button>
+
+                <button
+                  onClick={() => refetchActions()}
+                  className="p-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition"
+                  title="Actualiser les logs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingActions ? 'animate-spin text-emerald-400' : ''}`} />
+                </button>
+
+                <button
+                  onClick={handleExportAllLogs}
+                  disabled={actions.length === 0 || isExportingAllLogs}
+                  className="px-3 py-1.5 rounded-xl bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-800/50 hover:border-cyan-600 text-cyan-300 text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-40 shadow-sm"
+                  title="Télécharger l'intégralité des logs d'exécution de cette machine sous forme de fichier .txt"
+                >
+                  {isExportingAllLogs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  <span>Télécharger tout (.txt)</span>
+                </button>
+
+                <button
+                  onClick={() => setShowClearActionsModal(true)}
+                  disabled={actions.length === 0 || clearActionsMutation.isPending}
+                  className="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-800/50 hover:border-rose-600 text-xs font-semibold flex items-center space-x-1.5 transition disabled:opacity-40 shadow-sm"
+                  title="Purger / Effacer tous les logs et l'historique d'exécution"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Purger les logs</span>
+                </button>
+              </div>
+            </div>
+
+            {/* List of Execution Log Accordions */}
+            {filteredExecutionLogs.length > 0 ? (
+              <div className="space-y-3">
+                {filteredExecutionLogs.map((act) => {
+                  const isExpanded = expandedLogIds.includes(act.id);
+                  const isSucceeded = act.status.toUpperCase() === 'SUCCEEDED' || act.status === 'succeeded';
+                  const isFailed = act.status.toUpperCase() === 'FAILED' || act.status === 'failed' || act.status === 'timed_out';
+                  const isRunning = act.status.toUpperCase() === 'RUNNING' || act.status === 'running' || act.status === 'acked' || act.status === 'offered';
+                  const logItems = act.logs || [];
+
+                  return (
+                    <div
+                      key={act.id}
+                      className={`bg-slate-900 border rounded-2xl overflow-hidden transition shadow-sm ${
+                        isExpanded
+                          ? isFailed
+                            ? 'border-rose-900/60 bg-slate-900/95 ring-1 ring-rose-500/20'
+                            : 'border-emerald-900/60 bg-slate-900/95 ring-1 ring-emerald-500/20'
+                          : 'border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Accordion Header Row */}
+                      <div
+                        onClick={() => toggleExpandLog(act.id)}
+                        className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer hover:bg-slate-850/50 transition select-none"
+                      >
+                        {/* Left Info: Status Badge + Action Title + Timestamp */}
+                        <div className="flex items-start md:items-center space-x-3 min-w-0 flex-1">
+                          <div className="shrink-0 mt-0.5 md:mt-0">
+                            {getStatusBadge(act.status)}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <span className="font-bold text-slate-100 text-sm">{act.deployment_name}</span>
+                              <span
+                                className={`text-[10px] font-mono font-bold uppercase px-1.5 py-0.2 rounded border ${
+                                  act.deployment_type === 'wol'
+                                    ? 'bg-amber-950/80 border-amber-700/60 text-amber-300'
+                                    : act.deployment_type === 'package'
+                                    ? 'bg-teal-950/80 border-teal-700/60 text-teal-300'
+                                    : act.deployment_type === 'script'
+                                    ? 'bg-purple-950/80 border-purple-700/60 text-purple-300'
+                                    : 'bg-slate-950 border-slate-800 text-slate-300'
+                                }`}
+                              >
+                                {act.deployment_type === 'wol' ? '⚡ WOL' : act.deployment_type}
+                              </span>
+
+                              {act.exit_code !== null && act.exit_code !== undefined && (
+                                <span
+                                  className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+                                    act.exit_code === 0
+                                      ? 'bg-emerald-950/80 border-emerald-700/60 text-emerald-300'
+                                      : 'bg-rose-950/80 border-rose-700/60 text-rose-300'
+                                  }`}
+                                >
+                                  Code {act.exit_code}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1">
+                              <span className="font-mono text-[11px] text-slate-400 flex items-center space-x-1">
+                                <Clock className="w-3 h-3 text-slate-500 inline mr-1" />
+                                {new Date(act.created_at).toLocaleString('fr-FR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                })}
+                              </span>
+
+                              {act.started_at && act.completed_at && (
+                                <span className="text-[11px] text-slate-500 font-mono">
+                                  Durée : {Math.max(1, Math.round((new Date(act.completed_at).getTime() - new Date(act.started_at).getTime()) / 1000))}s
+                                </span>
+                              )}
+
+                              {logItems.length > 0 && (
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-950 text-slate-400 border border-slate-800">
+                                  {logItems.length} ligne{logItems.length > 1 ? 's' : ''} de log
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Quick Action Buttons */}
+                        <div className="flex items-center space-x-1.5 shrink-0 self-end md:self-center">
+                          {/* Copy Log */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopySingleLog(act);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition"
+                            title="Copier le contenu des logs dans le presse-papiers"
+                          >
+                            {copiedLogId === act.id ? (
+                              <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          {/* Download Single Log .txt */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadSingleLog(act);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-400 hover:text-cyan-300 transition"
+                            title="Télécharger ce log d'exécution (.txt)"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Delete Single Action */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActionToDelete(act);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-950 hover:bg-rose-950/50 border border-slate-800 hover:border-rose-800/60 text-slate-500 hover:text-rose-400 transition"
+                            title="Supprimer ce log d'exécution"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Expand/Collapse Chevron */}
+                          <div className="p-1.5 text-slate-500 hover:text-slate-300">
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Accordion Expanded Content: Terminal Viewer & Details */}
+                      {isExpanded && (
+                        <div className="border-t border-slate-800/80 bg-slate-950/70 p-4 space-y-3">
+                          {/* Metadata row */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs bg-slate-900/90 p-3 rounded-xl border border-slate-800">
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Horodatage Début</span>
+                              <span className="font-mono text-slate-200">
+                                {act.started_at ? new Date(act.started_at).toLocaleString('fr-FR') : 'Non démarré'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Horodatage Fin</span>
+                              <span className="font-mono text-slate-200">
+                                {act.completed_at ? new Date(act.completed_at).toLocaleString('fr-FR') : 'En cours...'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Code Retour Agent</span>
+                              <span className="font-mono text-slate-200">
+                                {act.exit_code !== null && act.exit_code !== undefined ? `Code ${act.exit_code}` : 'N/A'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-slate-500 block text-[10px] uppercase font-bold">Identifiant Cible</span>
+                              <span className="font-mono text-slate-400 text-[11px] truncate block" title={act.id}>
+                                {act.id}
+                              </span>
+                            </div>
+                          </div>
+
+                          {act.custom_command && (
+                            <div className="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800 text-xs">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Commande exécutée :</span>
+                              <pre className="font-mono text-[11px] text-slate-300 whitespace-pre-wrap break-all bg-slate-950 p-2 rounded-lg border border-slate-850 max-h-24 overflow-y-auto">
+                                {act.custom_command}
+                              </pre>
+                            </div>
+                          )}
+
+                          {act.error_message && (
+                            <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
+                              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <span className="font-bold block text-rose-200">Message d'erreur retourné :</span>
+                                <span className="font-mono text-[11px]">{act.error_message}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Terminal Output */}
+                          <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-inner font-mono text-xs">
+                            <div className="px-3.5 py-2 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
+                              <div className="flex items-center space-x-2 text-slate-400 text-[11px]">
+                                <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                                <span className="font-bold text-slate-300">Console Agent — Logs d'exécution</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleCopySingleLog(act)}
+                                className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-750 transition"
+                              >
+                                {copiedLogId === act.id ? (
+                                  <>
+                                    <CheckCheck className="w-3 h-3 text-emerald-400" />
+                                    <span className="text-emerald-400">Copié !</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copier console</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            <div className="p-3.5 max-h-80 overflow-y-auto space-y-1 text-slate-200">
+                              {logItems.length > 0 ? (
+                                logItems.map((logLine, lineIdx) => {
+                                  const lvl = logLine.level.toUpperCase();
+                                  const lvlClass =
+                                    lvl === 'ERROR'
+                                      ? 'text-rose-400'
+                                      : lvl === 'WARNING'
+                                      ? 'text-amber-400'
+                                      : 'text-cyan-400';
+
+                                  return (
+                                    <div key={lineIdx} className="flex items-start space-x-2.5 leading-relaxed hover:bg-slate-900/40 px-1 py-0.5 rounded">
+                                      <span className="text-slate-600 select-none text-[10px] whitespace-nowrap">
+                                        [{new Date(logLine.timestamp).toLocaleTimeString()}]
+                                      </span>
+                                      <span className={`font-bold select-none text-[10px] ${lvlClass}`}>
+                                        [{lvl}]
+                                      </span>
+                                      <span className={`whitespace-pre-wrap break-all flex-1 ${lvl === 'ERROR' ? 'text-rose-300' : 'text-slate-200'}`}>
+                                        {logLine.message}
+                                      </span>
+                                    </div>
+                                  );
+                                })
+                              ) : isRunning ? (
+                                <div className="flex items-center space-x-2 text-slate-500 py-3 italic">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                                  <span>Exécution en cours... En attente des flux console de l'agent.</span>
+                                </div>
+                              ) : (
+                                <div className="text-slate-500 italic py-2">
+                                  Aucune ligne de sortie console spécifique enregistrée pour cette action.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              /* Empty state */
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-500 flex items-center justify-center mx-auto">
+                  <Terminal className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-bold text-slate-200">
+                  {logsSearchTerm || logsStatusFilter !== 'all'
+                    ? 'Aucun log ne correspond à vos filtres'
+                    : 'Aucun log d\'exécution enregistré'}
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  {logsSearchTerm || logsStatusFilter !== 'all'
+                    ? 'Essayez de réinitialiser la recherche ou le filtre de statut pour voir tous les logs.'
+                    : 'Les résultats et sorties consoles de chaque déploiement, script ou action rapide exécutés sur cette machine apparaîtront ici.'}
+                </p>
+                {(logsSearchTerm || logsStatusFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setLogsSearchTerm('');
+                      setLogsStatusFilter('all');
+                    }}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition inline-flex items-center space-x-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Réinitialiser les filtres</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* MODAL 1: RESTART MACHINE                                                  */}

@@ -95,6 +95,20 @@ export const api = {
     const res = await apiClient.get(`/admin/devices/${id}/actions`);
     return res.data;
   },
+  exportDeviceExecutionLogs: async (id: string): Promise<{ blob: Blob; filename: string }> => {
+    const res = await apiClient.get(`/admin/devices/${id}/execution-logs/export`, {
+      responseType: 'blob',
+    });
+    let filename = `mapt_logs_execution_${id}.txt`;
+    const disposition = res.headers['content-disposition'];
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+    }
+    return { blob: res.data, filename };
+  },
   clearDeviceActions: async (id: string): Promise<{ success: boolean; count: number; message: string }> => {
     const res = await apiClient.delete(`/admin/devices/${id}/actions`);
     return res.data;
