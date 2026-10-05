@@ -37,7 +37,10 @@ import {
   ShieldAlert,
   UserPlus,
   UserMinus,
-  UserX
+  UserX,
+  ChevronUp,
+  ChevronDown,
+  ListOrdered
 } from 'lucide-react';
 
 export const Groups: React.FC = () => {
@@ -104,6 +107,8 @@ export const Groups: React.FC = () => {
   const [groupCreateIsAdmin, setGroupCreateIsAdmin] = useState(false);
   const [groupCreatePasswordNeverExpires, setGroupCreatePasswordNeverExpires] = useState(true);
   const [groupCreateShowPassword, setGroupCreateShowPassword] = useState(false);
+  const [groupCreatePostScriptIds, setGroupCreatePostScriptIds] = useState<string[]>([]);
+  const [selectedGroupPostScriptToAdd, setSelectedGroupPostScriptToAdd] = useState('');
 
   // Group Delete User / Profile
   const [groupDeleteUsername, setGroupDeleteUsername] = useState('');
@@ -368,6 +373,15 @@ export const Groups: React.FC = () => {
     return btoa(binary);
   };
 
+  const encodeUtf8Base64 = (str: string): string => {
+    const bytes = new TextEncoder().encode(str);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  };
+
   const handleGroupExecuteScript = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedGroupForActions) return;
@@ -524,6 +538,56 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
     const isAdmin = groupCreateIsAdmin;
     const pne = groupCreatePasswordNeverExpires;
 
+    // Récupérer les scripts post-création sélectionnés dans l'ordre
+    const selectedScripts = groupCreatePostScriptIds
+      .map((sId) => scripts.find((s) => s.id === sId))
+      .filter(Boolean) as ScriptType[];
+
+    let postScriptsPs = '';
+    if (selectedScripts.length > 0) {
+      postScriptsPs += `\n# --- Execution séquentielle des scripts post-création (${selectedScripts.length} script(s)) ---\n`;
+      postScriptsPs += `$env:MAPT_TARGET_USER = $u\n$env:MAPT_TARGET_FULLNAME = $fn\n$env:MAPT_IS_ADMIN = "$isAdmin"\n`;
+
+      selectedScripts.forEach((s, idx) => {
+        const stepNum = idx + 1;
+        const totalSteps = selectedScripts.length;
+        const sName = s.name.replace(/"/g, '`"');
+        const lang = (s.language || 'powershell').toLowerCase();
+        const content = s.latest_version?.content || '';
+        const b64 = encodeUtf8Base64(content);
+        const safeName = s.name.replace(/[^a-zA-Z0-9_-]/g, '_') || 'script';
+        const ext = (lang === 'cmd' || lang === 'batch' || lang === 'bat') ? 'bat' : (lang === 'vbs' || lang === 'vbscript') ? 'vbs' : (lang === 'python' || lang === 'py') ? 'py' : 'ps1';
+
+        postScriptsPs += `
+Write-Output ""
+Write-Output "=========================================================="
+Write-Output "[Script ${stepNum}/${totalSteps}] Lancement de : ${sName} (${lang})"
+Write-Output "=========================================================="
+try {
+    $b64_${stepNum} = "${b64}"
+    $bytes_${stepNum} = [System.Convert]::FromBase64String($b64_${stepNum})
+    $code_${stepNum} = [System.Text.Encoding]::UTF8.GetString($bytes_${stepNum})
+    $tmpFile_${stepNum} = Join-Path $env:TEMP "mapt_post_${stepNum}_${safeName}.${ext}"
+    [System.IO.File]::WriteAllText($tmpFile_${stepNum}, $code_${stepNum}, [System.Text.Encoding]::UTF8)
+
+    if ("${lang}" -eq "cmd" -or "${lang}" -eq "batch" -or "${lang}" -eq "bat") {
+        & cmd.exe /c $tmpFile_${stepNum} "$u" "$fn"
+    } elseif ("${lang}" -eq "vbs" -or "${lang}" -eq "vbscript") {
+        & cscript.exe //nologo $tmpFile_${stepNum} "$u" "$fn"
+    } elseif ("${lang}" -eq "python" -or "${lang}" -eq "py") {
+        & python.exe $tmpFile_${stepNum} "$u" "$fn"
+    } else {
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tmpFile_${stepNum} "$u" "$fn"
+    }
+    Remove-Item $tmpFile_${stepNum} -Force -ErrorAction SilentlyContinue
+    Write-Output "[OK] Script '${sName}' termine avec succes."
+} catch {
+    Write-Warning "Erreur lors de l'execution du script '${sName}' : $($_.Exception.Message)"
+}
+`;
+      });
+    }
+
     const psScript = `
 $u = "${u.replace(/"/g, '`"')}"
 $p = "${p.replace(/"/g, '`"')}"
@@ -605,14 +669,18 @@ if (-not $hasCreated) {
     }
     Write-Output "Compte '$u' configure avec succes."
 }
+
+${postScriptsPs}
 `.trim();
 
     const encoded = encodePowerShellUtf16Base64(psScript);
     const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
 
+    const scriptSuffix = selectedScripts.length > 0 ? ` + ${selectedScripts.length} script(s)` : '';
+
     createGroupActionMutation.mutate({
-      name: `👤➕ Créer utilisateur local (${u}) - ${selectedGroupForActions.name}`,
-      description: `Création du compte local ${u} (${isAdmin ? 'Administrateur' : 'Standard'}) sur le groupe ${selectedGroupForActions.name}`,
+      name: `👤➕ Créer utilisateur local (${u})${scriptSuffix} - ${selectedGroupForActions.name}`,
+      description: `Création du compte local ${u} (${isAdmin ? 'Administrateur' : 'Standard'}) sur le groupe ${selectedGroupForActions.name}${selectedScripts.length > 0 ? ` avec exécution de : ${selectedScripts.map(s => s.name).join(' -> ')}` : ''}`,
       deployment_type: 'command',
       custom_command: cmd,
       target_all_devices: false,
@@ -1756,6 +1824,145 @@ Write-Output "Operation terminee avec succes pour '$u'."
                     />
                     <span>Le mot de passe n'expire jamais (évite le changement forcé)</span>
                   </label>
+                </div>
+
+                {/* Scripts Post-Création (Optionnel) */}
+                <div className="pt-3 border-t border-slate-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <ListOrdered className="w-4 h-4 text-emerald-400" />
+                      <label className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                        Scripts Post-Création (Optionnel)
+                      </label>
+                    </div>
+                    {groupCreatePostScriptIds.length > 0 && (
+                      <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        {groupCreatePostScriptIds.length} script{groupCreatePostScriptIds.length > 1 ? 's' : ''} ordonné{groupCreatePostScriptIds.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Sélectionnez un ou plusieurs scripts de l'<strong>Éditeur de Scripts</strong> à exécuter à la suite dans l'ordre indiqué sur chaque machine.
+                  </p>
+
+                  {/* Liste ordonnée des scripts sélectionnés */}
+                  {groupCreatePostScriptIds.length > 0 && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {groupCreatePostScriptIds.map((sId, index) => {
+                        const scriptObj = scripts.find((s) => s.id === sId);
+                        if (!scriptObj) return null;
+                        const lang = (scriptObj.language || 'powershell').toLowerCase();
+                        const langColor =
+                          lang === 'powershell' || lang === 'ps1'
+                            ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                            : lang === 'cmd' || lang === 'batch'
+                            ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                            : lang === 'python'
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+
+                        return (
+                          <div
+                            key={`${sId}-${index}`}
+                            className="flex items-center justify-between p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs group hover:border-slate-700 transition"
+                          >
+                            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                              <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                                {index + 1}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase font-bold border ${langColor} flex-shrink-0`}>
+                                {lang}
+                              </span>
+                              <span className="font-semibold text-slate-200 truncate" title={scriptObj.name}>
+                                {scriptObj.name}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGroupCreatePostScriptIds((prev) => {
+                                    if (index === 0) return prev;
+                                    const next = [...prev];
+                                    const tmp = next[index];
+                                    next[index] = next[index - 1];
+                                    next[index - 1] = tmp;
+                                    return next;
+                                  });
+                                }}
+                                disabled={index === 0}
+                                className="p-1 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 rounded hover:bg-slate-800"
+                                title="Déplacer vers le haut"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGroupCreatePostScriptIds((prev) => {
+                                    if (index === prev.length - 1) return prev;
+                                    const next = [...prev];
+                                    const tmp = next[index];
+                                    next[index] = next[index + 1];
+                                    next[index + 1] = tmp;
+                                    return next;
+                                  });
+                                }}
+                                disabled={index === groupCreatePostScriptIds.length - 1}
+                                className="p-1 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 rounded hover:bg-slate-800"
+                                title="Déplacer vers le bas"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGroupCreatePostScriptIds((prev) => prev.filter((_, i) => i !== index));
+                                }}
+                                className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-500/10 ml-1"
+                                title="Retirer ce script"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Sélecteur et bouton d'ajout de script */}
+                  <div className="flex items-center space-x-2 pt-1">
+                    <select
+                      value={selectedGroupPostScriptToAdd}
+                      onChange={(e) => setSelectedGroupPostScriptToAdd(e.target.value)}
+                      className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 text-xs focus:outline-none focus:border-emerald-500 font-medium"
+                    >
+                      <option value="">-- Choisir un script de l'Éditeur --</option>
+                      {scripts.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.language})
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!selectedGroupPostScriptToAdd) return;
+                        setGroupCreatePostScriptIds((prev) => [...prev, selectedGroupPostScriptToAdd]);
+                        setSelectedGroupPostScriptToAdd('');
+                      }}
+                      disabled={!selectedGroupPostScriptToAdd}
+                      className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-semibold rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap text-xs shadow-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Ajouter script</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Concurrency & WoL */}

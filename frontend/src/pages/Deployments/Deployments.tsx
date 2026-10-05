@@ -39,9 +39,22 @@ import {
   Eye,
   Send,
   Globe,
-  Lock
+  Lock,
+  ChevronUp,
+  ChevronDown,
+  ListOrdered,
+  FileCode
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
+
+const encodeUtf8Base64 = (str: string): string => {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+};
 
 export const Deployments: React.FC = () => {
   const { user } = useAuth();
@@ -99,6 +112,8 @@ export const Deployments: React.FC = () => {
   const [qaCreateIsAdmin, setQaCreateIsAdmin] = useState(false);
   const [qaCreatePasswordNeverExpires, setQaCreatePasswordNeverExpires] = useState(true);
   const [qaCreateShowPassword, setQaCreateShowPassword] = useState(false);
+  const [qaCreatePostScriptIds, setQaCreatePostScriptIds] = useState<string[]>([]);
+  const [selectedQaPostScriptToAdd, setSelectedQaPostScriptToAdd] = useState<string>('');
 
   // Delete Local User & Profile
   const [qaDeleteUsername, setQaDeleteUsername] = useState('');
@@ -377,6 +392,64 @@ ${qaLogonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique 
         const isAdmin = qaCreateIsAdmin;
         const pne = qaCreatePasswordNeverExpires;
 
+        const selectedScripts = qaCreatePostScriptIds
+          .map((sId) => scripts.find((s) => s.id === sId))
+          .filter((s): s is NonNullable<typeof s> => !!s);
+
+        let postScriptsPs = '';
+        if (selectedScripts.length > 0) {
+          postScriptsPs += `\n# --- Execution séquentielle des scripts post-création (${selectedScripts.length} script(s)) ---\n`;
+          postScriptsPs += `$env:MAPT_TARGET_USER = "$u"\n`;
+          postScriptsPs += `$env:MAPT_TARGET_FULLNAME = "$fn"\n`;
+          postScriptsPs += `$env:MAPT_IS_ADMIN = "$($isAdmin.ToString().ToLower())"\n\n`;
+
+          selectedScripts.forEach((s, idx) => {
+            const stepNum = idx + 1;
+            const sName = (s.name || `Script_${stepNum}`).replace(/["\r\n]/g, ' ');
+            const sLang = (s.language || 'powershell').toLowerCase();
+            const sContent = s.latest_version?.content || '';
+            const b64 = encodeUtf8Base64(sContent);
+
+            let ext = 'ps1';
+            let execCmd = '';
+            if (sLang === 'cmd' || sLang === 'batch') {
+              ext = 'cmd';
+              execCmd = `& cmd.exe /c $tmpFile "$u" "$fn"`;
+            } else if (sLang === 'vbs' || sLang === 'vbscript') {
+              ext = 'vbs';
+              execCmd = `& cscript.exe //nologo $tmpFile "$u" "$fn"`;
+            } else if (sLang === 'python' || sLang === 'py') {
+              ext = 'py';
+              execCmd = `& python.exe $tmpFile "$u" "$fn"`;
+            } else {
+              ext = 'ps1';
+              execCmd = `& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tmpFile "$u" "$fn"`;
+            }
+
+            const safeFileName = sName.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+
+            postScriptsPs += `
+Write-Output "--------------------------------------------------------"
+Write-Output "[Etape ${stepNum}/${selectedScripts.length}] Execution du script post-creation : ${sName} (${sLang})"
+Write-Output "--------------------------------------------------------"
+try {
+    $scriptB64 = "${b64}"
+    $scriptBytes = [System.Convert]::FromBase64String($scriptB64)
+    $scriptContent = [System.Text.Encoding]::UTF8.GetString($scriptBytes)
+    $tmpFile = Join-Path $env:TEMP "mapt_post_${stepNum}_${safeFileName}.${ext}"
+    [System.IO.File]::WriteAllText($tmpFile, $scriptContent, [System.Text.Encoding]::UTF8)
+    
+    ${execCmd}
+    $scriptExitCode = $LASTEXITCODE
+    Write-Output "[Etape ${stepNum}] Termine (Code retour: $scriptExitCode)"
+    Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+} catch {
+    Write-Output "[Etape ${stepNum}] ERREUR lors de l'execution de '${sName}': $($_.Exception.Message)"
+}
+`;
+          });
+        }
+
         const psScript = `
 $u = "${u.replace(/"/g, '`"')}"
 $p = "${p.replace(/"/g, '`"')}"
@@ -458,11 +531,16 @@ if (-not $hasCreated) {
     }
     Write-Output "Compte '$u' configure avec succes."
 }
+${postScriptsPs}
 `.trim();
 
         const encoded = encodePowerShellUtf16Base64(psScript);
         finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
-        if (!defaultDepName) defaultDepName = `👤➕ Créer utilisateur local (${u})`;
+        if (!defaultDepName) {
+          defaultDepName = selectedScripts.length > 0
+            ? `👤➕ Créer utilisateur local (${u}) + ${selectedScripts.length} script(s)`
+            : `👤➕ Créer utilisateur local (${u})`;
+        }
       } else if (quickActionType === 'delete_user') {
         const u = qaDeleteUsername.trim();
         if (!u) {
@@ -1574,6 +1652,145 @@ Write-Output "Operation terminee avec succes pour '$u'."
                           />
                           <span>Le mot de passe n'expire jamais (évite changement forcé)</span>
                         </label>
+                      </div>
+
+                      {/* Scripts Post-Création (Optionnel) */}
+                      <div className="pt-3 border-t border-slate-800/80 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <ListOrdered className="w-4 h-4 text-teal-400" />
+                            <label className="text-xs font-semibold text-slate-200 uppercase tracking-wider">
+                              Scripts Post-Création (Optionnel)
+                            </label>
+                          </div>
+                          {qaCreatePostScriptIds.length > 0 && (
+                            <span className="text-[10px] font-semibold bg-teal-500/10 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full">
+                              {qaCreatePostScriptIds.length} script{qaCreatePostScriptIds.length > 1 ? 's' : ''} ordonné{qaCreatePostScriptIds.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Sélectionnez un ou plusieurs scripts de l'<strong>Éditeur de Scripts</strong> à exécuter à la suite dans l'ordre indiqué.
+                        </p>
+
+                        {/* Liste ordonnée des scripts sélectionnés */}
+                        {qaCreatePostScriptIds.length > 0 && (
+                          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                            {qaCreatePostScriptIds.map((sId, index) => {
+                              const scriptObj = scripts.find((s: any) => s.id === sId);
+                              if (!scriptObj) return null;
+                              const lang = (scriptObj.language || 'powershell').toLowerCase();
+                              const langColor =
+                                lang === 'powershell' || lang === 'ps1'
+                                  ? 'bg-sky-500/15 text-sky-400 border-sky-500/30'
+                                  : lang === 'cmd' || lang === 'batch'
+                                  ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                  : lang === 'python'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                  : 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+
+                              return (
+                                <div
+                                  key={`${sId}-${index}`}
+                                  className="flex items-center justify-between p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs group hover:border-slate-700 transition"
+                                >
+                                  <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                                    <span className="w-5 h-5 rounded-full bg-teal-500/20 border border-teal-500/30 text-teal-400 font-bold flex items-center justify-center text-[10px] flex-shrink-0">
+                                      {index + 1}
+                                    </span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase font-bold border ${langColor} flex-shrink-0`}>
+                                      {lang}
+                                    </span>
+                                    <span className="font-semibold text-slate-200 truncate" title={scriptObj.name}>
+                                      {scriptObj.name}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center space-x-1 flex-shrink-0 ml-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setQaCreatePostScriptIds((prev) => {
+                                          if (index === 0) return prev;
+                                          const next = [...prev];
+                                          const tmp = next[index];
+                                          next[index] = next[index - 1];
+                                          next[index - 1] = tmp;
+                                          return next;
+                                        });
+                                      }}
+                                      disabled={index === 0}
+                                      className="p-1 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 rounded hover:bg-slate-800"
+                                      title="Déplacer vers le haut"
+                                    >
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setQaCreatePostScriptIds((prev) => {
+                                          if (index === prev.length - 1) return prev;
+                                          const next = [...prev];
+                                          const tmp = next[index];
+                                          next[index] = next[index + 1];
+                                          next[index + 1] = tmp;
+                                          return next;
+                                        });
+                                      }}
+                                      disabled={index === qaCreatePostScriptIds.length - 1}
+                                      className="p-1 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 rounded hover:bg-slate-800"
+                                      title="Déplacer vers le bas"
+                                    >
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setQaCreatePostScriptIds((prev) => prev.filter((_, i) => i !== index));
+                                      }}
+                                      className="p-1 text-rose-400 hover:text-rose-300 rounded hover:bg-rose-500/10 ml-1"
+                                      title="Retirer ce script"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Sélecteur et bouton d'ajout de script */}
+                        <div className="flex items-center space-x-2 pt-1">
+                          <select
+                            value={selectedQaPostScriptToAdd}
+                            onChange={(e) => setSelectedQaPostScriptToAdd(e.target.value)}
+                            className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 text-xs focus:outline-none focus:border-teal-500 font-medium"
+                          >
+                            <option value="">-- Choisir un script de l'Éditeur --</option>
+                            {scripts.map((s: any) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} ({s.language})
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!selectedQaPostScriptToAdd) return;
+                              setQaCreatePostScriptIds((prev) => [...prev, selectedQaPostScriptToAdd]);
+                              setSelectedQaPostScriptToAdd('');
+                            }}
+                            disabled={!selectedQaPostScriptToAdd}
+                            className="flex items-center space-x-1.5 px-3 py-2 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/40 text-teal-300 font-semibold rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap text-xs shadow-sm"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Ajouter script</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
