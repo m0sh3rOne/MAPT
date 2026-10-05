@@ -73,3 +73,26 @@ def get_file_stream(storage_key: str):
         if os.path.exists(local_path):
             return open(local_path, "rb")
         raise
+
+
+def get_file_bytes(storage_key: str) -> bytes:
+    """
+    Récupère l'intégralité des octets d'un fichier stocké (disque local ou MinIO)
+    """
+    local_path = os.path.join(LOCAL_STORAGE_DIR, storage_key)
+    if os.path.exists(local_path):
+        with open(local_path, "rb") as f:
+            return f.read()
+
+    try:
+        resp = minio_client.get_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=storage_key
+        )
+        data = resp.read()
+        resp.close()
+        resp.release_conn()
+        return data
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture des octets pour {storage_key}: {e}")
+        raise

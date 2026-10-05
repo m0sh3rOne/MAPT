@@ -28,7 +28,13 @@ import {
   Layers,
   Wrench,
   Check,
-  Search
+  Search,
+  Download,
+  FileArchive,
+  Archive,
+  FileUp,
+  FileJson,
+  AlertTriangle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
@@ -131,10 +137,27 @@ export const Packages: React.FC = () => {
 
   // Modals state
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedPackageForEdit, setSelectedPackageForEdit] = useState<any | null>(null);
   const [selectedPackageForUpload, setSelectedPackageForUpload] = useState<any | null>(null);
   const [packageToDeploy, setPackageToDeploy] = useState<any | null>(null);
   const [packageToDelete, setPackageToDelete] = useState<any | null>(null);
+
+  // Package ZIP Import State
+  const [importZipFile, setImportZipFile] = useState<File | null>(null);
+  const [inspectingZip, setInspectingZip] = useState(false);
+  const [zipInspectData, setZipInspectData] = useState<any | null>(null);
+  const [importName, setImportName] = useState('');
+  const [importDescription, setImportDescription] = useState('');
+  const [importVersion, setImportVersion] = useState('1.0.0');
+  const [importPackageArgs, setImportPackageArgs] = useState('');
+  const [importProgress, setImportProgress] = useState<number | null>(null);
+  const [importBytesInfo, setImportBytesInfo] = useState<{ loaded: number; total: number } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // Export State
+  const [exportingPackageId, setExportingPackageId] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   // Form states - Create Modal
   const [name, setName] = useState('');
@@ -473,6 +496,94 @@ export const Packages: React.FC = () => {
     setShowAdvanced(false);
   };
 
+  const resetImportState = () => {
+    setImportZipFile(null);
+    setInspectingZip(false);
+    setZipInspectData(null);
+    setImportName('');
+    setImportDescription('');
+    setImportVersion('1.0.0');
+    setImportPackageArgs('');
+    setImportProgress(null);
+    setImportBytesInfo(null);
+    setImportError(null);
+  };
+
+  const handleExportZip = async (pkg: any) => {
+    try {
+      setExportingPackageId(pkg.id);
+      const { blob, filename } = await api.exportPackage(pkg.id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setSuccessBanner(`Package "${pkg.name}" exporté avec succès en archive ZIP (exécutable + snapin.json).`);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erreur lors de l'export du package ZIP");
+    } finally {
+      setExportingPackageId(null);
+    }
+  };
+
+  const handleZipSelection = async (selectedFile: File) => {
+    setImportZipFile(selectedFile);
+    setImportError(null);
+    setInspectingZip(true);
+    try {
+      const data = await api.inspectPackageZip(selectedFile);
+      setZipInspectData(data);
+      setImportName(data.name || selectedFile.name.replace(/\.zip$/i, ''));
+      setImportDescription(data.description || '');
+      setImportVersion(data.version || '1.0.0');
+      setImportPackageArgs(data.package_args || '');
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || err.message || "Impossible d'analyser l'archive ZIP.");
+      setZipInspectData(null);
+    } finally {
+      setInspectingZip(false);
+    }
+  };
+
+  const handleImportZipSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importZipFile) {
+      setImportError("Veuillez sélectionner un fichier archive ZIP à importer.");
+      return;
+    }
+    setImportError(null);
+    setImportProgress(0);
+    setImportBytesInfo({ loaded: 0, total: importZipFile.size });
+
+    const formData = new FormData();
+    formData.append('file', importZipFile);
+    if (importName) formData.append('name', importName);
+    if (importDescription) formData.append('description', importDescription);
+    if (importVersion) formData.append('version', importVersion);
+    if (importPackageArgs) formData.append('package_args', importPackageArgs);
+
+    try {
+      await api.importPackageZip(formData, (percent, loaded, total) => {
+        setImportProgress(percent);
+        setImportBytesInfo({ loaded, total });
+      });
+      queryClient.invalidateQueries({ queryKey: ['packages'] });
+      setShowImportModal(false);
+      resetImportState();
+      setSuccessBanner(`Package "${importName || importZipFile.name}" importé avec succès dans le dépôt !`);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || err.message || "Erreur lors de l'importation du package ZIP.");
+    } finally {
+      setImportProgress(null);
+      setImportBytesInfo(null);
+    }
+  };
+
   const toggleDeviceSelection = (deviceId: string) => {
     setSelectedDevices((prev) =>
       prev.includes(deviceId) ? prev.filter((id) => id !== deviceId) : [...prev, deviceId]
@@ -501,6 +612,19 @@ export const Packages: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Success Notification Banner */}
+      {successBanner && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-4 py-3 rounded-2xl text-sm flex items-center justify-between shadow-lg shadow-emerald-500/5 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-2">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span>{successBanner}</span>
+          </div>
+          <button onClick={() => setSuccessBanner(null)} className="text-emerald-400/70 hover:text-emerald-300">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -516,16 +640,29 @@ export const Packages: React.FC = () => {
         </div>
 
         {isAdmin && (
-          <button
-            onClick={() => {
-              resetForms();
-              setShowCreateModal(true);
-            }}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition transform active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nouveau Package</span>
-          </button>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={() => {
+                resetImportState();
+                setShowImportModal(true);
+              }}
+              className="flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg transition transform active:scale-95"
+            >
+              <Upload className="w-4 h-4 text-cyan-400" />
+              <span>Importer un Snapin (ZIP)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                resetForms();
+                setShowCreateModal(true);
+              }}
+              className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/20 transition transform active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Nouveau Package</span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -547,7 +684,7 @@ export const Packages: React.FC = () => {
                 className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-6 flex flex-col justify-between space-y-4 shadow-xl transition relative group"
               >
                 <div>
-                  {/* Top bar with icon, type, edit gear and delete buttons */}
+                  {/* Top bar with icon, type, edit gear, export and delete buttons */}
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
@@ -562,6 +699,20 @@ export const Packages: React.FC = () => {
 
                     {isAdmin && (
                       <div className="flex items-center space-x-1">
+                        {/* Bouton Exporter ZIP */}
+                        <button
+                          onClick={() => handleExportZip(pkg)}
+                          disabled={exportingPackageId === pkg.id || !hasVersion}
+                          title={hasVersion ? "Exporter le Package et son Snapin JSON (ZIP)" : "Aucune version à exporter"}
+                          className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-cyan-500/10 rounded-lg transition disabled:opacity-40"
+                        >
+                          {exportingPackageId === pkg.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                        </button>
+
                         {/* Roue Crantée / Gear Icon pour éditer la snapin existante */}
                         <button
                           onClick={() => openEditModal(pkg)}
@@ -1971,6 +2122,276 @@ export const Packages: React.FC = () => {
                 <span>Supprimer</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal: Importer un Package (.ZIP) */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-6 my-8">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-100">Importer un Package (.ZIP)</h2>
+                  <p className="text-xs text-slate-400">
+                    Importez une archive ZIP contenant l'exécutable (MSI, EXE, VBS) et le fichier de configuration <code className="text-cyan-400 font-mono">snapin.json</code>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  resetImportState();
+                }}
+                className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {importError && (
+              <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-2xl text-xs flex items-start space-x-2.5">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <div className="font-semibold">Erreur d'importation</div>
+                  <div>{importError}</div>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleImportZipSubmit} className="space-y-5">
+              {/* File Dropzone */}
+              {!importZipFile ? (
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      const dropped = e.dataTransfer.files[0];
+                      if (dropped.name.toLowerCase().endsWith('.zip')) {
+                        handleZipSelection(dropped);
+                      } else {
+                        setImportError("Veuillez déposer un fichier au format .zip.");
+                      }
+                    }
+                  }}
+                  className="border-2 border-dashed border-slate-700 hover:border-cyan-500/50 bg-slate-950/50 hover:bg-slate-950 rounded-2xl p-8 text-center transition cursor-pointer group"
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.zip';
+                    input.onchange = (e: any) => {
+                      if (e.target.files?.[0]) {
+                        handleZipSelection(e.target.files[0]);
+                      }
+                    };
+                    input.click();
+                  }}
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition transform">
+                    <FileArchive className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-200">
+                    Glissez-déposez votre archive ZIP ici
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    ou cliquez pour parcourir vos fichiers (.zip)
+                  </p>
+                  <div className="mt-4 flex items-center justify-center gap-2 text-[11px] text-slate-500">
+                    <span className="bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">MSI + JSON</span>
+                    <span className="bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">EXE + JSON</span>
+                    <span className="bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">VBS + JSON</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Selected File Card */}
+                  <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                        <FileArchive className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-slate-200">{importZipFile.name}</div>
+                        <div className="text-xs text-slate-400 font-mono">
+                          {(importZipFile.size / (1024 * 1024)).toFixed(2)} Mo
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => resetImportState()}
+                      className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition"
+                      title="Changer de fichier"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {inspectingZip && (
+                    <div className="flex items-center justify-center p-6 text-slate-400 space-x-2 text-xs">
+                      <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                      <span>Analyse du contenu de l'archive ZIP en cours...</span>
+                    </div>
+                  )}
+
+                  {zipInspectData && (
+                    <div className="space-y-4 bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4">
+                      {/* Detection status badge */}
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {zipInspectData.json_found ? (
+                          <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium">
+                            <Check className="w-3.5 h-3.5" /> snapin.json détecté & pré-rempli
+                          </span>
+                        ) : (
+                          <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium">
+                            <Info className="w-3.5 h-3.5" /> Aucun JSON détecté : métadonnées déduites du binaire
+                          </span>
+                        )}
+
+                        <span className="bg-slate-800 text-slate-300 border border-slate-700 px-2.5 py-1 rounded-lg font-mono">
+                          Payload : {zipInspectData.filename} ({(zipInspectData.size_bytes / (1024 * 1024)).toFixed(2)} Mo)
+                        </span>
+                      </div>
+
+                      {/* Fields */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-xs font-semibold text-slate-300">Nom du Package</label>
+                          <input
+                            type="text"
+                            required
+                            value={importName}
+                            onChange={(e) => setImportName(e.target.value)}
+                            placeholder="Nom du package"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-xs font-semibold text-slate-300">Description</label>
+                          <textarea
+                            value={importDescription}
+                            onChange={(e) => setImportDescription(e.target.value)}
+                            rows={2}
+                            placeholder="Description facultative du package..."
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500 resize-none"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-slate-300">Version</label>
+                          <input
+                            type="text"
+                            value={importVersion}
+                            onChange={(e) => setImportVersion(e.target.value)}
+                            placeholder="ex: 1.0.0"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-slate-300">Type de Package</label>
+                          <div className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-sm text-slate-300 font-mono uppercase">
+                            {zipInspectData.package_type}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-xs font-semibold text-slate-300">Arguments Silencieux</label>
+                          <input
+                            type="text"
+                            value={importPackageArgs}
+                            onChange={(e) => setImportPackageArgs(e.target.value)}
+                            placeholder="ex: /qn /norestart ou /S"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-slate-100 font-mono focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+
+                        {/* Files in ZIP */}
+                        {zipInspectData.files_in_zip && zipInspectData.files_in_zip.length > 0 && (
+                          <div className="sm:col-span-2 pt-1">
+                            <span className="text-[11px] text-slate-400 block mb-1.5 font-medium">
+                              Contenu détecté dans l'archive ({zipInspectData.files_in_zip.length} fichier(s)) :
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {zipInspectData.files_in_zip.map((fName: string, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="text-[11px] font-mono bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-300 flex items-center gap-1"
+                                >
+                                  {fName.toLowerCase().endsWith('.json') ? (
+                                    <FileJson className="w-3 h-3 text-amber-400" />
+                                  ) : (
+                                    <FileCode className="w-3 h-3 text-cyan-400" />
+                                  )}
+                                  {fName}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Upload Progress */}
+              {importProgress !== null && (
+                <div className="space-y-2 bg-slate-950 border border-slate-800 p-4 rounded-2xl">
+                  <div className="flex justify-between text-xs font-semibold text-slate-300">
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                      Téléversement et enregistrement du package...
+                    </span>
+                    <span className="text-cyan-400 font-mono">{importProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-cyan-500 to-emerald-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                  {importBytesInfo && (
+                    <div className="text-[11px] text-slate-500 text-right font-mono">
+                      {(importBytesInfo.loaded / (1024 * 1024)).toFixed(1)} / {(importBytesInfo.total / (1024 * 1024)).toFixed(1)} Mo
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowImportModal(false);
+                    resetImportState();
+                  }}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-sm font-medium transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={!importZipFile || importProgress !== null || inspectingZip}
+                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-xl text-sm font-semibold flex items-center space-x-2 shadow-lg shadow-cyan-600/20 transition"
+                >
+                  {importProgress !== null ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>Importer dans le Dépôt</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -268,6 +268,44 @@ export const api = {
     const res = await apiClient.delete(`/admin/packages/${id}`);
     return res.data;
   },
+  exportPackage: async (packageId: string, versionId?: string): Promise<{ blob: Blob; filename: string }> => {
+    const res = await apiClient.get(`/admin/packages/${packageId}/export`, {
+      params: versionId ? { version_id: versionId } : undefined,
+      responseType: 'blob',
+    });
+    let filename = `mapt_package_${packageId}.zip`;
+    const disposition = res.headers['content-disposition'];
+    if (disposition) {
+      const match = disposition.match(/filename="?([^";]+)"?/);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+    }
+    return { blob: res.data, filename };
+  },
+  inspectPackageZip: async (file: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.post('/admin/packages/inspect-zip', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res.data;
+  },
+  importPackageZip: async (
+    formData: FormData,
+    onProgress?: (percent: number, loaded: number, total: number) => void
+  ): Promise<Package> => {
+    const res = await apiClient.post('/admin/packages/import-zip', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total && onProgress) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(percent, progressEvent.loaded, progressEvent.total);
+        }
+      },
+    });
+    return res.data;
+  },
 
   // Scripts
   getScripts: async (): Promise<Script[]> => {

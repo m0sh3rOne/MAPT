@@ -1,6 +1,6 @@
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Request, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import UserRole
@@ -182,6 +182,66 @@ async def upload_package_version(
         destination_folder=destination_folder,
         install_command=install_command,
         uninstall_command=uninstall_command,
+        user_id=current_user.id,
+        ip_address=client_ip
+    )
+
+
+@router.get("/{package_id}/export")
+async def export_package(
+    package_id: UUID,
+    version_id: Optional[UUID] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    service = PackageService(db)
+    zip_bytes, filename = await service.export_package_zip(package_id, version_id)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+    )
+
+
+@router.post("/inspect-zip")
+async def inspect_package_zip(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = PackageService(db)
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Fichier archive ZIP vide fourni.")
+    return await service.inspect_package_zip(file_bytes)
+
+
+@router.post("/import-zip", response_model=PackageResponse)
+async def import_package_zip(
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    version: Optional[str] = Form(None),
+    package_args: Optional[str] = Form(None),
+    request: Request = None,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = PackageService(db)
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Fichier archive ZIP vide fourni.")
+
+    client_ip = request.client.host if request and request.client else None
+    return await service.import_package_zip(
+        zip_bytes=file_bytes,
+        override_name=name,
+        override_description=description,
+        override_version=version,
+        override_package_args=package_args,
         user_id=current_user.id,
         ip_address=client_ip
     )
