@@ -35,6 +35,9 @@ import {
   Info,
   Shield,
   ShieldAlert,
+  UserPlus,
+  UserMinus,
+  UserX
 } from 'lucide-react';
 
 export const Groups: React.FC = () => {
@@ -54,7 +57,7 @@ export const Groups: React.FC = () => {
   // Group Quick Actions Modal
   const [selectedGroupForActions, setSelectedGroupForActions] = useState<DeviceGroup | null>(null);
   const [activeActionTab, setActiveActionTab] = useState<
-    'wol' | 'restart' | 'shutdown' | 'message' | 'script' | 'package' | 'logon'
+    'wol' | 'restart' | 'shutdown' | 'message' | 'script' | 'package' | 'logon' | 'create_user' | 'delete_user'
   >('wol');
 
   // Form states for creation/editing
@@ -93,6 +96,20 @@ export const Groups: React.FC = () => {
   const [logonOneTime, setLogonOneTime] = useState(true);
   const [logonRestartNow, setLogonRestartNow] = useState(true);
   const [logonShowPassword, setLogonShowPassword] = useState(false);
+
+  // Group Create User
+  const [groupCreateUsername, setGroupCreateUsername] = useState('');
+  const [groupCreatePassword, setGroupCreatePassword] = useState('');
+  const [groupCreateFullName, setGroupCreateFullName] = useState('');
+  const [groupCreateIsAdmin, setGroupCreateIsAdmin] = useState(false);
+  const [groupCreatePasswordNeverExpires, setGroupCreatePasswordNeverExpires] = useState(true);
+  const [groupCreateShowPassword, setGroupCreateShowPassword] = useState(false);
+
+  // Group Delete User / Profile
+  const [groupDeleteUsername, setGroupDeleteUsername] = useState('');
+  const [groupDeleteProfileFiles, setGroupDeleteProfileFiles] = useState(true);
+  const [groupDeleteLocalAccount, setGroupDeleteLocalAccount] = useState(true);
+  const [groupDeleteForceLogoff, setGroupDeleteForceLogoff] = useState(true);
 
   // Concurrency & WoL options for group actions
   const [actionConcurrency, setActionConcurrency] = useState<number>(8);
@@ -493,6 +510,209 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
     });
   };
 
+  const handleGroupCreateLocalUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+    const u = groupCreateUsername.trim();
+    if (!u) {
+      setError("Veuillez renseigner un nom d'utilisateur.");
+      return;
+    }
+
+    const p = groupCreatePassword;
+    const fn = groupCreateFullName.trim();
+    const isAdmin = groupCreateIsAdmin;
+    const pne = groupCreatePasswordNeverExpires;
+
+    const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$p = "${p.replace(/"/g, '`"')}"
+$fn = "${fn.replace(/"/g, '`"')}"
+$isAdmin = $${isAdmin ? 'True' : 'False'}
+$pne = $${pne ? 'True' : 'False'}
+
+try {
+    $existing = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Output "L'utilisateur local '$u' existe deja. Mise a jour des parametres..."
+        if ($p) {
+            $secPass = ConvertTo-SecureString $p -AsPlainText -Force
+            Set-LocalUser -Name $u -Password $secPass -PasswordNeverExpires $pne -FullName $fn
+        } else {
+            Set-LocalUser -Name $u -PasswordNeverExpires $pne -FullName $fn
+        }
+    } else {
+        $secPass = if ($p) { ConvertTo-SecureString $p -AsPlainText -Force } else { ConvertTo-SecureString "" -AsPlainText -Force }
+        New-LocalUser -Name $u -Password $secPass -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires $pne
+        Write-Output "Utilisateur local '$u' cree avec succes."
+    }
+
+    if ($isAdmin) {
+        Add-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Privileges Administrateur accordes a '$u'."
+    } else {
+        Remove-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Remove-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Utilisateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Users" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Compte '$u' defini comme Utilisateur Standard."
+    }
+} catch {
+    Write-Warning "PowerShell LocalUser a renvoye une exception ($($_.Exception.Message)). Bascule sur net.exe..."
+    $pArg = if ($p) { "\`"$p\`"" } else { '""' }
+    net user "$u" $pArg /add /comment:"Compte cree via MAPT" /fullname:"$fn"
+    if ($pne) {
+        & "wmic" useraccount where "name='$u'" set passwordexpires=FALSE 2>$null
+    }
+    if ($isAdmin) {
+        net localgroup "Administrateurs" "$u" /add 2>$null
+        net localgroup "Administrators" "$u" /add 2>$null
+    }
+    Write-Output "Compte '$u' configure via net.exe."
+}
+`.trim();
+
+    const encoded = encodePowerShellUtf16Base64(psScript);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+
+    createGroupActionMutation.mutate({
+      name: `👤➕ Créer utilisateur local (${u}) - ${selectedGroupForActions.name}`,
+      description: `Création du compte local ${u} (${isAdmin ? 'Administrateur' : 'Standard'}) sur le groupe ${selectedGroupForActions.name}`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
+  const handleGroupDeleteLocalUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGroupForActions) return;
+    const u = groupDeleteUsername.trim();
+    if (!u) {
+      setError("Veuillez renseigner un nom d'utilisateur.");
+      return;
+    }
+
+    if (!confirm(`Confirmez-vous la suppression ${groupDeleteProfileFiles ? 'du profil et fichiers Windows' : ''} ${groupDeleteLocalAccount ? 'et du compte ' + u : ''} sur TOUTES les machines du groupe ${selectedGroupForActions.name} ?`)) {
+      return;
+    }
+
+    const delProfile = groupDeleteProfileFiles;
+    const delAccount = groupDeleteLocalAccount;
+    const forceLogoff = groupDeleteForceLogoff;
+
+    const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$delProfile = $${delProfile ? 'True' : 'False'}
+$delAccount = $${delAccount ? 'True' : 'False'}
+$forceLogoff = $${forceLogoff ? 'True' : 'False'}
+
+Write-Output "=== Suppression Profil / Compte : $u sur $env:COMPUTERNAME ==="
+
+if ($forceLogoff) {
+    try {
+        $sessions = quser 2>$null
+        if ($sessions) {
+            foreach ($line in $sessions) {
+                if ($line -match $u) {
+                    $parts = ($line -replace '\\s+', ' ').Trim().Split(' ')
+                    $sessionId = $null
+                    foreach ($part in $parts) {
+                        if ($part -match '^\\d+$') { $sessionId = $part; break }
+                    }
+                    if ($sessionId) {
+                        Write-Output "Deconnexion forcee session ID: $sessionId pour $u"
+                        logoff $sessionId 2>$null
+                        Start-Sleep -Seconds 2
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Warning "Erreur tentative deconnexion: $($_.Exception.Message)"
+    }
+}
+
+if ($delProfile) {
+    Write-Output "Recherche et suppression du profil Windows WMI pour '$u'..."
+    try {
+        $profiles = Get-CimInstance -ClassName Win32_UserProfile | Where-Object { 
+            $_.LocalPath -and ($_.LocalPath.Split('\\')[-1] -ieq $u -or $_.LocalPath.EndsWith("\\$u", [System.StringComparison]::InvariantCultureIgnoreCase))
+        }
+        if ($profiles) {
+            foreach ($prof in $profiles) {
+                Write-Output "Suppression du profil WMI : $($prof.LocalPath)"
+                Remove-CimInstance -InputObject $prof -ErrorAction Stop
+            }
+            Write-Output "Profil WMI supprime avec succes."
+        } else {
+            Write-Output "Aucun profil WMI trouve correspondant a '$u'."
+        }
+    } catch {
+        Write-Warning "Erreur suppression WMI Win32_UserProfile: $($_.Exception.Message)"
+    }
+
+    $userFolder = "C:\\Users\\$u"
+    if (Test-Path $userFolder) {
+        Write-Output "Nettoyage du dossier de profil $userFolder..."
+        try {
+            takeown.exe /F $userFolder /R /D O 2>$null
+            icacls.exe $userFolder /grant "*S-1-5-32-544:F" /T /C /Q 2>$null
+            Remove-Item -Path $userFolder -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $userFolder) {
+                Write-Warning "Certains fichiers du dossier $userFolder sont verrouilles par Windows."
+            } else {
+                Write-Output "Dossier de fichiers $userFolder supprime avec succes."
+            }
+        } catch {
+            Write-Warning "Erreur suppression dossier $userFolder : $($_.Exception.Message)"
+        }
+    }
+}
+
+if ($delAccount) {
+    Write-Output "Suppression du compte utilisateur local '$u'..."
+    try {
+        Remove-LocalUser -Name $u -ErrorAction Stop
+        Write-Output "Compte local '$u' supprime avec succes via Remove-LocalUser."
+    } catch {
+        try {
+            net user "$u" /delete
+            Write-Output "Compte local '$u' supprime via net.exe."
+        } catch {
+            Write-Warning "Impossible de supprimer le compte local '$u' (compte de domaine ou deja supprime)."
+        }
+    }
+}
+
+Write-Output "Operation terminee avec succes pour '$u'."
+`.trim();
+
+    const encoded = encodePowerShellUtf16Base64(psScript);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+
+    createGroupActionMutation.mutate({
+      name: `👤🗑️ Supprimer profil/compte (${u}) - ${selectedGroupForActions.name}`,
+      description: `Suppression ${delProfile ? 'du profil et fichiers' : ''} ${delAccount ? 'et du compte ' + u : ''} sur le groupe ${selectedGroupForActions.name}`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_group_ids: [selectedGroupForActions.id],
+      target_device_ids: [],
+      max_concurrency: actionConcurrency,
+      wake_on_lan: actionWakeOnLan,
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+  };
+
   const filteredGroups = groups.filter(
     (g) =>
       g.name.toLowerCase().includes(searchGroupQuery.toLowerCase()) ||
@@ -861,14 +1081,40 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                 <button
                   type="button"
                   onClick={() => { setActiveActionTab('logon'); setError(null); }}
-                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 col-span-2 sm:col-span-2 transition ${
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
                     activeActionTab === 'logon'
                       ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm shadow-indigo-900/30'
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
                   }`}
                 >
                   <UserCheck className="w-4 h-4" />
-                  <span>Ouvrir une Session (AutoLogon)</span>
+                  <span>Session (AutoLogon)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('create_user'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'create_user'
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm shadow-emerald-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Créer Utilisateur</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveActionTab('delete_user'); setError(null); }}
+                  className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 transition ${
+                    activeActionTab === 'delete_user'
+                      ? 'bg-rose-600 text-white border-rose-500 shadow-sm shadow-rose-900/30'
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                  }`}
+                >
+                  <UserX className="w-4 h-4" />
+                  <span>Supprimer Profil</span>
                 </button>
               </div>
             )}
@@ -1385,6 +1631,237 @@ ${logonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique se
                   >
                     {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
                     <span>Activer et ouvrir la session sur le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 8: Create Local User */}
+            {activeActionTab === 'create_user' && (
+              <form onSubmit={handleGroupCreateLocalUser} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">Créer un Utilisateur Local sur tout le Groupe</h3>
+                    <p className="text-xs text-slate-400">
+                      Déploie un compte local uniforme sur l'ensemble des machines de ce groupe.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nom d'utilisateur (Login) <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={groupCreateUsername}
+                      onChange={(e) => setGroupCreateUsername(e.target.value)}
+                      placeholder="ex: eleve, stagiaire, adminlocal"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      Nom complet / Description
+                    </label>
+                    <input
+                      type="text"
+                      value={groupCreateFullName}
+                      onChange={(e) => setGroupCreateFullName(e.target.value)}
+                      placeholder="ex: Compte Stagiaire Formation"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Mot de passe
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={groupCreateShowPassword ? 'text' : 'password'}
+                      value={groupCreatePassword}
+                      onChange={(e) => setGroupCreatePassword(e.target.value)}
+                      placeholder="Saisissez un mot de passe (ou vide si aucun)"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none font-mono pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setGroupCreateShowPassword(!groupCreateShowPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 space-y-2 text-xs">
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupCreateIsAdmin}
+                      onChange={(e) => setGroupCreateIsAdmin(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                    />
+                    <span className="font-semibold text-rose-300">Privilèges Administrateur Local</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupCreatePasswordNeverExpires}
+                      onChange={(e) => setGroupCreatePasswordNeverExpires(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-emerald-500"
+                    />
+                    <span>Le mot de passe n'expire jamais (évite le changement forcé)</span>
+                  </label>
+                </div>
+
+                {/* Concurrency & WoL */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    <span className="text-slate-300">Vagues :</span>
+                    <select
+                      value={actionConcurrency}
+                      onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                    >
+                      <option value={4}>4 machines</option>
+                      <option value={8}>8 machines</option>
+                      <option value={16}>16 machines</option>
+                      <option value={0}>Illimité</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={actionWakeOnLan}
+                      onChange={(e) => setActionWakeOnLan(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                    />
+                    <span>Réveiller par WoL avant l'opération</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                    <span>Créer l'utilisateur sur le groupe</span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* TAB 9: Delete Local Profile / User */}
+            {activeActionTab === 'delete_user' && (
+              <form onSubmit={handleGroupDeleteLocalUser} className="space-y-4 bg-slate-950/60 border border-slate-800 rounded-2xl p-5">
+                <div className="flex items-center space-x-3 border-b border-slate-800 pb-3 text-rose-400">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/20">
+                    <UserX className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">Purger Profil & Compte sur tout le Groupe</h3>
+                    <p className="text-xs text-slate-400">
+                      Supprime le profil utilisateur (fichiers C:\Users\..., WMI) et le compte local sur l'ensemble des machines.
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Nom d'utilisateur ciblé <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={groupDeleteUsername}
+                    onChange={(e) => setGroupDeleteUsername(e.target.value)}
+                    placeholder="ex: stagiaire, eleve, session_temp..."
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-rose-500 outline-none font-mono"
+                  />
+                </div>
+
+                <div className="p-3 bg-rose-950/20 border border-rose-900/40 rounded-xl space-y-2 text-xs">
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupDeleteProfileFiles}
+                      onChange={(e) => setGroupDeleteProfileFiles(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                    />
+                    <span className="font-semibold text-slate-200">Supprimer le profil Windows et ses fichiers (C:\Users\...)</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupDeleteLocalAccount}
+                      onChange={(e) => setGroupDeleteLocalAccount(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                    />
+                    <span className="font-semibold text-slate-200">Supprimer le compte local de la base SAM</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupDeleteForceLogoff}
+                      onChange={(e) => setGroupDeleteForceLogoff(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                    />
+                    <span>Fermer la session active si l'utilisateur est connecté</span>
+                  </label>
+                </div>
+
+                {/* Concurrency & WoL */}
+                <div className="p-3.5 bg-slate-900 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Layers className="w-4 h-4 text-purple-400" />
+                    <span className="text-slate-300">Vagues :</span>
+                    <select
+                      value={actionConcurrency}
+                      onChange={(e) => setActionConcurrency(parseInt(e.target.value))}
+                      className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 font-mono"
+                    >
+                      <option value={4}>4 machines</option>
+                      <option value={8}>8 machines</option>
+                      <option value={16}>16 machines</option>
+                      <option value={0}>Illimité</option>
+                    </select>
+                  </div>
+
+                  <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={actionWakeOnLan}
+                      onChange={(e) => setActionWakeOnLan(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                    />
+                    <span>Réveiller par WoL avant l'opération</span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="submit"
+                    disabled={createGroupActionMutation.isPending}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-2 transition"
+                  >
+                    {createGroupActionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    <span>Purger profil & compte sur le groupe</span>
                   </button>
                 </div>
               </form>

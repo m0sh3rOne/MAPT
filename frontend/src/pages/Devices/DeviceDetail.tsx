@@ -43,7 +43,10 @@ import {
   UserCheck,
   LogIn,
   Lock,
-  KeyRound
+  KeyRound,
+  UserPlus,
+  UserMinus,
+  UserX
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 
@@ -68,7 +71,7 @@ export const DeviceDetail: React.FC = () => {
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
-    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | 'uninstall_software' | null
+    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | 'uninstall_software' | 'create_user' | 'delete_user' | null
   >(null);
 
   // Software uninstallation state
@@ -111,6 +114,20 @@ export const DeviceDetail: React.FC = () => {
   const [logonOneTime, setLogonOneTime] = useState(true);
   const [logonRestartNow, setLogonRestartNow] = useState(true);
   const [logonShowPassword, setLogonShowPassword] = useState(false);
+
+  // Create Local User form state
+  const [createUsername, setCreateUsername] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [createFullName, setCreateFullName] = useState('');
+  const [createIsAdmin, setCreateIsAdmin] = useState(false);
+  const [createPasswordNeverExpires, setCreatePasswordNeverExpires] = useState(true);
+  const [createShowPassword, setCreateShowPassword] = useState(false);
+
+  // Delete Local User & Profile form state
+  const [deleteUsername, setDeleteUsername] = useState('');
+  const [deleteProfileFiles, setDeleteProfileFiles] = useState(true);
+  const [deleteLocalAccount, setDeleteLocalAccount] = useState(true);
+  const [deleteForceLogoff, setDeleteForceLogoff] = useState(true);
 
   // Logs inspection modal
   const [selectedActionForLogs, setSelectedActionForLogs] = useState<DeviceActionHistory | null>(null);
@@ -678,6 +695,199 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
     createActionMutation.mutate({
       name: `🔒 Désactiver AutoLogon - ${device.hostname}`,
       description: `Désactivation de la connexion automatique et purge des identifiants Winlogon`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_device_ids: [device.id],
+      target_group_ids: [],
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+    setActiveModal(null);
+  };
+
+  const handleCreateLocalUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    const u = createUsername.trim();
+    if (!u) return;
+
+    const p = createPassword;
+    const fn = createFullName.trim();
+    const isAdmin = createIsAdmin;
+    const pne = createPasswordNeverExpires;
+
+    const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$p = "${p.replace(/"/g, '`"')}"
+$fn = "${fn.replace(/"/g, '`"')}"
+$isAdmin = $${isAdmin ? 'True' : 'False'}
+$pne = $${pne ? 'True' : 'False'}
+
+try {
+    $existing = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Output "L'utilisateur local '$u' existe deja. Mise a jour des parametres..."
+        if ($p) {
+            $secPass = ConvertTo-SecureString $p -AsPlainText -Force
+            Set-LocalUser -Name $u -Password $secPass -PasswordNeverExpires $pne -FullName $fn
+        } else {
+            Set-LocalUser -Name $u -PasswordNeverExpires $pne -FullName $fn
+        }
+    } else {
+        $secPass = if ($p) { ConvertTo-SecureString $p -AsPlainText -Force } else { ConvertTo-SecureString "" -AsPlainText -Force }
+        New-LocalUser -Name $u -Password $secPass -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires $pne
+        Write-Output "Utilisateur local '$u' cree avec succes."
+    }
+
+    if ($isAdmin) {
+        Add-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Privileges Administrateur accordes a '$u'."
+    } else {
+        Remove-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Remove-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Utilisateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Users" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Compte '$u' defini comme Utilisateur Standard."
+    }
+} catch {
+    Write-Warning "PowerShell LocalUser a renvoye une exception ($($_.Exception.Message)). Bascule sur net.exe..."
+    $pArg = if ($p) { "\`"$p\`"" } else { '""' }
+    net user "$u" $pArg /add /comment:"Compte cree via MAPT" /fullname:"$fn"
+    if ($pne) {
+        & "wmic" useraccount where "name='$u'" set passwordexpires=FALSE 2>$null
+    }
+    if ($isAdmin) {
+        net localgroup "Administrateurs" "$u" /add 2>$null
+        net localgroup "Administrators" "$u" /add 2>$null
+    }
+    Write-Output "Compte '$u' configure via net.exe."
+}
+`.trim();
+
+    const base64Encoded = encodePowerShellUtf16Base64(psScript);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
+
+    createActionMutation.mutate({
+      name: `👤➕ Créer utilisateur local (${u}) - ${device.hostname}`,
+      description: `Création du compte local ${u} (${isAdmin ? 'Administrateur' : 'Standard'})${fn ? ' - ' + fn : ''}`,
+      deployment_type: 'command',
+      custom_command: cmd,
+      target_all_devices: false,
+      target_device_ids: [device.id],
+      target_group_ids: [],
+      schedule_type: 'immediate',
+      is_recurring: false,
+    });
+    setActiveModal(null);
+  };
+
+  const handleDeleteLocalUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    const u = deleteUsername.trim();
+    if (!u) return;
+
+    if (!confirm(`Confirmez-vous la suppression ${deleteProfileFiles ? 'du profil et fichiers Windows' : ''} ${deleteLocalAccount ? 'et du compte ' + u : ''} sur ${device.hostname} ?`)) {
+      return;
+    }
+
+    const delProfile = deleteProfileFiles;
+    const delAccount = deleteLocalAccount;
+    const forceLogoff = deleteForceLogoff;
+
+    const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$delProfile = $${delProfile ? 'True' : 'False'}
+$delAccount = $${delAccount ? 'True' : 'False'}
+$forceLogoff = $${forceLogoff ? 'True' : 'False'}
+
+Write-Output "=== Suppression Profil / Compte : $u sur $env:COMPUTERNAME ==="
+
+if ($forceLogoff) {
+    try {
+        $sessions = quser 2>$null
+        if ($sessions) {
+            foreach ($line in $sessions) {
+                if ($line -match $u) {
+                    $parts = ($line -replace '\\s+', ' ').Trim().Split(' ')
+                    $sessionId = $null
+                    foreach ($part in $parts) {
+                        if ($part -match '^\\d+$') { $sessionId = $part; break }
+                    }
+                    if ($sessionId) {
+                        Write-Output "Deconnexion forcee session ID: $sessionId pour $u"
+                        logoff $sessionId 2>$null
+                        Start-Sleep -Seconds 2
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Warning "Erreur tentative deconnexion: $($_.Exception.Message)"
+    }
+}
+
+if ($delProfile) {
+    Write-Output "Recherche et suppression du profil Windows WMI pour '$u'..."
+    try {
+        $profiles = Get-CimInstance -ClassName Win32_UserProfile | Where-Object { 
+            $_.LocalPath -and ($_.LocalPath.Split('\\')[-1] -ieq $u -or $_.LocalPath.EndsWith("\\$u", [System.StringComparison]::InvariantCultureIgnoreCase))
+        }
+        if ($profiles) {
+            foreach ($prof in $profiles) {
+                Write-Output "Suppression du profil WMI : $($prof.LocalPath)"
+                Remove-CimInstance -InputObject $prof -ErrorAction Stop
+            }
+            Write-Output "Profil WMI supprime avec succes."
+        } else {
+            Write-Output "Aucun profil WMI trouve correspondant a '$u'."
+        }
+    } catch {
+        Write-Warning "Erreur suppression WMI Win32_UserProfile: $($_.Exception.Message)"
+    }
+
+    $userFolder = "C:\\Users\\$u"
+    if (Test-Path $userFolder) {
+        Write-Output "Nettoyage du dossier de profil $userFolder..."
+        try {
+            takeown.exe /F $userFolder /R /D O 2>$null
+            icacls.exe $userFolder /grant "*S-1-5-32-544:F" /T /C /Q 2>$null
+            Remove-Item -Path $userFolder -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $userFolder) {
+                Write-Warning "Certains fichiers du dossier $userFolder sont verrouilles par Windows."
+            } else {
+                Write-Output "Dossier de fichiers $userFolder supprime avec succes."
+            }
+        } catch {
+            Write-Warning "Erreur suppression dossier $userFolder : $($_.Exception.Message)"
+        }
+    }
+}
+
+if ($delAccount) {
+    Write-Output "Suppression du compte utilisateur local '$u'..."
+    try {
+        Remove-LocalUser -Name $u -ErrorAction Stop
+        Write-Output "Compte local '$u' supprime avec succes via Remove-LocalUser."
+    } catch {
+        try {
+            net user "$u" /delete
+            Write-Output "Compte local '$u' supprime via net.exe."
+        } catch {
+            Write-Warning "Impossible de supprimer le compte local '$u' (compte de domaine ou deja supprime)."
+        }
+    }
+}
+
+Write-Output "Operation terminee avec succes pour '$u'."
+`.trim();
+
+    const base64Encoded = encodePowerShellUtf16Base64(psScript);
+    const cmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
+
+    createActionMutation.mutate({
+      name: `👤🗑️ Supprimer profil/compte (${u}) - ${device.hostname}`,
+      description: `Suppression ${delProfile ? 'du profil et fichiers' : ''} ${delAccount ? 'et du compte ' + u : ''}`,
       deployment_type: 'command',
       custom_command: cmd,
       target_all_devices: false,
@@ -1686,6 +1896,20 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   <span className="px-3 py-1 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-300">
                     Admins : <strong>{adminUsersCount}</strong>
                   </span>
+                  <button
+                    onClick={() => {
+                      setCreateUsername('');
+                      setCreatePassword('');
+                      setCreateFullName('');
+                      setCreateIsAdmin(false);
+                      setCreatePasswordNeverExpires(true);
+                      setActiveModal('create_user');
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-semibold transition shadow-sm ml-auto"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>Créer un compte local</span>
+                  </button>
                 </div>
               </div>
 
@@ -1790,7 +2014,8 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                           <th className="py-3 px-4">Nom complet & Description</th>
                           <th className="py-3 px-4">Statut de Session</th>
                           <th className="py-3 px-4">Niveau de Privilège</th>
-                          <th className="py-3 px-4 text-right">Dernière connexion</th>
+                          <th className="py-3 px-4">Dernière connexion</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-sm">
@@ -1899,12 +2124,30 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                               </td>
 
                               {/* Last Logon */}
-                              <td className="py-3.5 px-4 text-right font-mono text-xs text-slate-400">
+                              <td className="py-3.5 px-4 font-mono text-xs text-slate-400">
                                 {u.last_logon ? (
                                   new Date(u.last_logon).toLocaleString()
                                 ) : (
                                   <span className="text-slate-600">Jamais / Non enregistrée</span>
                                 )}
+                              </td>
+
+                              {/* Actions: Delete Profile / Account */}
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => {
+                                    setDeleteUsername(u.name);
+                                    setDeleteProfileFiles(true);
+                                    setDeleteLocalAccount(!isDomain);
+                                    setDeleteForceLogoff(isConnected);
+                                    setActiveModal('delete_user');
+                                  }}
+                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition inline-flex items-center gap-1.5 text-xs font-semibold"
+                                  title={`Supprimer le profil Windows ou le compte local de ${u.name}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Supprimer</span>
+                                </button>
                               </td>
                             </tr>
                           );
@@ -2095,6 +2338,57 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                 <h3 className="text-sm font-bold text-slate-100 mb-1">Connecter un utilisateur</h3>
                 <p className="text-xs text-slate-400">
                   Ouvre à distance une session utilisateur (compte local ou domaine Active Directory).
+                </p>
+              </div>
+
+              {/* Card 8: Créer un utilisateur local */}
+              <div
+                onClick={() => {
+                  setCreateUsername('');
+                  setCreatePassword('');
+                  setCreateFullName('');
+                  setCreateIsAdmin(false);
+                  setCreatePasswordNeverExpires(true);
+                  setActiveModal('create_user');
+                }}
+                className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-emerald-950/20"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition">
+                    <UserPlus className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500 group-hover:text-emerald-400 transition flex items-center gap-1">
+                    Créer <Play className="w-3 h-3 fill-current" />
+                  </span>
+                </div>
+                <h3 className="text-sm font-bold text-slate-100 mb-1">Créer un Utilisateur Local</h3>
+                <p className="text-xs text-slate-400">
+                  Crée un compte Windows local avec privilèges standards ou Administrateur et mot de passe personnalisé.
+                </p>
+              </div>
+
+              {/* Card 9: Supprimer un Profil / Compte */}
+              <div
+                onClick={() => {
+                  setDeleteUsername('');
+                  setDeleteProfileFiles(true);
+                  setDeleteLocalAccount(true);
+                  setDeleteForceLogoff(true);
+                  setActiveModal('delete_user');
+                }}
+                className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-rose-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-rose-950/20"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center group-hover:scale-110 transition">
+                    <UserX className="w-5 h-5" />
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500 group-hover:text-rose-400 transition flex items-center gap-1">
+                    Supprimer <Play className="w-3 h-3 fill-current" />
+                  </span>
+                </div>
+                <h3 className="text-sm font-bold text-slate-100 mb-1">Supprimer un Profil Local</h3>
+                <p className="text-xs text-slate-400">
+                  Purge le profil Windows (fichiers C:\Users\..., ruche WMI) et supprime le compte utilisateur local.
                 </p>
               </div>
             </div>
@@ -3044,6 +3338,254 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                     <span>Connecter la session</span>
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 8: CREATE LOCAL USER                                                */}
+      {/* ========================================================================= */}
+      {activeModal === 'create_user' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-emerald-400">
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                  <UserPlus className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Créer un Utilisateur Local</h3>
+                  <p className="text-xs text-slate-400">Cible : {device.hostname}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveModal(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateLocalUser} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  Nom d'utilisateur (Login) <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={createUsername}
+                  onChange={(e) => setCreateUsername(e.target.value)}
+                  placeholder="ex: stagiaire, eleve, prof, adminlocal"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Nom complet / Description</label>
+                <input
+                  type="text"
+                  value={createFullName}
+                  onChange={(e) => setCreateFullName(e.target.value)}
+                  placeholder="ex: Compte Stagiaire Formation"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">Mot de passe</label>
+                <div className="relative">
+                  <input
+                    type={createShowPassword ? 'text' : 'password'}
+                    value={createPassword}
+                    onChange={(e) => setCreatePassword(e.target.value)}
+                    placeholder="Saisissez un mot de passe (ou vide si sans mot de passe)"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-emerald-500 font-mono pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCreateShowPassword(!createShowPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={createIsAdmin}
+                    onChange={(e) => setCreateIsAdmin(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-rose-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Accorder les privilèges Administrateur Local</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      Ajoute l'utilisateur au groupe local "Administrateurs" de la machine.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={createPasswordNeverExpires}
+                    onChange={(e) => setCreatePasswordNeverExpires(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-emerald-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Le mot de passe n'expire jamais</span>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      Évite que Windows ne demande un changement de mot de passe à la première ouverture de session.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={createActionMutation.isPending || !createUsername.trim()}
+                  className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-950/50 disabled:opacity-50"
+                >
+                  {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Créer le compte</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 9: DELETE LOCAL USER & PROFILE                                      */}
+      {/* ========================================================================= */}
+      {activeModal === 'delete_user' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-rose-400">
+                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                  <UserX className="w-5 h-5 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Supprimer un Profil / Compte Local</h3>
+                  <p className="text-xs text-slate-400">Cible : {device.hostname}</p>
+                </div>
+              </div>
+              <button onClick={() => setActiveModal(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDeleteLocalUser} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  Nom d'utilisateur ciblé <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={deleteUsername}
+                  onChange={(e) => setDeleteUsername(e.target.value)}
+                  placeholder="ex: stagiaire, jdupont, eleve..."
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500 font-mono"
+                />
+
+                {/* Suggestions for existing users */}
+                {inventory?.local_users && inventory.local_users.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500">Choisir parmi les profils détectés :</span>
+                    {inventory.local_users
+                      .filter((u) => u.name?.toLowerCase() !== 'administrateur' && u.name?.toLowerCase() !== 'administrator' && u.name?.toLowerCase() !== 'defaultaccount')
+                      .slice(0, 8)
+                      .map((u) => (
+                        <button
+                          key={u.name}
+                          type="button"
+                          onClick={() => setDeleteUsername(u.name)}
+                          className="px-2 py-0.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[11px] font-mono text-rose-300 transition"
+                        >
+                          {u.name}
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3.5 bg-rose-950/20 border border-rose-900/40 rounded-xl space-y-3">
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deleteProfileFiles}
+                    onChange={(e) => setDeleteProfileFiles(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-rose-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Supprimer le profil Windows et ses fichiers (C:\Users\...)</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Supprime la ruche WMI Win32_UserProfile, le dossier utilisateur et tous ses documents/téléchargements/AppData.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deleteLocalAccount}
+                    onChange={(e) => setDeleteLocalAccount(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-rose-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Supprimer le compte local de la base SAM</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Supprime définitivement le compte utilisateur local du système (Remove-LocalUser).
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start space-x-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={deleteForceLogoff}
+                    onChange={(e) => setDeleteForceLogoff(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-950 border-slate-800 text-rose-500 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <div>
+                    <span className="font-semibold text-slate-200">Fermer la session si l'utilisateur est actuellement connecté</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Déconnecte immédiatement la session active pour déverrouiller les fichiers du profil.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={createActionMutation.isPending || !deleteUsername.trim()}
+                  className="flex items-center space-x-2 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold rounded-xl shadow-lg shadow-rose-950/50 disabled:opacity-50"
+                >
+                  {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Confirmer la suppression</span>
+                </button>
               </div>
             </form>
           </div>
