@@ -384,20 +384,29 @@ $fn = "${fn.replace(/"/g, '`"')}"
 $isAdmin = $${isAdmin ? 'True' : 'False'}
 $pne = $${pne ? 'True' : 'False'}
 
+$ErrorActionPreference = 'SilentlyContinue'
+$hasCreated = $false
+
 try {
     $existing = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
     if ($existing) {
         Write-Output "L'utilisateur local '$u' existe deja. Mise a jour des parametres..."
-        if ($p) {
+        if ($p -and $p.Trim().Length -gt 0) {
             $secPass = ConvertTo-SecureString $p -AsPlainText -Force
-            Set-LocalUser -Name $u -Password $secPass -PasswordNeverExpires $pne -FullName $fn
+            Set-LocalUser -Name $u -Password $secPass -FullName $fn -PasswordNeverExpires:$pne -ErrorAction Stop
         } else {
-            Set-LocalUser -Name $u -PasswordNeverExpires $pne -FullName $fn
+            Set-LocalUser -Name $u -FullName $fn -PasswordNeverExpires:$pne -ErrorAction Stop
         }
+        $hasCreated = $true
     } else {
-        $secPass = if ($p) { ConvertTo-SecureString $p -AsPlainText -Force } else { ConvertTo-SecureString "" -AsPlainText -Force }
-        New-LocalUser -Name $u -Password $secPass -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires $pne
+        if ($p -and $p.Trim().Length -gt 0) {
+            $secPass = ConvertTo-SecureString $p -AsPlainText -Force
+            New-LocalUser -Name $u -Password $secPass -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires:$pne -ErrorAction Stop
+        } else {
+            New-LocalUser -Name $u -NoPassword -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires:$pne -ErrorAction Stop
+        }
         Write-Output "Utilisateur local '$u' cree avec succes."
+        $hasCreated = $true
     }
 
     if ($isAdmin) {
@@ -412,17 +421,42 @@ try {
         Write-Output "Compte '$u' defini comme Utilisateur Standard."
     }
 } catch {
-    Write-Warning "PowerShell LocalUser a renvoye une exception ($($_.Exception.Message)). Bascule sur net.exe..."
-    $pArg = if ($p) { "\`"$p\`"" } else { '""' }
-    net user "$u" $pArg /add /comment:"Compte cree via MAPT" /fullname:"$fn"
+    $hasCreated = $false
+}
+
+if (-not $hasCreated) {
+    if ($p -and $p.Trim().Length -gt 0) {
+        & net.exe user "$u" "$p" /add /comment:"Compte cree via MAPT" /fullname:"$fn" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            & net.exe user "$u" "$p" /comment:"Compte cree via MAPT" /fullname:"$fn" 2>&1 | Out-Null
+        }
+    } else {
+        & net.exe user "$u" /add /comment:"Compte cree via MAPT" /fullname:"$fn" 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            & net.exe user "$u" /comment:"Compte cree via MAPT" /fullname:"$fn" 2>&1 | Out-Null
+        }
+    }
+
     if ($pne) {
-        & "wmic" useraccount where "name='$u'" set passwordexpires=FALSE 2>$null
+        try {
+            $adsiUser = [adsi]"WinNT://$env:COMPUTERNAME/$u,user"
+            $adsiUser.UserFlags = $adsiUser.UserFlags.Value -bor 0x10000
+            $adsiUser.SetInfo()
+        } catch {}
     }
+
     if ($isAdmin) {
-        net localgroup "Administrateurs" "$u" /add 2>$null
-        net localgroup "Administrators" "$u" /add 2>$null
+        & net.exe localgroup "Administrateurs" "$u" /add 2>&1 | Out-Null
+        & net.exe localgroup "Administrators" "$u" /add 2>&1 | Out-Null
+        Write-Output "Privileges Administrateur accordes a '$u' via net.exe."
+    } else {
+        & net.exe localgroup "Administrateurs" "$u" /delete 2>&1 | Out-Null
+        & net.exe localgroup "Administrators" "$u" /delete 2>&1 | Out-Null
+        & net.exe localgroup "Utilisateurs" "$u" /add 2>&1 | Out-Null
+        & net.exe localgroup "Users" "$u" /add 2>&1 | Out-Null
+        Write-Output "Compte '$u' defini comme Utilisateur Standard via net.exe."
     }
-    Write-Output "Compte '$u' configure via net.exe."
+    Write-Output "Compte '$u' configure avec succes."
 }
 `.trim();
 
