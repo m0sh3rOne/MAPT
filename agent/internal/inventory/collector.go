@@ -215,6 +215,42 @@ try {
         }
     } catch {}
 
+    # 3. S'assurer que l'utilisateur ACTUELLEMENT CONNECTÉ est TOUJOURS présent et marqué 'is_logged_in = $true'
+    if ($activeUser) {
+        $actDom = ""
+        $actUname = $activeUser
+        if ($activeUser -match '\\') {
+            $parts = $activeUser.Split('\')
+            $actDom = $parts[0]
+            $actUname = $parts[1]
+        }
+        $actKey = $actUname.ToLower()
+        $isDomainUser = $actDom -and ($actDom -inotmatch "^$computerName$" -and $actDom -inotmatch "^BUILTIN$" -and $actDom -inotmatch "^NT AUTHORITY$")
+        $actType = if ($isDomainUser) { 'Domaine' } else { 'Local' }
+        $isAdm = $adminMembers -contains $actUname -or $adminMembers -contains $activeUser
+
+        if ($userDict.ContainsKey($actKey)) {
+            $userDict[$actKey].is_logged_in = $true
+            if ($isDomainUser) {
+                $userDict[$actKey].account_type = 'Domaine'
+                $userDict[$actKey].domain = $actDom
+            }
+        } else {
+            $userDict[$actKey] = [PSCustomObject]@{
+                name = $actUname
+                domain = if ($actDom) { $actDom } else { if ($isDomainUser) { 'Domaine' } else { $computerName } }
+                account_type = $actType
+                full_name = if ($actDom) { "$actDom\$actUname" } else { $actUname }
+                description = "Utilisateur connecté en session active"
+                enabled = $true
+                privilege = if ($isAdm) { 'Administrateur' } else { 'Utilisateur standard' }
+                is_admin = $isAdm
+                is_logged_in = $true
+                last_logon = (Get-Date).ToString('o')
+            }
+        }
+    }
+
     $res['local_users'] = @($userDict.Values)
 } catch {}
 

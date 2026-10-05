@@ -307,5 +307,48 @@ class AgentService:
         for k in ["os_caption", "os_display_version", "os_build", "os_architecture"]:
             raw_dict.pop(k, None)
 
+        # Garantir que l'utilisateur actif est présent dans local_users et marqué connecté
+        active_user = raw_dict.get("current_user")
+        if active_user and isinstance(active_user, str) and active_user.strip():
+            active_clean = active_user.strip()
+            users_list = raw_dict.get("local_users") or []
+            if isinstance(users_list, list):
+                dom = ""
+                uname = active_clean
+                if "\\" in active_clean:
+                    parts = active_clean.split("\\", 1)
+                    dom = parts[0]
+                    uname = parts[1]
+                
+                host_upper = (device.hostname or "").upper()
+                is_dom = bool(dom and dom.upper() != host_upper and dom.upper() not in ["BUILTIN", "AUTORITE NT", "NT AUTHORITY"])
+                
+                found = False
+                for u in users_list:
+                    if isinstance(u, dict):
+                        u_name = str(u.get("name", "")).strip().lower()
+                        u_full = str(u.get("full_name", "")).strip().lower()
+                        if u_name == uname.lower() or u_full == active_clean.lower():
+                            u["is_logged_in"] = True
+                            if is_dom:
+                                u["account_type"] = "Domaine"
+                                u["domain"] = dom
+                            found = True
+                
+                if not found:
+                    users_list.insert(0, {
+                        "name": uname,
+                        "domain": dom or ("Domaine" if is_dom else device.hostname),
+                        "account_type": "Domaine" if is_dom else "Local",
+                        "full_name": active_clean,
+                        "description": "Utilisateur connecté en session active",
+                        "enabled": True,
+                        "privilege": "Utilisateur standard",
+                        "is_admin": False,
+                        "is_logged_in": True,
+                        "last_logon": datetime.now(timezone.utc).isoformat()
+                    })
+                raw_dict["local_users"] = users_list
+
         cleaned_dict = sanitize_data(raw_dict)
         await self.device_repo.upsert_inventory(device.id, cleaned_dict)

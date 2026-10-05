@@ -908,7 +908,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
 
       {/* Tab 1: Hardware Inventory */}
       {activeTab === 'inventory' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* CPU Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
             <div className="flex items-center space-x-3 mb-4">
@@ -956,22 +956,6 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
             </div>
             <div className="text-sm text-slate-400">
               Espace libre : <span className="font-semibold text-emerald-400">{inventory?.disk_free_gb || 250} Go</span>
-            </div>
-          </div>
-
-          {/* Current User Card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-400 flex items-center justify-center">
-                <User className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-xs text-slate-400 uppercase font-bold">Utilisateur Connecté</div>
-                <div className="text-base font-semibold text-slate-100">{inventory?.current_user || 'N/A'}</div>
-              </div>
-            </div>
-            <div className="text-xs text-slate-500">
-              Dernière mise à jour : {inventory ? new Date(inventory.updated_at).toLocaleString() : 'En attente'}
             </div>
           </div>
         </div>
@@ -1541,7 +1525,54 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
 
       {/* Tab 3: General Info & Local/Domain Users (NEW!) */}
       {activeTab === 'general' && (() => {
-        const userList = inventory?.local_users || [];
+        const rawUserList = inventory?.local_users || [];
+        let userList = [...rawUserList];
+
+        // Garantir que l'utilisateur ACTUELLEMENT CONNECTÉ est TOUJOURS dans la liste et marqué connecté
+        if (inventory?.current_user && inventory.current_user.trim()) {
+          const curFull = inventory.current_user.trim();
+          let curDom = '';
+          let curName = curFull;
+          if (curFull.includes('\\')) {
+            const parts = curFull.split('\\');
+            curDom = parts[0];
+            curName = parts[1];
+          }
+          const isDom = Boolean(
+            curDom &&
+            curDom.toUpperCase() !== (device.hostname || '').toUpperCase() &&
+            curDom.toUpperCase() !== 'BUILTIN' &&
+            curDom.toUpperCase() !== 'NT AUTHORITY' &&
+            curDom.toUpperCase() !== 'AUTORITE NT'
+          );
+          const existingIdx = userList.findIndex(
+            (u) =>
+              (u.name && u.name.toLowerCase() === curName.toLowerCase()) ||
+              (u.full_name && u.full_name.toLowerCase() === curFull.toLowerCase())
+          );
+          if (existingIdx === -1) {
+            userList.unshift({
+              name: curName,
+              domain: curDom || (isDom ? 'Domaine' : device.hostname),
+              account_type: isDom ? 'Domaine' : 'Local',
+              full_name: curFull,
+              description: 'Session utilisateur active actuellement ouverte',
+              enabled: true,
+              privilege: 'Utilisateur standard',
+              is_admin: false,
+              is_logged_in: true,
+              last_logon: new Date().toISOString(),
+            });
+          } else {
+            userList[existingIdx] = {
+              ...userList[existingIdx],
+              is_logged_in: true,
+              account_type: isDom ? 'Domaine' : userList[existingIdx].account_type || 'Local',
+              domain: curDom || userList[existingIdx].domain,
+            };
+          }
+        }
+
         const totalUsers = userList.length;
         const domainUsersCount = userList.filter((u) => u.account_type?.toLowerCase() === 'domaine' || (u.domain && u.domain !== device.hostname)).length;
         const localUsersCount = totalUsers - domainUsersCount;
@@ -1576,7 +1607,7 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                 <Activity className="w-4 h-4 text-emerald-400" />
                 <span>Détails Système & Enrôlement</span>
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm">
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <span className="text-slate-500 text-xs block mb-1">Version de l'Agent</span>
                   <span className="font-mono font-semibold text-slate-200">v{device.agent_version || '1.0.0'}</span>
@@ -1596,6 +1627,25 @@ Write-Output "AutoLogon desactive et nettoye avec succes sur le poste."
                   <span className="font-semibold text-slate-200">
                     {device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Jamais'}
                   </span>
+                </div>
+                <div className={`p-3.5 rounded-xl border transition ${
+                  inventory?.current_user
+                    ? 'bg-emerald-950/30 border-emerald-800/60'
+                    : 'bg-slate-950 border-slate-800'
+                }`}>
+                  <span className="text-slate-500 text-xs block mb-1">Utilisateur Connecté</span>
+                  <div className="flex items-center space-x-2">
+                    {inventory?.current_user ? (
+                      <>
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                        <span className="font-semibold text-emerald-300 truncate" title={inventory.current_user}>
+                          {inventory.current_user}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500 italic text-xs">Aucune session active</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
