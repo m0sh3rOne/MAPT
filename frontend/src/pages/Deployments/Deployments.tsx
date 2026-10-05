@@ -28,7 +28,18 @@ import {
   AlertTriangle,
   Sparkles,
   Zap,
-  Monitor
+  Monitor,
+  RotateCw,
+  Power,
+  MessageSquare,
+  UserCheck,
+  UserPlus,
+  UserMinus,
+  UserX,
+  Eye,
+  Send,
+  Globe,
+  Lock
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
 
@@ -55,11 +66,45 @@ export const Deployments: React.FC = () => {
   // Form state for creating deployment
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [deploymentType, setDeploymentType] = useState<'package' | 'script' | 'command'>('script');
+  const [deploymentType, setDeploymentType] = useState<'package' | 'script' | 'command' | 'quick_action'>('script');
   const [packageVersionId, setPackageVersionId] = useState('');
   const [scriptVersionId, setScriptVersionId] = useState('');
   const [customCommand, setCustomCommand] = useState('');
   const [commandShell, setCommandShell] = useState<'cmd' | 'powershell'>('cmd');
+
+  // Quick Action form state in Deployments
+  const [quickActionType, setQuickActionType] = useState<
+    'restart' | 'shutdown' | 'message' | 'logon' | 'create_user' | 'delete_user'
+  >('restart');
+  const [qaPowerDelay, setQaPowerDelay] = useState(10);
+  const [qaPowerForce, setQaPowerForce] = useState(true);
+
+  // Message Net Send
+  const [qaMsgText, setQaMsgText] = useState('');
+  const [qaMsgDuration, setQaMsgDuration] = useState(60);
+
+  // Logon
+  const [qaLogonAccountType, setQaLogonAccountType] = useState<'domain' | 'local'>('domain');
+  const [qaLogonDomain, setQaLogonDomain] = useState('');
+  const [qaLogonUsername, setQaLogonUsername] = useState('');
+  const [qaLogonPassword, setQaLogonPassword] = useState('');
+  const [qaLogonOneTime, setQaLogonOneTime] = useState(true);
+  const [qaLogonRestartNow, setQaLogonRestartNow] = useState(true);
+  const [qaLogonShowPassword, setQaLogonShowPassword] = useState(false);
+
+  // Create Local User
+  const [qaCreateUsername, setQaCreateUsername] = useState('');
+  const [qaCreatePassword, setQaCreatePassword] = useState('');
+  const [qaCreateFullName, setQaCreateFullName] = useState('');
+  const [qaCreateIsAdmin, setQaCreateIsAdmin] = useState(false);
+  const [qaCreatePasswordNeverExpires, setQaCreatePasswordNeverExpires] = useState(true);
+  const [qaCreateShowPassword, setQaCreateShowPassword] = useState(false);
+
+  // Delete Local User & Profile
+  const [qaDeleteUsername, setQaDeleteUsername] = useState('');
+  const [qaDeleteProfileFiles, setQaDeleteProfileFiles] = useState(true);
+  const [qaDeleteLocalAccount, setQaDeleteLocalAccount] = useState(true);
+  const [qaDeleteForceLogoff, setQaDeleteForceLogoff] = useState(true);
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [wakeOnLan, setWakeOnLan] = useState(false);
@@ -184,6 +229,28 @@ export const Deployments: React.FC = () => {
     setName('');
     setDescription('');
     setDeploymentType(isAppStoreClient ? 'package' : 'script');
+    setQuickActionType('restart');
+    setQaPowerDelay(10);
+    setQaPowerForce(true);
+    setQaMsgText('');
+    setQaMsgDuration(60);
+    setQaLogonAccountType('domain');
+    setQaLogonDomain('');
+    setQaLogonUsername('');
+    setQaLogonPassword('');
+    setQaLogonOneTime(true);
+    setQaLogonRestartNow(true);
+    setQaLogonShowPassword(false);
+    setQaCreateUsername('');
+    setQaCreatePassword('');
+    setQaCreateFullName('');
+    setQaCreateIsAdmin(false);
+    setQaCreatePasswordNeverExpires(true);
+    setQaCreateShowPassword(false);
+    setQaDeleteUsername('');
+    setQaDeleteProfileFiles(true);
+    setQaDeleteLocalAccount(true);
+    setQaDeleteForceLogoff(true);
     setPackageVersionId('');
     setScriptVersionId('');
     setCustomCommand('');
@@ -228,20 +295,255 @@ export const Deployments: React.FC = () => {
     }
 
     let finalCommand = customCommand;
-    if (deploymentType === 'command' && customCommand) {
+    let finalType: string = deploymentType;
+    let defaultDepName = name.trim();
+
+    if (deploymentType === 'command') {
+      if (!customCommand.trim()) {
+        setError('Veuillez renseigner la commande à exécuter.');
+        return;
+      }
       if (commandShell === 'powershell') {
         const encoded = encodePowerShellUtf16Base64(customCommand);
         finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
       }
+    } else if (deploymentType === 'quick_action') {
+      finalType = 'command';
+
+      if (quickActionType === 'restart') {
+        finalCommand = `shutdown.exe /r /t ${qaPowerDelay} ${qaPowerForce ? '/f' : ''}`;
+        if (!defaultDepName) defaultDepName = `🔄 Redémarrage rapide (délai: ${qaPowerDelay}s)`;
+      } else if (quickActionType === 'shutdown') {
+        finalCommand = `shutdown.exe /s /t ${qaPowerDelay} ${qaPowerForce ? '/f' : ''}`;
+        if (!defaultDepName) defaultDepName = `⚡ Arrêt rapide (délai: ${qaPowerDelay}s)`;
+      } else if (quickActionType === 'message') {
+        if (!qaMsgText.trim()) {
+          setError('Veuillez saisir le texte du message.');
+          return;
+        }
+        finalCommand = `msg * /TIME:${qaMsgDuration} "${qaMsgText.replace(/"/g, '""')}"`;
+        if (!defaultDepName) defaultDepName = `💬 Message: "${qaMsgText.slice(0, 30)}${qaMsgText.length > 30 ? '...' : ''}"`;
+      } else if (quickActionType === 'logon') {
+        const user = qaLogonUsername.trim();
+        if (!user) {
+          setError("Veuillez renseigner un nom d'utilisateur pour la session.");
+          return;
+        }
+        const domain = qaLogonAccountType === 'domain' ? (qaLogonDomain.trim() || '.') : '.';
+        const psScript = `
+$d = "${domain.replace(/"/g, '`"')}"
+$u = "${user.replace(/"/g, '`"')}"
+$p = "${qaLogonPassword.replace(/"/g, '`"')}"
+
+$w = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+$s = "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"
+
+Set-ItemProperty $w -Name "AutoAdminLogon" -Value "1" -Type String -Force
+Set-ItemProperty $w -Name "DefaultUserName" -Value $u -Type String -Force
+Set-ItemProperty $w -Name "DefaultDomainName" -Value $d -Type String -Force
+Set-ItemProperty $w -Name "DefaultPassword" -Value $p -Type String -Force
+Set-ItemProperty $w -Name "DisableCAD" -Value 1 -Type DWord -Force
+Remove-ItemProperty $w -Name "ForceAutoLogon" -ErrorAction SilentlyContinue
+
+${
+  qaLogonOneTime
+    ? `$cleanupCmd = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 5; Set-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name AutoAdminLogon -Value ''0'' -Force; Remove-ItemProperty ''HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'' -Name DefaultPassword -ErrorAction SilentlyContinue"'
+Set-ItemProperty "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce" -Name "MAPT_DisableAutoLogon" -Value $cleanupCmd -Type String -Force
+Set-ItemProperty $w -Name "AutoLogonCount" -Value 1 -Type DWord -Force`
+    : `Set-ItemProperty $w -Name "ForceAutoLogon" -Value "1" -Type String -Force`
+}
+
+if (Test-Path $s) {
+    Set-ItemProperty $s -Name "DisableCAD" -Value 1 -Type DWord -Force
+    Set-ItemProperty $s -Name "DontDisplayLastUserName" -Value 0 -Type DWord -Force
+}
+
+Write-Output "AutoLogon configure avec succes pour $d\\$u"
+${qaLogonRestartNow ? 'shutdown.exe /r /t 2 /f /c "MAPT - Connexion automatique session: $d\\$u"' : ''}
+`.trim();
+
+        const encoded = encodePowerShellUtf16Base64(psScript);
+        finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+        if (!defaultDepName) defaultDepName = `👤 Session AutoLogon (${domain}\\${user})`;
+      } else if (quickActionType === 'create_user') {
+        const u = qaCreateUsername.trim();
+        if (!u) {
+          setError("Veuillez renseigner un nom d'utilisateur (login).");
+          return;
+        }
+        const p = qaCreatePassword;
+        const fn = qaCreateFullName.trim();
+        const isAdmin = qaCreateIsAdmin;
+        const pne = qaCreatePasswordNeverExpires;
+
+        const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$p = "${p.replace(/"/g, '`"')}"
+$fn = "${fn.replace(/"/g, '`"')}"
+$isAdmin = $${isAdmin ? 'True' : 'False'}
+$pne = $${pne ? 'True' : 'False'}
+
+try {
+    $existing = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Output "L'utilisateur local '$u' existe deja. Mise a jour des parametres..."
+        if ($p) {
+            $secPass = ConvertTo-SecureString $p -AsPlainText -Force
+            Set-LocalUser -Name $u -Password $secPass -PasswordNeverExpires $pne -FullName $fn
+        } else {
+            Set-LocalUser -Name $u -PasswordNeverExpires $pne -FullName $fn
+        }
+    } else {
+        $secPass = if ($p) { ConvertTo-SecureString $p -AsPlainText -Force } else { ConvertTo-SecureString "" -AsPlainText -Force }
+        New-LocalUser -Name $u -Password $secPass -FullName $fn -Description "Compte cree via MAPT" -PasswordNeverExpires $pne
+        Write-Output "Utilisateur local '$u' cree avec succes."
+    }
+
+    if ($isAdmin) {
+        Add-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Privileges Administrateur accordes a '$u'."
+    } else {
+        Remove-LocalGroupMember -Group "Administrateurs" -Member $u -ErrorAction SilentlyContinue
+        Remove-LocalGroupMember -Group "Administrators" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Utilisateurs" -Member $u -ErrorAction SilentlyContinue
+        Add-LocalGroupMember -Group "Users" -Member $u -ErrorAction SilentlyContinue
+        Write-Output "Compte '$u' defini comme Utilisateur Standard."
+    }
+} catch {
+    Write-Warning "PowerShell LocalUser a renvoye une exception ($($_.Exception.Message)). Bascule sur net.exe..."
+    $pArg = if ($p) { "\`"$p\`"" } else { '""' }
+    net user "$u" $pArg /add /comment:"Compte cree via MAPT" /fullname:"$fn"
+    if ($pne) {
+        & "wmic" useraccount where "name='$u'" set passwordexpires=FALSE 2>$null
+    }
+    if ($isAdmin) {
+        net localgroup "Administrateurs" "$u" /add 2>$null
+        net localgroup "Administrators" "$u" /add 2>$null
+    }
+    Write-Output "Compte '$u' configure via net.exe."
+}
+`.trim();
+
+        const encoded = encodePowerShellUtf16Base64(psScript);
+        finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+        if (!defaultDepName) defaultDepName = `👤➕ Créer utilisateur local (${u})`;
+      } else if (quickActionType === 'delete_user') {
+        const u = qaDeleteUsername.trim();
+        if (!u) {
+          setError("Veuillez renseigner le nom d'utilisateur ciblé.");
+          return;
+        }
+
+        const delProfile = qaDeleteProfileFiles;
+        const delAccount = qaDeleteLocalAccount;
+        const forceLogoff = qaDeleteForceLogoff;
+
+        const psScript = `
+$u = "${u.replace(/"/g, '`"')}"
+$delProfile = $${delProfile ? 'True' : 'False'}
+$delAccount = $${delAccount ? 'True' : 'False'}
+$forceLogoff = $${forceLogoff ? 'True' : 'False'}
+
+Write-Output "=== Suppression Profil / Compte : $u sur $env:COMPUTERNAME ==="
+
+if ($forceLogoff) {
+    try {
+        $sessions = quser 2>$null
+        if ($sessions) {
+            foreach ($line in $sessions) {
+                if ($line -match $u) {
+                    $parts = ($line -replace '\\s+', ' ').Trim().Split(' ')
+                    $sessionId = $null
+                    foreach ($part in $parts) {
+                        if ($part -match '^\\d+$') { $sessionId = $part; break }
+                    }
+                    if ($sessionId) {
+                        Write-Output "Deconnexion forcee session ID: $sessionId pour $u"
+                        logoff $sessionId 2>$null
+                        Start-Sleep -Seconds 2
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Warning "Erreur tentative deconnexion: $($_.Exception.Message)"
+    }
+}
+
+if ($delProfile) {
+    Write-Output "Recherche et suppression du profil Windows WMI pour '$u'..."
+    try {
+        $profiles = Get-CimInstance -ClassName Win32_UserProfile | Where-Object { 
+            $_.LocalPath -and ($_.LocalPath.Split('\\')[-1] -ieq $u -or $_.LocalPath.EndsWith("\\$u", [System.StringComparison]::InvariantCultureIgnoreCase))
+        }
+        if ($profiles) {
+            foreach ($prof in $profiles) {
+                Write-Output "Suppression du profil WMI : $($prof.LocalPath)"
+                Remove-CimInstance -InputObject $prof -ErrorAction Stop
+            }
+            Write-Output "Profil WMI supprime avec succes."
+        } else {
+            Write-Output "Aucun profil WMI trouve correspondant a '$u'."
+        }
+    } catch {
+        Write-Warning "Erreur suppression WMI Win32_UserProfile: $($_.Exception.Message)"
+    }
+
+    $userFolder = "C:\\Users\\$u"
+    if (Test-Path $userFolder) {
+        Write-Output "Nettoyage du dossier de profil $userFolder..."
+        try {
+            takeown.exe /F $userFolder /R /D O 2>$null
+            icacls.exe $userFolder /grant "*S-1-5-32-544:F" /T /C /Q 2>$null
+            Remove-Item -Path $userFolder -Recurse -Force -ErrorAction SilentlyContinue
+            if (Test-Path $userFolder) {
+                Write-Warning "Certains fichiers du dossier $userFolder sont verrouilles par Windows."
+            } else {
+                Write-Output "Dossier de fichiers $userFolder supprime avec succes."
+            }
+        } catch {
+            Write-Warning "Erreur suppression dossier $userFolder : $($_.Exception.Message)"
+        }
+    }
+}
+
+if ($delAccount) {
+    Write-Output "Suppression du compte utilisateur local '$u'..."
+    try {
+        Remove-LocalUser -Name $u -ErrorAction Stop
+        Write-Output "Compte local '$u' supprime avec succes via Remove-LocalUser."
+    } catch {
+        try {
+            net user "$u" /delete
+            Write-Output "Compte local '$u' supprime via net.exe."
+        } catch {
+            Write-Warning "Impossible de supprimer le compte local '$u' (compte de domaine ou deja supprime)."
+        }
+    }
+}
+
+Write-Output "Operation terminee avec succes pour '$u'."
+`.trim();
+
+        const encoded = encodePowerShellUtf16Base64(psScript);
+        finalCommand = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+        if (!defaultDepName) defaultDepName = `👤🗑️ Supprimer profil/compte (${u})`;
+      }
+    }
+
+    if (!defaultDepName) {
+      setError('Veuillez renseigner un nom pour ce déploiement.');
+      return;
     }
 
     createMutation.mutate({
-      name,
+      name: defaultDepName,
       description,
-      deployment_type: deploymentType,
-      package_version_id: deploymentType === 'package' ? packageVersionId || null : null,
-      script_version_id: deploymentType === 'script' ? scriptVersionId || null : null,
-      custom_command: deploymentType === 'command' ? finalCommand || null : null,
+      deployment_type: finalType,
+      package_version_id: finalType === 'package' ? packageVersionId || null : null,
+      script_version_id: finalType === 'script' ? scriptVersionId || null : null,
+      custom_command: finalType === 'command' ? finalCommand || null : null,
       target_device_ids: selectedDeviceIds,
       target_group_ids: selectedGroupIds,
       wake_on_lan: wakeOnLan,
@@ -697,44 +999,57 @@ export const Deployments: React.FC = () => {
                     </span>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setDeploymentType('script')}
-                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center space-x-1.5 transition ${
                         deploymentType === 'script'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400 shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
                       }`}
                     >
-                      <Code2 className="w-4 h-4" />
-                      <span>Script PS/Python</span>
+                      <Code2 className="w-4 h-4 shrink-0" />
+                      <span>Script PS/Py</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setDeploymentType('package')}
-                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center space-x-1.5 transition ${
                         deploymentType === 'package'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                          ? 'bg-blue-500/15 border-blue-500 text-blue-400 shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
                       }`}
                     >
-                      <Package className="w-4 h-4" />
+                      <Package className="w-4 h-4 shrink-0" />
                       <span>Package MSI/EXE</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setDeploymentType('command')}
-                      className={`py-2.5 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center space-x-2 ${
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center space-x-1.5 transition ${
                         deploymentType === 'command'
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-400'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800'
+                          ? 'bg-cyan-500/15 border-cyan-500 text-cyan-400 shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
                       }`}
                     >
-                      <Terminal className="w-4 h-4" />
+                      <Terminal className="w-4 h-4 shrink-0" />
                       <span>Commande Directe</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDeploymentType('quick_action')}
+                      className={`py-2 px-3 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center space-x-1.5 transition ${
+                        deploymentType === 'quick_action'
+                          ? 'bg-amber-500/15 border-amber-500 text-amber-400 shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                      }`}
+                    >
+                      <Zap className="w-4 h-4 shrink-0" />
+                      <span>Actions Rapides</span>
                     </button>
                   </div>
                 )}
@@ -907,6 +1222,374 @@ export const Deployments: React.FC = () => {
                       ? "Exécuté nativement dans l'environnement Windows PowerShell sous privilèges Administrateur (SYSTEM)."
                       : "Exécuté dans l'interpréteur de commandes Windows classique (cmd.exe) sous privilèges Administrateur (SYSTEM)."}
                   </p>
+                </div>
+              )}
+
+              {/* Quick Actions Selector and Form */}
+              {deploymentType === 'quick_action' && (
+                <div className="space-y-4 bg-slate-950/70 border border-slate-800 rounded-2xl p-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      Sélectionner l'Action Rapide
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('restart')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'restart'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <RotateCw className="w-4 h-4 text-amber-400" />
+                        <span>Redémarrer</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('shutdown')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'shutdown'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <Power className="w-4 h-4 text-rose-400" />
+                        <span>Éteindre</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('message')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'message'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <MessageSquare className="w-4 h-4 text-emerald-400" />
+                        <span>Message Net Send</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('logon')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'logon'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <UserCheck className="w-4 h-4 text-cyan-400" />
+                        <span>AutoLogon</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('create_user')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'create_user'
+                            ? 'bg-teal-500/20 text-teal-300 border-teal-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <UserPlus className="w-4 h-4 text-teal-400" />
+                        <span>Créer Utilisateur</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuickActionType('delete_user')}
+                        className={`p-2.5 rounded-xl border flex items-center space-x-2 text-xs font-semibold transition ${
+                          quickActionType === 'delete_user'
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 shadow-sm'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-slate-200'
+                        }`}
+                      >
+                        <UserX className="w-4 h-4 text-rose-400" />
+                        <span>Supprimer Profil</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 1. Redémarrage / Extinction Params */}
+                  {(quickActionType === 'restart' || quickActionType === 'shutdown') && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-800/80">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                          Délai avant exécution (secondes)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={3600}
+                          value={qaPowerDelay}
+                          onChange={(e) => setQaPowerDelay(parseInt(e.target.value) || 0)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none font-mono"
+                        />
+                      </div>
+                      <div className="flex items-center pt-5">
+                        <label className="flex items-center space-x-2 cursor-pointer text-xs text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaPowerForce}
+                            onChange={(e) => setQaPowerForce(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-amber-500"
+                          />
+                          <span>Forcer la fermeture des applications ouvertes (/f)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. Message Params */}
+                  {quickActionType === 'message' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-800/80">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                          Texte du message
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={qaMsgText}
+                          onChange={(e) => setQaMsgText(e.target.value)}
+                          placeholder="Ex: Maintenance du parc informatique dans 15 minutes. Merci d'enregistrer vos travaux."
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:border-emerald-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-300 mb-1">
+                          Durée d'affichage (secondes)
+                        </label>
+                        <input
+                          type="number"
+                          min={5}
+                          max={3600}
+                          value={qaMsgDuration}
+                          onChange={(e) => setQaMsgDuration(parseInt(e.target.value) || 60)}
+                          className="w-full sm:w-48 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. AutoLogon Params */}
+                  {quickActionType === 'logon' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-800/80 text-xs">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setQaLogonAccountType('domain')}
+                          className={`py-2 px-3 rounded-xl border font-semibold flex items-center justify-center space-x-1.5 transition ${
+                            qaLogonAccountType === 'domain'
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                              : 'bg-slate-900 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <Globe className="w-3.5 h-3.5" />
+                          <span>Compte Domaine (AD)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQaLogonAccountType('local')}
+                          className={`py-2 px-3 rounded-xl border font-semibold flex items-center justify-center space-x-1.5 transition ${
+                            qaLogonAccountType === 'local'
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                              : 'bg-slate-900 text-slate-400 border-slate-800'
+                          }`}
+                        >
+                          <Monitor className="w-3.5 h-3.5" />
+                          <span>Compte Local</span>
+                        </button>
+                      </div>
+
+                      {qaLogonAccountType === 'domain' && (
+                        <div>
+                          <label className="block text-slate-300 font-medium mb-1">Nom du Domaine NetBIOS</label>
+                          <input
+                            type="text"
+                            value={qaLogonDomain}
+                            onChange={(e) => setQaLogonDomain(e.target.value.toUpperCase())}
+                            placeholder="ex: PEDAGO"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 uppercase font-mono outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-300 font-medium mb-1">Identifiant (Login)</label>
+                          <input
+                            type="text"
+                            value={qaLogonUsername}
+                            onChange={(e) => setQaLogonUsername(e.target.value)}
+                            placeholder="ex: eleve, prof, stagiaire"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 font-mono outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-300 font-medium mb-1">Mot de passe</label>
+                          <div className="relative">
+                            <input
+                              type={qaLogonShowPassword ? 'text' : 'password'}
+                              value={qaLogonPassword}
+                              onChange={(e) => setQaLogonPassword(e.target.value)}
+                              placeholder="Mot de passe"
+                              className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 font-mono outline-none focus:border-cyan-500 pr-9"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setQaLogonShowPassword(!qaLogonShowPassword)}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaLogonOneTime}
+                            onChange={(e) => setQaLogonOneTime(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-cyan-500"
+                          />
+                          <span>Connexion à usage unique (RunOnce nettoie après ouverture)</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaLogonRestartNow}
+                            onChange={(e) => setQaLogonRestartNow(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-cyan-500"
+                          />
+                          <span>Redémarrer immédiatement pour ouvrir la session</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Create Local User Params */}
+                  {quickActionType === 'create_user' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-800/80 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-300 font-medium mb-1">
+                            Nom d'utilisateur (Login) <span className="text-rose-400">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={qaCreateUsername}
+                            onChange={(e) => setQaCreateUsername(e.target.value)}
+                            placeholder="ex: stagiaire, eleve1"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 font-mono outline-none focus:border-teal-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-300 font-medium mb-1">Nom complet / Description</label>
+                          <input
+                            type="text"
+                            value={qaCreateFullName}
+                            onChange={(e) => setQaCreateFullName(e.target.value)}
+                            placeholder="ex: Compte Stagiaire Formation"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 outline-none focus:border-teal-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-medium mb-1">Mot de passe</label>
+                        <div className="relative">
+                          <input
+                            type={qaCreateShowPassword ? 'text' : 'password'}
+                            value={qaCreatePassword}
+                            onChange={(e) => setQaCreatePassword(e.target.value)}
+                            placeholder="Saisissez un mot de passe (ou vide)"
+                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 font-mono outline-none focus:border-teal-500 pr-9"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setQaCreateShowPassword(!qaCreateShowPassword)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaCreateIsAdmin}
+                            onChange={(e) => setQaCreateIsAdmin(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                          />
+                          <span className="text-rose-300 font-semibold">Accorder les privilèges Administrateur Local</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaCreatePasswordNeverExpires}
+                            onChange={(e) => setQaCreatePasswordNeverExpires(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-teal-500"
+                          />
+                          <span>Le mot de passe n'expire jamais (évite changement forcé)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 5. Delete Local User & Profile Params */}
+                  {quickActionType === 'delete_user' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-800/80 text-xs">
+                      <div>
+                        <label className="block text-slate-300 font-medium mb-1">
+                          Nom d'utilisateur ciblé <span className="text-rose-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={qaDeleteUsername}
+                          onChange={(e) => setQaDeleteUsername(e.target.value)}
+                          placeholder="ex: stagiaire, eleve, session_temp"
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 font-mono outline-none focus:border-rose-500"
+                        />
+                      </div>
+
+                      <div className="p-3 bg-rose-950/20 border border-rose-900/40 rounded-xl space-y-2">
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaDeleteProfileFiles}
+                            onChange={(e) => setQaDeleteProfileFiles(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                          />
+                          <span className="font-semibold text-slate-200">Supprimer le profil Windows et ses fichiers (C:\Users\...)</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaDeleteLocalAccount}
+                            onChange={(e) => setQaDeleteLocalAccount(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                          />
+                          <span className="font-semibold text-slate-200">Supprimer le compte local de la base SAM</span>
+                        </label>
+                        <label className="flex items-center space-x-2 cursor-pointer text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={qaDeleteForceLogoff}
+                            onChange={(e) => setQaDeleteForceLogoff(e.target.checked)}
+                            className="rounded border-slate-700 bg-slate-800 text-rose-500"
+                          />
+                          <span>Fermer la session si l'utilisateur est actuellement connecté</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
