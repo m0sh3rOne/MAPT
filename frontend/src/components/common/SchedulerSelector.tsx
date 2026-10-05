@@ -6,12 +6,13 @@ import {
   Zap,
   Check,
   Sparkles,
-  Info
+  Info,
+  LogIn
 } from 'lucide-react';
 
 export interface ScheduleConfig {
   is_recurring: boolean;
-  schedule_type: 'immediate' | 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'cron';
+  schedule_type: 'immediate' | 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'cron' | 'on_login';
   scheduled_at?: string; // YYYY-MM-DDTHH:MM
   scheduled_time?: string; // HH:MM
   scheduled_days_of_week?: string; // "1,2,3,4,5"
@@ -134,6 +135,9 @@ export const SchedulerSelector: React.FC<SchedulerSelectorProps> = ({ value, onC
     if (value.schedule_type === 'cron') {
       return `Exécution récurrente selon l'expression Cron : "${value.cron_expression || '* * * * *'}".`;
     }
+    if (value.schedule_type === 'on_login') {
+      return "Exécution récurrente automatique à chaque ouverture de session utilisateur.";
+    }
     return "Planification configurée.";
   };
 
@@ -226,7 +230,7 @@ export const SchedulerSelector: React.FC<SchedulerSelectorProps> = ({ value, onC
             <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1.5">
               Type de Récurrence
             </label>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1.5 text-xs">
               {[
                 { id: 'hourly', label: 'Heures' },
                 { id: 'daily', label: 'Jours' },
@@ -234,6 +238,7 @@ export const SchedulerSelector: React.FC<SchedulerSelectorProps> = ({ value, onC
                 { id: 'monthly', label: 'Mois' },
                 { id: 'yearly', label: 'Année' },
                 { id: 'cron', label: 'Cron' },
+                { id: 'on_login', label: 'Au Login 👤' },
               ].map((sub) => (
                 <button
                   key={sub.id}
@@ -246,7 +251,7 @@ export const SchedulerSelector: React.FC<SchedulerSelectorProps> = ({ value, onC
                   }
                   className={`py-1.5 px-2 rounded-lg border text-[11px] font-semibold text-center transition ${
                     value.schedule_type === sub.id
-                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/10 font-bold'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
                   }`}
                 >
@@ -255,6 +260,23 @@ export const SchedulerSelector: React.FC<SchedulerSelectorProps> = ({ value, onC
               ))}
             </div>
           </div>
+
+          {/* Sub-config: On Login */}
+          {value.schedule_type === 'on_login' && (
+            <div className="p-3.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl space-y-2 text-xs animate-in fade-in">
+              <div className="flex items-center space-x-2 text-emerald-300 font-semibold">
+                <LogIn className="w-4 h-4 text-emerald-400" />
+                <span>Exécution automatique à l'ouverture de session (Logon Utilisateur)</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                Dès qu'un utilisateur (compte local ou domaine Active Directory) se connecte sur une machine cible, l'agent MAPT contacte immédiatement le serveur, vérifie la présence de cette tâche récurrente et l'exécute automatiquement en arrière-plan.
+              </p>
+              <div className="flex items-center space-x-2 text-[10px] text-slate-400 pt-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>Déclencheur événementiel instantané au login de session Windows</span>
+              </div>
+            </div>
+          )}
 
           {/* Sub-config: Hourly */}
           {value.schedule_type === 'hourly' && (

@@ -117,7 +117,38 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}()
 
-	// 3. Boucle principale de scrutation et exécution des jobs
+	// 3. Goroutine dédiée à la détection événementielle des ouvertures de session utilisateur (Logon)
+	go func() {
+		sessTicker := time.NewTicker(4 * time.Second)
+		defer sessTicker.Stop()
+		lastSeenUser := ""
+		// Initialiser avec l'utilisateur actuel si déjà présent
+		if initUser := inventory.GetActiveConsoleUser(); initUser != "" {
+			lastSeenUser = initUser
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sessTicker.C:
+				currentUser := inventory.GetActiveConsoleUser()
+				if currentUser != "" && currentUser != lastSeenUser {
+					r.logger.Info("User logon detected: %s (Previous: %s). Checking for on-login recurring tasks...", currentUser, lastSeenUser)
+					lastSeenUser = currentUser
+					_ = r.client.NotifyLogin()
+					r.pollAndExecuteJobsWithTrigger(ctx, "login")
+					// Rafraîchir l'inventaire avec la nouvelle session utilisateur
+					inv := inventory.CollectInventory()
+					_ = r.client.SendInventory(inv)
+				} else if currentUser == "" && lastSeenUser != "" {
+					lastSeenUser = ""
+				}
+			}
+		}
+	}()
+
+	// 4. Boucle principale de scrutation et exécution des jobs
 	pollTicker := time.NewTicker(pollInterval)
 	defer pollTicker.Stop()
 
@@ -137,7 +168,11 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) pollAndExecuteJobs(ctx context.Context) {
-	jobList, err := r.client.GetJobs()
+	r.pollAndExecuteJobsWithTrigger(ctx, "")
+}
+
+func (r *Runner) pollAndExecuteJobsWithTrigger(ctx context.Context, trigger string) {
+	jobList, err := r.client.GetJobsWithTrigger(trigger)
 	if err != nil {
 		r.logger.Warn("Failed to fetch pending jobs: %v", err)
 		return
@@ -147,7 +182,7 @@ func (r *Runner) pollAndExecuteJobs(ctx context.Context) {
 		return
 	}
 
-	r.logger.Info("Received %d job(s) to execute.", len(jobList))
+	r.logger.Info("Received %d job(s) to execute (trigger: %s).", len(jobList), trigger)
 
 	for _, job := range jobList {
 		r.executeSingleJob(ctx, &job)

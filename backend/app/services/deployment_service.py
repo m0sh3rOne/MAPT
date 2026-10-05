@@ -195,12 +195,14 @@ class DeploymentService:
             from_time=now
         )
 
-        is_immediate = dep_in.schedule_type == "immediate" or (next_run and next_run <= now)
-        initial_status = DeploymentStatus.RUNNING if is_immediate else DeploymentStatus.PENDING
+        isOnLogin = dep_in.schedule_type == "on_login"
+        is_immediate = (dep_in.schedule_type == "immediate" or (next_run and next_run <= now)) and not isOnLogin
+        is_recurring = dep_in.is_recurring or isOnLogin
+        initial_status = DeploymentStatus.RUNNING if (is_immediate or isOnLogin) else DeploymentStatus.PENDING
         initial_last_run = now if is_immediate else None
 
         if is_immediate:
-            if dep_in.is_recurring:
+            if is_recurring:
                 # Si récurrent exécuté immédiatement, calculer la prochaine itération future
                 initial_next_run = compute_next_run(
                     schedule_type=dep_in.schedule_type,
@@ -215,6 +217,8 @@ class DeploymentService:
             else:
                 # Déploiement unique immédiat : next_run_at DOIT être None pour que le worker d'arrière-plan ne le réexécute pas
                 initial_next_run = None
+        elif isOnLogin:
+            initial_next_run = None
         else:
             initial_next_run = next_run
 
@@ -228,7 +232,7 @@ class DeploymentService:
             created_by=user_id,
             status=initial_status,
             last_run_at=initial_last_run,
-            is_recurring=dep_in.is_recurring,
+            is_recurring=is_recurring,
             schedule_type=dep_in.schedule_type,
             scheduled_at=dep_in.scheduled_at,
             scheduled_time=dep_in.scheduled_time,

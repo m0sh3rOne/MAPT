@@ -203,7 +203,7 @@ export interface Deployment {
   
   // Scheduling & Recurrence
   is_recurring?: boolean;
-  schedule_type?: 'immediate' | 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'cron';
+  schedule_type?: 'immediate' | 'once' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'cron' | 'on_login';
   scheduled_at?: string;
   scheduled_time?: string;
   scheduled_days_of_week?: string;

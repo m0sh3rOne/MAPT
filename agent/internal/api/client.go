@@ -119,9 +119,21 @@ func (c *Client) Heartbeat(ipAddress string, osName string, osVersion string, os
 }
 
 func (c *Client) GetJobs() ([]jobs.JobPayload, error) {
+	return c.GetJobsWithTrigger("")
+}
+
+func (c *Client) GetJobsWithTrigger(trigger string) ([]jobs.JobPayload, error) {
 	var jobList []jobs.JobPayload
-	err := c.doRequest("GET", "/agent/jobs", nil, &jobList, true)
+	path := "/agent/jobs"
+	if trigger != "" {
+		path = fmt.Sprintf("/agent/jobs?trigger=%s", trigger)
+	}
+	err := c.doRequest("GET", path, nil, &jobList, true)
 	return jobList, err
+}
+
+func (c *Client) NotifyLogin() error {
+	return c.doRequest("POST", "/agent/events/login", nil, nil, true)
 }
 
 func (c *Client) AckJob(jobID string) error {

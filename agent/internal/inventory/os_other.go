@@ -10,3 +10,8 @@ import (
 func GetOSInfo() (caption, displayVersion, build, arch string) {
 	return runtime.GOOS, "", runtime.GOARCH, runtime.GOARCH
 }
+
+// GetActiveConsoleUser retourne une chaîne vide pour les OS non-Windows
+func GetActiveConsoleUser() string {
+	return ""
+}

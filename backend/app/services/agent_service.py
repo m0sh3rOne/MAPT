@@ -156,7 +156,68 @@ class AgentService:
             inventory_interval_seconds=settings.AGENT_INVENTORY_INTERVAL_SECONDS
         )
 
-    async def get_jobs_for_agent(self, device: Device) -> List[AgentJobPayload]:
+    async def trigger_on_login_deployments(self, device: Device) -> int:
+        """
+        Vérifie et instancie les déploiements récurrents 'on_login' ciblant la machine
+        lorsqu'un utilisateur ouvre une session.
+        """
+        from sqlalchemy import select
+        on_login_deps = await self.dep_repo.get_active_on_login_deployments()
+        if not on_login_deps:
+            return 0
+
+        device_group_ids = set()
+        try:
+            from app.repositories.group_repository import GroupRepository
+            group_repo = GroupRepository(self.db)
+            device_group_ids = await group_repo.get_device_group_ids(device.id)
+        except Exception:
+            pass
+
+        dev_id_str = str(device.id)
+        now = datetime.now(timezone.utc)
+        created_count = 0
+
+        for dep in on_login_deps:
+            is_target = False
+            if dep.target_all_devices:
+                is_target = True
+            elif dep.target_device_ids and dev_id_str in [str(d) for d in dep.target_device_ids]:
+                is_target = True
+            elif dep.target_group_ids and any(str(gid) in [str(g) for g in dep.target_group_ids] for gid in device_group_ids):
+                is_target = True
+
+            if is_target:
+                # Vérifier si une cible active est déjà en cours ou en attente pour ce device
+                result = await self.db.execute(
+                    select(DeploymentTarget)
+                    .where(
+                        DeploymentTarget.deployment_id == dep.id,
+                        DeploymentTarget.device_id == device.id,
+                        DeploymentTarget.status.in_([TargetStatus.PENDING, TargetStatus.OFFERED, TargetStatus.RUNNING, TargetStatus.ACKED])
+                    )
+                )
+                existing = result.scalar_one_or_none()
+                if not existing:
+                    new_target = DeploymentTarget(
+                        deployment_id=dep.id,
+                        device_id=device.id,
+                        status=TargetStatus.PENDING,
+                        created_at=now
+                    )
+                    self.db.add(new_target)
+                    dep.last_run_at = now
+                    created_count += 1
+
+        if created_count > 0:
+            await self.db.flush()
+        return created_count
+
+    async def get_jobs_for_agent(self, device: Device, trigger: Optional[str] = None) -> List[AgentJobPayload]:
+        # Si un événement de connexion est transmis, déclencher les tâches récurrentes on_login
+        if trigger in ["login", "logon"]:
+            await self.trigger_on_login_deployments(device)
+
         targets = await self.dep_repo.get_pending_targets_for_device(device.id)
         job_payloads = []
 
@@ -352,3 +413,7 @@ class AgentService:
 
         cleaned_dict = sanitize_data(raw_dict)
         await self.device_repo.upsert_inventory(device.id, cleaned_dict)
+
+        # Si un utilisateur actif est détecté en session, vérifier et instancier les tâches 'on_login'
+        if active_user and isinstance(active_user, str) and active_user.strip():
+            await self.trigger_on_login_deployments(device)

@@ -140,6 +140,25 @@ class DeploymentRepository:
 
         return target
 
+    async def get_active_on_login_deployments(self) -> List[Deployment]:
+        """
+        Récupère tous les déploiements actifs configurés pour s'exécuter à l'ouverture de session (on_login).
+        """
+        now = datetime.now(timezone.utc)
+        result = await self.db.execute(
+            select(Deployment)
+            .options(
+                selectinload(Deployment.package_version).selectinload(PackageVersion.package),
+                selectinload(Deployment.script_version).selectinload(ScriptVersion.script)
+            )
+            .where(
+                Deployment.schedule_type == "on_login",
+                Deployment.status.in_([DeploymentStatus.RUNNING, DeploymentStatus.PENDING]),
+                or_(Deployment.end_at == None, Deployment.end_at > now)
+            )
+        )
+        return list(result.scalars().all())
+
     async def _check_deployment_completion(self, deployment_id: UUID):
         result = await self.db.execute(
             select(DeploymentTarget.status)
@@ -149,13 +168,18 @@ class DeploymentRepository:
         if statuses and all(s in TargetStatus.TERMINAL_STATUSES for s in statuses):
             dep = await self.get_by_id(deployment_id)
             if dep:
-                dep.status = DeploymentStatus.COMPLETED
-                if not dep.completed_at:
-                    dep.completed_at = datetime.now(timezone.utc)
+                if not dep.is_recurring and dep.schedule_type != "on_login":
+                    dep.status = DeploymentStatus.COMPLETED
+                    if not dep.completed_at:
+                        dep.completed_at = datetime.now(timezone.utc)
             else:
                 await self.db.execute(
                     update(Deployment)
-                    .where(Deployment.id == deployment_id)
+                    .where(
+                        Deployment.id == deployment_id,
+                        Deployment.is_recurring == False,
+                        Deployment.schedule_type != "on_login"
+                    )
                     .values(
                         status=DeploymentStatus.COMPLETED,
                         completed_at=datetime.now(timezone.utc)

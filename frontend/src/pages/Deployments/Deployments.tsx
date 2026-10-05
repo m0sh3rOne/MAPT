@@ -217,6 +217,7 @@ export const Deployments: React.FC = () => {
       if (dep.schedule_type === 'monthly') return `Mensuel à ${dep.scheduled_time || '08:00'}`;
       if (dep.schedule_type === 'yearly') return `Annuel à ${dep.scheduled_time || '08:00'}`;
       if (dep.schedule_type === 'cron') return `Cron: ${dep.cron_expression}`;
+      if (dep.schedule_type === 'on_login') return 'Au login utilisateur (Logon)';
       return 'Récurrent';
     }
     if (dep.scheduled_at) {

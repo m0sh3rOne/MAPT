@@ -11,8 +11,23 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
+)
+
+var (
+	modKernel32                      = windows.NewLazySystemDLL("kernel32.dll")
+	procWTSGetActiveConsoleSessionId = modKernel32.NewProc("WTSGetActiveConsoleSessionId")
+	modWtsapi32                      = windows.NewLazySystemDLL("wtsapi32.dll")
+	procWTSQuerySessionInformationW  = modWtsapi32.NewProc("WTSQuerySessionInformationW")
+	procWTSFreeMemory                = modWtsapi32.NewProc("WTSFreeMemory")
+)
+
+const (
+	wtsUserName   = 5
+	wtsDomainName = 7
 )
 
 func getOSInfoFromRegistry() (caption, displayVersion, build, arch string) {
@@ -110,4 +125,54 @@ $arc = if ($os.OSArchitecture) { $os.OSArchitecture } else { "64-bit" };
 		}
 	}
 	return
+}
+
+// GetActiveConsoleUser retourne le nom d'utilisateur actuellement connecté en session active (DOMAINE\User ou User)
+func GetActiveConsoleUser() string {
+	r1, _, _ := procWTSGetActiveConsoleSessionId.Call()
+	sessionID := uint32(r1)
+	if sessionID == 0xFFFFFFFF || sessionID == 0 {
+		return ""
+	}
+
+	var userPtr uintptr
+	var userBytes uint32
+	rU, _, _ := procWTSQuerySessionInformationW.Call(
+		0, // WTS_CURRENT_SERVER_HANDLE
+		uintptr(sessionID),
+		uintptr(wtsUserName),
+		uintptr(unsafe.Pointer(&userPtr)),
+		uintptr(unsafe.Pointer(&userBytes)),
+	)
+	if rU == 0 || userPtr == 0 {
+		return ""
+	}
+	defer procWTSFreeMemory.Call(userPtr)
+
+	userName := windows.UTF16PtrToString((*uint16)(unsafe.Pointer(userPtr)))
+	userName = strings.TrimSpace(userName)
+	if userName == "" {
+		return ""
+	}
+
+	var domPtr uintptr
+	var domBytes uint32
+	rD, _, _ := procWTSQuerySessionInformationW.Call(
+		0,
+		uintptr(sessionID),
+		uintptr(wtsDomainName),
+		uintptr(unsafe.Pointer(&domPtr)),
+		uintptr(unsafe.Pointer(&domBytes)),
+	)
+	domainName := ""
+	if rD != 0 && domPtr != 0 {
+		domainName = windows.UTF16PtrToString((*uint16)(unsafe.Pointer(domPtr)))
+		domainName = strings.TrimSpace(domainName)
+		procWTSFreeMemory.Call(domPtr)
+	}
+
+	if domainName != "" {
+		return fmt.Sprintf("%s\\%s", domainName, userName)
+	}
+	return userName
 }

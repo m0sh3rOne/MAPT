@@ -45,6 +45,10 @@ def compute_next_run(
     now_local = now_utc.astimezone(tz)
     target_time = parse_time_str(scheduled_time)
 
+    if schedule_type == "on_login":
+        # Event-triggered upon user logon; not scheduled via clock
+        return None
+
     if schedule_type == "immediate":
         return now_utc
 

@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.agent import (
@@ -16,11 +16,26 @@ router = APIRouter(tags=["Agent - Jobs"])
 
 @router.get("/jobs", response_model=List[AgentJobPayload])
 async def get_jobs(
+    trigger: Optional[str] = Query(None, description="Déclencheur d'événement (ex: login)"),
+    event: Optional[str] = Query(None, description="Alias pour trigger"),
     device: Device = Depends(get_current_agent),
     db: AsyncSession = Depends(get_db)
 ):
     service = AgentService(db)
-    return await service.get_jobs_for_agent(device)
+    return await service.get_jobs_for_agent(device, trigger=trigger or event)
+
+
+@router.post("/events/login")
+async def notify_login_event(
+    device: Device = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Notification explicite envoyée par l'agent Windows lors de l'ouverture de session d'un utilisateur.
+    """
+    service = AgentService(db)
+    count = await service.trigger_on_login_deployments(device)
+    return {"status": "success", "triggered_deployments": count}
 
 
 @router.post("/jobs/{job_id}/ack")
