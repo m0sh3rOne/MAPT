@@ -22,12 +22,19 @@ func ExecuteCommand(ctx context.Context, commandStr string, timeoutSeconds int) 
 	var cmd *exec.Cmd
 	trimmed := strings.TrimSpace(commandStr)
 
-	// Direct execution for PowerShell -EncodedCommand to bypass cmd.exe / .bat mangling
+	// Direct execution for PowerShell to bypass cmd.exe / .bat quote stripping and mangling
 	lower := strings.ToLower(trimmed)
-	if strings.HasPrefix(lower, "powershell") && strings.Contains(trimmed, "-EncodedCommand") {
-		idx := strings.Index(trimmed, "-EncodedCommand")
-		encodedPart := strings.TrimSpace(trimmed[idx+len("-EncodedCommand"):])
-		cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedPart)
+	if strings.HasPrefix(lower, "powershell") {
+		if strings.Contains(trimmed, "-EncodedCommand") {
+			idx := strings.Index(trimmed, "-EncodedCommand")
+			encodedPart := strings.TrimSpace(trimmed[idx+len("-EncodedCommand"):])
+			cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedPart)
+		} else if strings.Contains(trimmed, "-Command") {
+			idx := strings.Index(trimmed, "-Command")
+			cmdPart := strings.TrimSpace(trimmed[idx+len("-Command"):])
+			cmdPart = strings.Trim(cmdPart, "\"")
+			cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", cmdPart)
+		}
 	}
 
 	// If command is long (> 500 chars) or contains newlines, execute via temporary script to avoid cmd.exe 8191-char limit

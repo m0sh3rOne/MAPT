@@ -26,7 +26,8 @@ import {
   ShieldAlert,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Tag
 } from 'lucide-react';
 import { WolResult, Device } from '../../types';
 
@@ -229,6 +230,31 @@ export const Devices: React.FC = () => {
         message: err?.response?.data?.detail || "Erreur lors de l'envoi de l'ordre d'extinction",
       });
       setTimeout(() => setNotification(null), 7000);
+    },
+  });
+
+  // Acknowledge Device Rename Mutation
+  const acknowledgeRenameMutation = useMutation({
+    mutationFn: async ({ id, deleteOld = true }: { id: string; deleteOld?: boolean }) => {
+      return api.acknowledgeDeviceRename(id, deleteOld);
+    },
+    onSuccess: (res) => {
+      setNotification({
+        type: 'success',
+        message: `Renommage de ${res.hostname} acquitté avec succès.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+      refetch();
+      setTimeout(() => setNotification(null), 5000);
+    },
+    onError: (err: any) => {
+      setNotification({
+        type: 'error',
+        message: err?.response?.data?.detail || "Erreur lors de l'acquittement du renommage",
+      });
+      setTimeout(() => setNotification(null), 6000);
     },
   });
 
@@ -506,6 +532,9 @@ export const Devices: React.FC = () => {
     return d && d.is_approved === false;
   });
 
+  // Liste des machines renommées en attente d'acquittement
+  const renamedDevices = devices.filter((d) => !!d.previous_hostname);
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -717,6 +746,45 @@ export const Devices: React.FC = () => {
         )}
       </div>
 
+      {/* Renamed Devices Notification Banner */}
+      {renamedDevices.length > 0 && (
+        <div className="p-4 bg-gradient-to-r from-blue-950/60 to-indigo-950/40 border border-blue-500/40 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl animate-in fade-in">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-2.5 bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400 shrink-0">
+              <Tag className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h4 className="text-sm font-bold text-slate-100">
+                  {renamedDevices.length === 1 ? '1 machine a été renommée' : `${renamedDevices.length} machines ont été renommées`}
+                </h4>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">
+                  Resynchronisation auto
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1">
+                {renamedDevices.length === 1
+                  ? `Le poste ${renamedDevices[0].hostname} (anciennement ${renamedDevices[0].previous_hostname}) a été mis à jour automatiquement.`
+                  : 'Des postes ont changé de nom et se sont resynchronisés automatiquement.'}
+              </p>
+            </div>
+          </div>
+          {renamedDevices.length === 1 && (
+            <div className="flex items-center space-x-2 shrink-0 w-full md:w-auto justify-end">
+              <button
+                onClick={() => acknowledgeRenameMutation.mutate({ id: renamedDevices[0].id, deleteOld: true })}
+                disabled={acknowledgeRenameMutation.isPending}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-blue-950/50 transition flex items-center space-x-1.5 disabled:opacity-50"
+                title="Confirmer le nouveau nom et supprimer automatiquement les anciens doublons / fantômes"
+              >
+                {acknowledgeRenameMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>Acquitter et purger l'ancien nom</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Devices Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
@@ -828,6 +896,15 @@ export const Devices: React.FC = () => {
                             >
                               {device.hostname}
                             </Link>
+                            {device.previous_hostname && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded font-mono font-medium"
+                                title={`Ancien nom : ${device.previous_hostname}`}
+                              >
+                                <Tag className="w-2.5 h-2.5" />
+                                <span>ex: {device.previous_hostname}</span>
+                              </span>
+                            )}
                             {!device.enabled ? (
                               <button
                                 onClick={() =>
@@ -919,6 +996,21 @@ export const Devices: React.FC = () => {
                           >
                             <ShieldCheck className="w-4 h-4 text-amber-300" />
                             <span className="text-xs font-semibold hidden xl:inline">Approuver</span>
+                          </button>
+                        )}
+
+                        {/* Quick Rename Acknowledge Action */}
+                        {device.previous_hostname && (
+                          <button
+                            onClick={() =>
+                              acknowledgeRenameMutation.mutate({ id: device.id, deleteOld: true })
+                            }
+                            disabled={acknowledgeRenameMutation.isPending}
+                            className="p-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 text-blue-300 font-bold transition flex items-center space-x-1 disabled:opacity-50"
+                            title={`Acquitter le renommage (ancien nom : ${device.previous_hostname}) et purger les anciens enregistrements`}
+                          >
+                            <Tag className="w-4 h-4 text-blue-400" />
+                            <span className="text-xs font-semibold hidden 2xl:inline">Acquitter</span>
                           </button>
                         )}
 

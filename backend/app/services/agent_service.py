@@ -42,24 +42,36 @@ class AgentService:
         # 1. Recherche si une machine existe déjà avec cet UUID
         device = await self.device_repo.get_by_uuid(target_uuid)
 
-        # 2. Protection Anti-Collision Clone (ex: image FOG déployée sans Sysprep)
-        # Si une machine active existe déjà avec cet UUID mais avec un nom d'hôte différent
+        # 2. Protection Anti-Collision Clone vs Renommage
+        # Si une machine existe déjà avec cet UUID mais avec un nom d'hôte différent
         if device and enroll_in.hostname:
             existing_host = (device.hostname or "").strip().upper()
             incoming_host = (enroll_in.hostname or "").strip().upper()
-            if existing_host and incoming_host and existing_host != incoming_host and not device.is_archived:
-                import uuid
-                new_uuid = str(uuid.uuid4())
-                from app.core.logging import logger
-                logger.warning(
-                    f"⚠️ [Clone Protection] Collision d'UUID détectée ! L'UUID {target_uuid} appartient déjà à '{device.hostname}'. "
-                    f"Attribution automatique d'un nouvel UUID unique pour le clone '{enroll_in.hostname}' : {new_uuid}"
+            if existing_host and incoming_host and existing_host != incoming_host:
+                incoming_ip = ip_address or enroll_in.ip_address
+                is_concurrent_different_ip = (
+                    device.ip_address 
+                    and incoming_ip 
+                    and device.ip_address != incoming_ip 
+                    and device.last_seen_at 
+                    and (now - device.last_seen_at).total_seconds() < 60
                 )
-                target_uuid = new_uuid
-                # Vérifier si la machine sous son nouveau nom d'hôte existait déjà dans la base
-                device = await self.device_repo.get_by_hostname(enroll_in.hostname)
-                if device:
-                    device.device_uuid = target_uuid
+                if is_concurrent_different_ip and not device.is_archived:
+                    import uuid
+                    new_uuid = str(uuid.uuid4())
+                    from app.core.logging import logger
+                    logger.warning(
+                        f"⚠️ [Clone Protection] Collision d'UUID détectée ! L'UUID {target_uuid} est actif sur '{device.hostname}' ({device.ip_address}). "
+                        f"Attribution automatique d'un nouvel UUID pour le clone '{enroll_in.hostname}' ({incoming_ip}) : {new_uuid}"
+                    )
+                    target_uuid = new_uuid
+                    device = await self.device_repo.get_by_hostname(enroll_in.hostname)
+                    if device:
+                        device.device_uuid = target_uuid
+                else:
+                    # Même machine renommée
+                    device.previous_hostname = device.hostname
+                    device.hostname = enroll_in.hostname
 
         # 3. Si non trouvé par UUID, chercher si la machine existait déjà par nom d'hôte
         if not device and enroll_in.hostname:
@@ -83,8 +95,10 @@ class AgentService:
             )
             device = await self.device_repo.create(device)
         else:
+            if device.hostname != enroll_in.hostname:
+                device.previous_hostname = device.hostname
+                device.hostname = enroll_in.hostname
             device.device_uuid = target_uuid
-            device.hostname = enroll_in.hostname
             device.os_name = enroll_in.os_name
             device.os_version = enroll_in.os_version
             device.os_build = enroll_in.os_build
@@ -131,22 +145,42 @@ class AgentService:
             agent_version=heartbeat_in.agent_version
         )
 
+        # Mise à jour automatique et dynamique du nom d'hôte si la machine a été renommée
+        updated_device = False
+        if heartbeat_in.hostname and heartbeat_in.hostname.strip():
+            reported_host = heartbeat_in.hostname.strip()
+            current_host = (device.hostname or "").strip()
+            if reported_host and current_host and reported_host.upper() != current_host.upper():
+                device.previous_hostname = current_host
+                device.hostname = reported_host
+                updated_device = True
+                await self.audit_repo.create(
+                    action=AuditAction.DEVICE_RENAMED,
+                    entity_type="device",
+                    entity_id=device.id,
+                    details={
+                        "old_hostname": current_host,
+                        "new_hostname": reported_host,
+                        "source": "heartbeat_auto_detect"
+                    },
+                    ip_address=ip_address
+                )
+
         # Mise à jour automatique et dynamique de la version de l'OS si transmise dans le heartbeat
-        updated_os = False
         if heartbeat_in.os_name and heartbeat_in.os_name.strip() and heartbeat_in.os_name.lower() != "windows":
             if device.os_name != heartbeat_in.os_name:
                 device.os_name = heartbeat_in.os_name
-                updated_os = True
+                updated_device = True
         if heartbeat_in.os_version and heartbeat_in.os_version.strip() and heartbeat_in.os_version.lower() != "windows":
             if device.os_version != heartbeat_in.os_version:
                 device.os_version = heartbeat_in.os_version
-                updated_os = True
+                updated_device = True
         if heartbeat_in.os_build and heartbeat_in.os_build.strip() and heartbeat_in.os_build.lower() not in ["amd64", "x86_64", "x64"]:
             if device.os_build != heartbeat_in.os_build:
                 device.os_build = heartbeat_in.os_build
-                updated_os = True
+                updated_device = True
 
-        if updated_os:
+        if updated_device:
             await self.device_repo.update(device)
 
         return AgentHeartbeatResponse(

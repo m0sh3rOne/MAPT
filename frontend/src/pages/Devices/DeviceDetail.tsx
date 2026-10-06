@@ -405,6 +405,22 @@ export const DeviceDetail: React.FC = () => {
     },
   });
 
+  const acknowledgeRenameMutation = useMutation({
+    mutationFn: async ({ deleteOld }: { deleteOld: boolean }) => {
+      return api.acknowledgeDeviceRename(id!, deleteOld);
+    },
+    onSuccess: (updatedDev) => {
+      queryClient.setQueryData(['device', id], updatedDev);
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de l'acquittement du renommage : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
   if (loadingDevice || !device) {
     return <div className="py-12 text-center text-slate-500">Chargement des données de la machine...</div>;
   }
@@ -449,8 +465,22 @@ export const DeviceDetail: React.FC = () => {
     const cleanName = newName.trim().toUpperCase();
     if (!cleanName) return;
 
-    const restartArg = renameRestart ? ' -Restart' : '';
-    const psCmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Rename-Computer -NewName '${cleanName}' -Force${restartArg}"`;
+    const psScript = `
+$ErrorActionPreference = 'Stop'
+$newName = '${cleanName.replace(/'/g, "''")}'
+Write-Output "Renommage du poste en '$newName'..."
+try {
+    Rename-Computer -NewName $newName -Force -ErrorAction Stop
+    Write-Output "Machine renommee en '$newName' avec succes."
+    ${renameRestart ? 'Write-Output "Redemarrage de la machine dans 3 secondes..."; Start-Sleep -Seconds 2; Restart-Computer -Force' : 'Write-Output "Note : Un redemarrage est necessaire pour appliquer definitivement le nom sur le reseau."'}
+} catch {
+    Write-Error "Echec du renommage : $($_.Exception.Message)"
+    exit 1
+}
+`.trim();
+
+    const base64Encoded = encodePowerShellUtf16Base64(psScript);
+    const psCmd = `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${base64Encoded}`;
 
     createActionMutation.mutate({
       name: `🏷️ Renommer poste -> ${cleanName}`,
@@ -462,6 +492,11 @@ export const DeviceDetail: React.FC = () => {
       target_group_ids: [],
       schedule_type: 'immediate',
       is_recurring: false,
+    }, {
+      onSuccess: () => {
+        setActiveModal(null);
+        setNewName('');
+      }
     });
   };
 
@@ -1262,6 +1297,51 @@ Write-Output "Operation terminee avec succes pour '$u'."
         </button>
       </div>
       </div>
+
+      {/* Rename Detected Alert Banner */}
+      {device.previous_hostname && (
+        <div className="p-4 bg-gradient-to-r from-blue-950/60 to-indigo-950/40 border border-blue-500/40 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2.5 bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400 shrink-0 mt-0.5">
+              <Tag className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h4 className="text-sm font-bold text-slate-100">Renommage de poste détecté</h4>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30">
+                  Resynchronisation auto
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-1">
+                Ce poste s'appelait précédemment <span className="font-mono font-bold text-blue-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-blue-500/30">{device.previous_hostname}</span> et a été renommé en <span className="font-mono font-bold text-emerald-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-emerald-500/30">{device.hostname}</span>.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2.5 w-full md:w-auto justify-end shrink-0">
+            <button
+              onClick={() => acknowledgeRenameMutation.mutate({ deleteOld: true })}
+              disabled={acknowledgeRenameMutation.isPending}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-blue-950/50 transition flex items-center space-x-1.5 disabled:opacity-50"
+              title="Confirmer le nouveau nom et supprimer automatiquement les anciens doublons / fantômes"
+            >
+              {acknowledgeRenameMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Check className="w-3.5 h-3.5" />
+              )}
+              <span>Acquitter et purger l'ancien nom</span>
+            </button>
+            <button
+              onClick={() => acknowledgeRenameMutation.mutate({ deleteOld: false })}
+              disabled={acknowledgeRenameMutation.isPending}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl border border-slate-700 hover:border-slate-600 transition disabled:opacity-50"
+              title="Conserver l'historique sans supprimer de fiches"
+            >
+              <span>Acquitter</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex border-b border-slate-800 space-x-6 text-sm font-semibold overflow-x-auto">

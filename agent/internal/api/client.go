@@ -105,9 +105,10 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 	return c.cfg.Save()
 }
 
-func (c *Client) Heartbeat(ipAddress string, osName string, osVersion string, osBuild string) error {
+func (c *Client) Heartbeat(hostname string, ipAddress string, osName string, osVersion string, osBuild string) error {
 	payload := map[string]interface{}{
 		"device_uuid":   c.cfg.DeviceUUID,
+		"hostname":      hostname,
 		"agent_version": c.cfg.AgentVersion,
 		"ip_address":    ipAddress,
 		"os_name":       osName,

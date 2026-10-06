@@ -396,6 +396,40 @@ async def delete_devices_batch(
     }
 
 
+@router.post("/{device_id}/acknowledge-rename", response_model=DeviceResponse)
+async def acknowledge_device_rename(
+    device_id: UUID,
+    delete_old_records: bool = True,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Acquitte le renommage d'une machine et supprime si demandé les anciens enregistrements fantômes / inactifs.
+    """
+    service = DeviceService(db)
+    device = await service.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Machine introuvable")
+
+    old_name = device.previous_hostname
+    device.previous_hostname = None
+    await db.commit()
+    await db.refresh(device)
+
+    if delete_old_records and old_name:
+        from sqlalchemy import delete
+        from app.models.device import Device
+        await db.execute(
+            delete(Device).where(
+                Device.hostname.ilike(old_name),
+                Device.id != device.id
+            )
+        )
+        await db.commit()
+
+    return device
+
+
 @router.post("/{device_id}/wol")
 async def wake_device(
     device_id: UUID,

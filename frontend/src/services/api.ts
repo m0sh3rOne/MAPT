@@ -152,6 +152,12 @@ export const api = {
     });
     return res.data;
   },
+  acknowledgeDeviceRename: async (id: string, deleteOldRecords: boolean = true): Promise<Device> => {
+    const res = await apiClient.post(`/admin/devices/${id}/acknowledge-rename`, null, {
+      params: { delete_old_records: deleteOldRecords }
+    });
+    return res.data;
+  },
   wakeDevice: async (id: string, broadcastIp?: string, port?: number): Promise<WolResult> => {
     const res = await apiClient.post(`/admin/devices/${id}/wol`, {
       broadcast_ip: broadcastIp,
