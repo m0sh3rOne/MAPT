@@ -126,9 +126,41 @@ MAPT_MCP_TOOLS: List[McpToolInfo] = [
     McpToolInfo(
         name="mapt_list_scripts",
         description="Liste les scripts réutilisables de la bibliothèque MAPT (PowerShell, VBScript, Batch, Python).",
-        category="Organisation",
+        category="Bibliothèque de Scripts",
         parameters=[
             McpToolParameter(name="category", type="string", description="Filtrer par catégorie", required=False),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_create_script",
+        description="Crée et intègre un nouveau script réutilisable (PowerShell, Batch, Python) directement dans la bibliothèque officielle MAPT.",
+        category="Bibliothèque de Scripts",
+        parameters=[
+            McpToolParameter(name="name", type="string", description="Nom explicite du script", required=True),
+            McpToolParameter(name="content", type="string", description="Code source complet du script", required=True),
+            McpToolParameter(name="language", type="string (powershell|cmd|python)", description="Langage du script", required=False, default="powershell"),
+            McpToolParameter(name="description", type="string", description="Description de l'usage", required=False),
+            McpToolParameter(name="timeout_seconds", type="integer", description="Délai d'exécution max en secondes", required=False, default=300),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_get_script",
+        description="Obtient le code source et les métadonnées d'un script existant de la bibliothèque MAPT.",
+        category="Bibliothèque de Scripts",
+        parameters=[
+            McpToolParameter(name="script_id", type="string (UUID)", description="UUID du script dans MAPT", required=True),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_deploy_script",
+        description="Déploie et exécute un script du catalogue MAPT sur une sélection de machines ou groupes.",
+        category="Bibliothèque de Scripts",
+        parameters=[
+            McpToolParameter(name="script_id", type="string (UUID)", description="UUID du script à déployer", required=True),
+            McpToolParameter(name="device_ids", type="array[string]", description="UUIDs des machines cibles", required=False),
+            McpToolParameter(name="group_ids", type="array[string]", description="UUIDs des groupes cibles", required=False),
+            McpToolParameter(name="target_all_devices", type="boolean", description="Déployer sur tout le parc", required=False, default=False),
+            McpToolParameter(name="name", type="string", description="Titre personnalisé du déploiement", required=False),
         ]
     ),
 ]

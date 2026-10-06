@@ -30,7 +30,10 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
 | `mapt_reboot_device` | Alimentation & Énergie | Redémarre à distance un ou plusieurs postes avec message d'information. |
 | `mapt_shutdown_device` | Alimentation & Énergie | Éteint proprement à distance un ou plusieurs postes (délai minimum sécurisé de 10s). |
 | `mapt_list_groups` | Organisation | Liste les groupes logiques de machines créés dans MAPT. |
-| `mapt_list_scripts` | Organisation | Liste les scripts disponibles dans la bibliothèque MAPT (PowerShell, Batch, Python). |
+| `mapt_list_scripts` | Bibliothèque de Scripts | Liste les scripts disponibles dans la bibliothèque MAPT (PowerShell, Batch, Python). |
+| `mapt_create_script` | Bibliothèque de Scripts | Crée et intègre un nouveau script réutilisable directement dans la bibliothèque officielle MAPT. |
+| `mapt_get_script` | Bibliothèque de Scripts | Récupère le code source et les métadonnées d'un script existant du catalogue MAPT. |
+| `mapt_deploy_script` | Bibliothèque de Scripts | Déploie et exécute un script du catalogue MAPT sur une sélection de machines ou groupes. |
 
 ---
 

@@ -433,6 +433,85 @@ def tool_list_scripts(category: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def tool_create_script(
+    name: str,
+    content: str,
+    language: str = "powershell",
+    description: Optional[str] = None,
+    timeout_seconds: int = 300
+) -> Dict[str, Any]:
+    """Crée et enregistre un nouveau script directement dans la bibliothèque officielle MAPT."""
+    lang = (language or "powershell").lower()
+    payload = {
+        "name": name.strip(),
+        "description": description or f"Script créé par IA via MCP ({lang})",
+        "language": lang,
+        "initial_content": content,
+        "timeout_seconds": timeout_seconds
+    }
+    resp = client.request("POST", "/admin/scripts", data=payload)
+    latest_v = resp.get("latest_version") or {}
+    return {
+        "success": True,
+        "message": f"Script '{name}' ({lang}) créé et intégré avec succès dans la bibliothèque MAPT.",
+        "script_id": resp.get("id"),
+        "script_version_id": latest_v.get("id"),
+        "name": resp.get("name"),
+        "language": resp.get("language")
+    }
+
+
+def tool_get_script(script_id: str) -> Dict[str, Any]:
+    """Récupère les détails et le code source complet d'un script du catalogue MAPT."""
+    script = client.request("GET", f"/admin/scripts/{script_id}")
+    latest_v = script.get("latest_version") or {}
+    return {
+        "id": script.get("id"),
+        "name": script.get("name"),
+        "description": script.get("description"),
+        "language": script.get("language"),
+        "version": latest_v.get("version"),
+        "code_content": latest_v.get("content", ""),
+        "created_at": script.get("created_at")
+    }
+
+
+def tool_deploy_script(
+    script_id: str,
+    device_ids: Optional[List[str]] = None,
+    group_ids: Optional[List[str]] = None,
+    target_all_devices: bool = False,
+    name: Optional[str] = None
+) -> Dict[str, Any]:
+    """Déploie un script du catalogue MAPT sur un ensemble de machines ou groupes cibles."""
+    script = client.request("GET", f"/admin/scripts/{script_id}")
+    latest_v = script.get("latest_version")
+    if not latest_v or not latest_v.get("id"):
+        raise ValueError(f"Le script '{script.get('name')}' ne dispose d'aucune version disponible.")
+
+    job_name = name or f"Déploiement Script : {script.get('name')}"
+    payload = {
+        "name": job_name,
+        "description": f"Exécution du script de bibliothèque '{script.get('name')}'",
+        "deployment_type": "script",
+        "script_version_id": latest_v.get("id"),
+        "target_all_devices": target_all_devices,
+        "target_device_ids": device_ids or [],
+        "target_group_ids": group_ids or [],
+        "schedule_type": "immediate",
+        "is_recurring": False
+    }
+
+    resp = client.request("POST", "/admin/deployments", data=payload)
+    return {
+        "success": True,
+        "message": f"Déploiement du script '{script.get('name')}' lancé.",
+        "deployment_id": resp.get("id"),
+        "status": resp.get("status"),
+        "raw_response": resp
+    }
+
+
 # Dictionnaire de métadonnées des outils MCP
 MCP_TOOLS = {
     "mapt_list_devices": {
@@ -601,6 +680,50 @@ MCP_TOOLS = {
             "properties": {
                 "category": {"type": "string", "description": "Filtrer par catégorie (ex: Maintenance, Sécurité, Diagnostic)"}
             }
+        }
+    },
+    "mapt_create_script": {
+        "name": "mapt_create_script",
+        "description": "Crée et intègre un nouveau script réutilisable (PowerShell, Batch, Python) directement dans la bibliothèque officielle MAPT.",
+        "func": tool_create_script,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Nom explicite du script (ex: 'Nettoyage Spooler & DNS')"},
+                "content": {"type": "string", "description": "Code source complet du script à exécuter"},
+                "language": {"type": "string", "enum": ["powershell", "cmd", "python", "vbscript"], "description": "Langage de script (défaut: powershell)", "default": "powershell"},
+                "description": {"type": "string", "description": "Description détaillée de l'utilité du script"},
+                "timeout_seconds": {"type": "integer", "description": "Délai d'exécution maximum en secondes", "default": 300}
+            },
+            "required": ["name", "content"]
+        }
+    },
+    "mapt_get_script": {
+        "name": "mapt_get_script",
+        "description": "Obtient le code source et les métadonnées d'un script existant de la bibliothèque MAPT.",
+        "func": tool_get_script,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "script_id": {"type": "string", "description": "UUID du script dans MAPT"}
+            },
+            "required": ["script_id"]
+        }
+    },
+    "mapt_deploy_script": {
+        "name": "mapt_deploy_script",
+        "description": "Déploie et exécute un script existant de la bibliothèque MAPT sur une ou plusieurs machines ou groupes.",
+        "func": tool_deploy_script,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "script_id": {"type": "string", "description": "UUID du script du catalogue à déployer"},
+                "device_ids": {"type": "array", "items": {"type": "string"}, "description": "Liste des UUIDs des machines cibles"},
+                "group_ids": {"type": "array", "items": {"type": "string"}, "description": "Liste des UUIDs des groupes de machines cibles"},
+                "target_all_devices": {"type": "boolean", "description": "Déployer sur l'intégralité du parc", "default": False},
+                "name": {"type": "string", "description": "Titre personnalisé du déploiement"}
+            },
+            "required": ["script_id"]
         }
     }
 }
