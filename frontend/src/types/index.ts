@@ -263,3 +263,42 @@ export interface WolResult {
   success: boolean;
   message: string;
 }
+
+export interface McpToolParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  default?: any;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  category: string;
+  parameters: McpToolParameter[];
+}
+
+export interface McpStatus {
+  enabled: boolean;
+  server_url: string;
+  api_url: string;
+  host: string;
+  port: number;
+  is_running: boolean;
+  tools_count: number;
+  tools: McpToolInfo[];
+  config_claude_desktop: Record<string, any>;
+  config_antigravity: Record<string, any>;
+  config_cursor: Record<string, any>;
+  config_python_cli: string;
+}
+
+export interface McpTestConnectionResponse {
+  success: boolean;
+  message: string;
+  token_valid: boolean;
+  devices_detected: number;
+  latency_ms: number;
+}
+

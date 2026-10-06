@@ -6,6 +6,7 @@ from app.api.admin.packages import router as packages_router
 from app.api.admin.scripts import router as scripts_router
 from app.api.admin.deployments import router as deployments_router
 from app.api.admin.audit import router as audit_router
+from app.api.admin.mcp import router as mcp_router
 
 from app.api.agent.enroll import router as agent_enroll_router
 from app.api.agent.jobs import router as agent_jobs_router
@@ -25,6 +26,7 @@ admin_router.include_router(packages_router)
 admin_router.include_router(scripts_router)
 admin_router.include_router(deployments_router)
 admin_router.include_router(audit_router)
+admin_router.include_router(mcp_router)
 api_router.include_router(admin_router)
 
 # Agent routes

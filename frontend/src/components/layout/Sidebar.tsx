@@ -11,7 +11,8 @@ import {
   ShieldAlert,
   Server,
   Users as UsersIcon,
-  ShieldCheck
+  ShieldCheck,
+  Bot
 } from 'lucide-react';
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
 export const Sidebar: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdminOrAdmin = user?.role === 'super_admin' || user?.role === 'administrator';
+  const isSuperAdmin = user?.role === 'super_admin';
   const isAppStoreClient = user?.role === 'app_store_client';
 
   const visibleNavItems = navItems.filter((item) => {
@@ -91,6 +93,25 @@ export const Sidebar: React.FC = () => {
               <UsersIcon className="w-4 h-4" />
               <span>Utilisateurs</span>
             </NavLink>
+
+            {isSuperAdmin && (
+              <NavLink
+                to="/mcp-server"
+                className={({ isActive }) =>
+                  `flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition duration-150 ${
+                    isActive
+                      ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-sm'
+                      : 'text-slate-400 hover:text-purple-300 hover:bg-slate-800/60'
+                  }`
+                }
+              >
+                <Bot className="w-4 h-4 text-purple-400" />
+                <span className="flex-1">Serveur MCP</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  IA
+                </span>
+              </NavLink>
+            )}
           </>
         )}
       </nav>

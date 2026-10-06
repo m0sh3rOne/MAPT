@@ -8,6 +8,7 @@ from app.models.script import Script, ScriptVersion
 from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus, TargetStatus
 from app.models.job import JobLog
 from app.models.audit import AuditLog, AuditAction
+from app.models.setting import SystemSetting
 
 __all__ = [
     "Base",
@@ -27,4 +28,5 @@ __all__ = [
     "JobLog",
     "AuditLog",
     "AuditAction",
+    "SystemSetting",
 ]

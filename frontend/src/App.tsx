@@ -14,6 +14,7 @@ import { Scripts } from './pages/Scripts/Scripts';
 import { Groups } from './pages/Groups/Groups';
 import { Audit } from './pages/Audit/Audit';
 import { Users } from './pages/Users/Users';
+import { McpServer } from './pages/McpServer/McpServer';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +69,7 @@ export const App: React.FC = () => {
               <Route path="groups" element={<Groups />} />
               <Route path="audit" element={<Audit />} />
               <Route path="users" element={<Users />} />
+              <Route path="mcp-server" element={<McpServer />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

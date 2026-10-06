@@ -1,0 +1,8 @@
+# Dépendances pour MAPT MCP Server
+# Note : Le serveur MCP fonctionne de manière autonome en Python standard 3.10+
+# Les paquets ci-dessous sont recommandés pour le mode SSE / FastMCP avancé
+mcp>=1.1.0
+requests>=2.31.0
+httpx>=0.27.0
+pydantic>=2.6.0
+uvicorn>=0.28.0

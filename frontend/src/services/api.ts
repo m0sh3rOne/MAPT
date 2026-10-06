@@ -2,7 +2,8 @@ import axios from 'axios';
 import {
   User, Device, DeviceInventory, DeviceGroup, DeviceActionHistory,
   Package, PackageVersion, Script, ScriptVersion,
-  Deployment, DeploymentTarget, JobLog, AuditLog, WolResult
+  Deployment, DeploymentTarget, JobLog, AuditLog, WolResult,
+  McpStatus, McpTestConnectionResponse
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -419,5 +420,24 @@ export const api = {
   deleteAuditLog: async (logId: string): Promise<{ success: boolean; count: number; message: string }> => {
     const res = await apiClient.delete(`/admin/audit/${logId}`);
     return res.data;
+  },
+
+  // Super Admin - MCP Server
+  getMcpStatus: async (): Promise<McpStatus> => {
+    const res = await apiClient.get('/admin/mcp/status');
+    return res.data;
+  },
+  toggleMcpServer: async (enabled: boolean): Promise<McpStatus> => {
+    const res = await apiClient.post('/admin/mcp/toggle', { enabled });
+    return res.data;
+  },
+  updateMcpSettings: async (settings: { port?: number; custom_host?: string; allowed_ips?: string }): Promise<McpStatus> => {
+    const res = await apiClient.put('/admin/mcp/settings', settings);
+    return res.data;
+  },
+  testMcpConnection: async (payload?: { username?: string; password?: string; api_url?: string }): Promise<McpTestConnectionResponse> => {
+    const res = await apiClient.post('/admin/mcp/test-connection', payload || {});
+    return res.data;
   }
 };
+
