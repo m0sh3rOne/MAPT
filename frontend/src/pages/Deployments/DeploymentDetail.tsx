@@ -20,11 +20,24 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 
 export const DeploymentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [selectedTargetLogs, setSelectedTargetLogs] = useState<{ id: string; hostname: string } | null>(null);
+
+  // Resizable columns
+  const { getColStyle, ResizeHandle } = useResizableColumns<
+    'hostname' | 'status' | 'retries' | 'exit_code' | 'error' | 'actions'
+  >('deployment_targets', {
+    hostname: 220,
+    status: 200,
+    retries: 140,
+    exit_code: 140,
+    error: 260,
+    actions: 140,
+  });
 
   // Sorting state
   const [sortBy, setSortBy] = useState<'hostname' | 'status' | 'retries' | 'exit_code'>('hostname');
@@ -207,53 +220,67 @@ export const DeploymentDetail: React.FC = () => {
                 {/* Tri par Machine Cible */}
                 <th
                   onClick={() => handleSort('hostname')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('hostname')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Machine Cible"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Machine Cible</span>
                     {getSortIcon('hostname')}
                   </div>
+                  <ResizeHandle colKey="hostname" />
                 </th>
 
                 {/* Tri par Statut */}
                 <th
                   onClick={() => handleSort('status')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('status')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Statut"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Statut Machine à États</span>
                     {getSortIcon('status')}
                   </div>
+                  <ResizeHandle colKey="status" />
                 </th>
 
                 {/* Tri par Tentatives */}
                 <th
                   onClick={() => handleSort('retries')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('retries')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Tentatives"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Tentatives</span>
                     {getSortIcon('retries')}
                   </div>
+                  <ResizeHandle colKey="retries" />
                 </th>
 
                 {/* Tri par Code Retour */}
                 <th
                   onClick={() => handleSort('exit_code')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('exit_code')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Code Retour"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Code Retour</span>
                     {getSortIcon('exit_code')}
                   </div>
+                  <ResizeHandle colKey="exit_code" />
                 </th>
 
-                <th className="px-6 py-4">Message / Erreur</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+                <th style={getColStyle('error')} className="px-6 py-4 relative group/th">
+                  <span>Message / Erreur</span>
+                  <ResizeHandle colKey="error" />
+                </th>
+                <th style={getColStyle('actions')} className="px-6 py-4 text-right relative group/th">
+                  <span>Actions</span>
+                  <ResizeHandle colKey="actions" />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">

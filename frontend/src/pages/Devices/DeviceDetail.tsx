@@ -61,6 +61,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 
 export const DeviceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -93,6 +94,51 @@ export const DeviceDetail: React.FC = () => {
   const [netFilter, setNetFilter] = useState<'all' | 'connected' | 'physical' | 'disconnected'>('all');
   const [netSortBy, setNetSortBy] = useState<'name' | 'mac' | 'ip' | 'gateway' | 'dhcp' | 'status'>('name');
   const [netSortDir, setNetSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // Resizable columns hooks
+  const { getColStyle: getSoftwareColStyle, ResizeHandle: SoftwareResizeHandle } = useResizableColumns<
+    'name' | 'version' | 'publisher' | 'install_date' | 'actions'
+  >('device_software', {
+    name: 240,
+    version: 150,
+    publisher: 200,
+    install_date: 160,
+    actions: 120,
+  });
+
+  const { getColStyle: getNetColStyle, ResizeHandle: NetResizeHandle } = useResizableColumns<
+    'name' | 'mac' | 'ip' | 'gateway' | 'dhcp' | 'status'
+  >('device_network', {
+    name: 220,
+    mac: 180,
+    ip: 200,
+    gateway: 200,
+    dhcp: 110,
+    status: 120,
+  });
+
+  const { getColStyle: getUsersColStyle, ResizeHandle: UsersResizeHandle } = useResizableColumns<
+    'name' | 'account_type' | 'full_name' | 'session' | 'is_admin' | 'last_login' | 'actions'
+  >('device_users', {
+    name: 200,
+    account_type: 140,
+    full_name: 220,
+    session: 160,
+    is_admin: 150,
+    last_login: 160,
+    actions: 120,
+  });
+
+  const { getColStyle: getActionsColStyle, ResizeHandle: ActionsResizeHandle } = useResizableColumns<
+    'created_at' | 'deployment_name' | 'deployment_type' | 'status' | 'exit_code' | 'actions'
+  >('device_actions', {
+    created_at: 160,
+    deployment_name: 260,
+    deployment_type: 120,
+    status: 140,
+    exit_code: 120,
+    actions: 120,
+  });
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
@@ -1640,52 +1686,63 @@ Write-Output "Operation terminee avec succes pour '$u'."
                         {/* Tri par Application */}
                         <th
                           onClick={() => handleSoftwareSort('name')}
-                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getSoftwareColStyle('name')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Application"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Application</span>
                             {getSoftwareSortIcon('name')}
                           </div>
+                          <SoftwareResizeHandle colKey="name" />
                         </th>
 
                         {/* Tri par Version */}
                         <th
                           onClick={() => handleSoftwareSort('version')}
-                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getSoftwareColStyle('version')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Version"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Version</span>
                             {getSoftwareSortIcon('version')}
                           </div>
+                          <SoftwareResizeHandle colKey="version" />
                         </th>
 
                         {/* Tri par Éditeur */}
                         <th
                           onClick={() => handleSoftwareSort('publisher')}
-                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getSoftwareColStyle('publisher')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Éditeur / Fournisseur"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Éditeur / Fournisseur</span>
                             {getSoftwareSortIcon('publisher')}
                           </div>
+                          <SoftwareResizeHandle colKey="publisher" />
                         </th>
 
                         {/* Tri par Date d'installation */}
                         <th
                           onClick={() => handleSoftwareSort('install_date')}
-                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getSoftwareColStyle('install_date')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Date d'installation"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Date d'installation</span>
                             {getSoftwareSortIcon('install_date')}
                           </div>
+                          <SoftwareResizeHandle colKey="install_date" />
                         </th>
 
-                        <th className="py-3 px-4 text-right">Actions</th>
+                        <th style={getSoftwareColStyle('actions')} className="py-3 px-4 text-right relative group/th">
+                          <span>Actions</span>
+                          <SoftwareResizeHandle colKey="actions" />
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-sm">
@@ -1974,63 +2031,76 @@ Write-Output "Operation terminee avec succes pour '$u'."
                         {/* Tri par Interface */}
                         <th
                           onClick={() => handleNetSort('name')}
-                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getNetColStyle('name')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Interface"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Interface / Carte réseau</span>
                             {getNetSortIcon('name')}
                           </div>
+                          <NetResizeHandle colKey="name" />
                         </th>
 
                         {/* Tri par MAC */}
                         <th
                           onClick={() => handleNetSort('mac')}
-                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getNetColStyle('mac')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Adresse MAC"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Adresse MAC (Physique)</span>
                             {getNetSortIcon('mac')}
                           </div>
+                          <NetResizeHandle colKey="mac" />
                         </th>
 
                         {/* Tri par IP */}
                         <th
                           onClick={() => handleNetSort('ip')}
-                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getNetColStyle('ip')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par Adresse IP"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>Adresse(s) IPv4 & Masque</span>
                             {getNetSortIcon('ip')}
                           </div>
+                          <NetResizeHandle colKey="ip" />
                         </th>
 
-                        <th className="py-3.5 px-4">Passerelle & DNS</th>
+                        <th style={getNetColStyle('gateway')} className="py-3.5 px-4 relative group/th">
+                          <span>Passerelle & DNS</span>
+                          <NetResizeHandle colKey="gateway" />
+                        </th>
 
                         {/* Tri par DHCP */}
                         <th
                           onClick={() => handleNetSort('dhcp')}
-                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          style={getNetColStyle('dhcp')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none relative group/th"
                           title="Cliquer pour trier par DHCP"
                         >
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 pr-2">
                             <span>DHCP</span>
                             {getNetSortIcon('dhcp')}
                           </div>
+                          <NetResizeHandle colKey="dhcp" />
                         </th>
 
                         {/* Tri par Statut */}
                         <th
                           onClick={() => handleNetSort('status')}
-                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none text-right"
+                          style={getNetColStyle('status')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none text-right relative group/th"
                           title="Cliquer pour trier par Statut"
                         >
-                          <div className="flex items-center justify-end space-x-1.5">
+                          <div className="flex items-center justify-end space-x-1.5 pr-2">
                             <span>Statut</span>
                             {getNetSortIcon('status')}
                           </div>
+                          <NetResizeHandle colKey="status" />
                         </th>
                       </tr>
                     </thead>
@@ -2560,73 +2630,85 @@ Write-Output "Operation terminee avec succes pour '$u'."
                           {/* Tri par Compte Utilisateur */}
                           <th
                             onClick={() => handleUserAccountsSort('name')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('name')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Compte Utilisateur"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Compte Utilisateur</span>
                               {getUserAccountsSortIcon('name')}
                             </div>
+                            <UsersResizeHandle colKey="name" />
                           </th>
 
                           {/* Tri par Origine / Type */}
                           <th
                             onClick={() => handleUserAccountsSort('account_type')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('account_type')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Origine / Type"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Origine / Type</span>
                               {getUserAccountsSortIcon('account_type')}
                             </div>
+                            <UsersResizeHandle colKey="account_type" />
                           </th>
 
                           {/* Tri par Nom complet & Description */}
                           <th
                             onClick={() => handleUserAccountsSort('full_name')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('full_name')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Nom complet & Description"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Nom complet & Description</span>
                               {getUserAccountsSortIcon('full_name')}
                             </div>
+                            <UsersResizeHandle colKey="full_name" />
                           </th>
 
                           {/* Tri par Statut de Session */}
                           <th
                             onClick={() => handleUserAccountsSort('session')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('session')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Statut de Session"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Statut de Session</span>
                               {getUserAccountsSortIcon('session')}
                             </div>
+                            <UsersResizeHandle colKey="session" />
                           </th>
 
                           {/* Tri par Niveau de Privilège */}
                           <th
                             onClick={() => handleUserAccountsSort('is_admin')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('is_admin')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Niveau de Privilège"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Niveau de Privilège</span>
                               {getUserAccountsSortIcon('is_admin')}
                             </div>
+                            <UsersResizeHandle colKey="is_admin" />
                           </th>
 
                           {/* Tri par Dernière connexion */}
                           <th
                             onClick={() => handleUserAccountsSort('last_login')}
-                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            style={getUsersColStyle('last_login')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none relative group/th"
                             title="Cliquer pour trier par Dernière connexion"
                           >
-                            <div className="flex items-center space-x-1.5">
+                            <div className="flex items-center space-x-1.5 pr-2">
                               <span>Dernière connexion</span>
                               {getUserAccountsSortIcon('last_login')}
                             </div>
+                            <UsersResizeHandle colKey="last_login" />
                           </th>
 
                           <th className="py-3 px-4 text-right">Actions</th>
@@ -3042,12 +3124,30 @@ Write-Output "Operation terminee avec succes pour '$u'."
               <table className="w-full text-left text-sm text-slate-300">
                 <thead className="bg-slate-950/90 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="px-5 py-3.5">Horodatage</th>
-                    <th className="px-5 py-3.5">Action / Déploiement</th>
-                    <th className="px-5 py-3.5">Type</th>
-                    <th className="px-5 py-3.5">Statut</th>
-                    <th className="px-5 py-3.5">Code retour</th>
-                    <th className="px-4 py-3.5 text-right">Actions</th>
+                    <th style={getActionsColStyle('created_at')} className="px-5 py-3.5 relative group/th">
+                      <span>Horodatage</span>
+                      <ActionsResizeHandle colKey="created_at" />
+                    </th>
+                    <th style={getActionsColStyle('deployment_name')} className="px-5 py-3.5 relative group/th">
+                      <span>Action / Déploiement</span>
+                      <ActionsResizeHandle colKey="deployment_name" />
+                    </th>
+                    <th style={getActionsColStyle('deployment_type')} className="px-5 py-3.5 relative group/th">
+                      <span>Type</span>
+                      <ActionsResizeHandle colKey="deployment_type" />
+                    </th>
+                    <th style={getActionsColStyle('status')} className="px-5 py-3.5 relative group/th">
+                      <span>Statut</span>
+                      <ActionsResizeHandle colKey="status" />
+                    </th>
+                    <th style={getActionsColStyle('exit_code')} className="px-5 py-3.5 relative group/th">
+                      <span>Code retour</span>
+                      <ActionsResizeHandle colKey="exit_code" />
+                    </th>
+                    <th style={getActionsColStyle('actions')} className="px-4 py-3.5 text-right relative group/th">
+                      <span>Actions</span>
+                      <ActionsResizeHandle colKey="actions" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">

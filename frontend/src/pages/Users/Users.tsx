@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { User } from '../../types';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 import {
   Users as UsersIcon,
   UserPlus,
@@ -71,6 +72,18 @@ export const Users: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
+
+  // Resizable columns
+  const { getColStyle, ResizeHandle } = useResizableColumns<
+    'username' | 'email' | 'role' | 'is_active' | 'last_login_at' | 'actions'
+  >('users', {
+    username: 220,
+    email: 260,
+    role: 170,
+    is_active: 130,
+    last_login_at: 190,
+    actions: 140,
+  });
 
   // Sorting state
   const [sortBy, setSortBy] = useState<'username' | 'email' | 'role' | 'is_active' | 'last_login_at'>('username');
@@ -420,64 +433,77 @@ export const Users: React.FC = () => {
                 {/* Tri par Utilisateur */}
                 <th
                   onClick={() => handleSort('username')}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('username')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Identifiant"
                 >
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 pr-2">
                     <span>Utilisateur</span>
                     {getSortIcon('username')}
                   </div>
+                  <ResizeHandle colKey="username" />
                 </th>
 
                 {/* Tri par Email */}
                 <th
                   onClick={() => handleSort('email')}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('email')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Email"
                 >
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 pr-2">
                     <span>Email</span>
                     {getSortIcon('email')}
                   </div>
+                  <ResizeHandle colKey="email" />
                 </th>
 
                 {/* Tri par Rôle */}
                 <th
                   onClick={() => handleSort('role')}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('role')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Rôle"
                 >
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 pr-2">
                     <span>Rôle</span>
                     {getSortIcon('role')}
                   </div>
+                  <ResizeHandle colKey="role" />
                 </th>
 
                 {/* Tri par Statut */}
                 <th
                   onClick={() => handleSort('is_active')}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('is_active')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Statut"
                 >
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 pr-2">
                     <span>Statut</span>
                     {getSortIcon('is_active')}
                   </div>
+                  <ResizeHandle colKey="is_active" />
                 </th>
 
                 {/* Tri par Dernière Connexion */}
                 <th
                   onClick={() => handleSort('last_login_at')}
-                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('last_login_at')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Dernière Connexion"
                 >
-                  <div className="flex items-center space-x-1.5">
+                  <div className="flex items-center space-x-1.5 pr-2">
                     <span>Dernière Connexion</span>
                     {getSortIcon('last_login_at')}
                   </div>
+                  <ResizeHandle colKey="last_login_at" />
                 </th>
 
-                <th className="py-3.5 px-4 text-right">Actions</th>
+                <th style={getColStyle('actions')} className="py-3.5 px-4 text-right relative group/th">
+                  <span>Actions</span>
+                  <ResizeHandle colKey="actions" />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-sm">

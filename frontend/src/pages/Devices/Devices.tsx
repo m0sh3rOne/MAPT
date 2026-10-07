@@ -30,12 +30,26 @@ import {
   Tag
 } from 'lucide-react';
 import { WolResult, Device } from '../../types';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 
 export const Devices: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ONLINE' | 'OFFLINE' | 'UNAPPROVED'>('ALL');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+
+  // Resizable columns
+  const { getColStyle, ResizeHandle } = useResizableColumns<'hostname' | 'os' | 'agent_version' | 'last_seen' | 'status' | 'actions'>(
+    'devices',
+    {
+      hostname: 280,
+      os: 260,
+      agent_version: 130,
+      last_seen: 180,
+      status: 140,
+      actions: 180,
+    }
+  );
 
   // Sorting State
   const [sortBy, setSortBy] = useState<'hostname' | 'last_seen_at' | 'status' | 'os'>('hostname');
@@ -806,54 +820,68 @@ export const Devices: React.FC = () => {
                 {/* Tri par Nom */}
                 <th
                   onClick={() => handleSort('hostname')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('hostname')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Nom d'hôte"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Machine & Réseau</span>
                     {getSortIcon('hostname')}
                   </div>
+                  <ResizeHandle colKey="hostname" />
                 </th>
 
                 {/* Tri par Système d'Exploitation */}
                 <th
                   onClick={() => handleSort('os')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('os')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Système d'Exploitation"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Système d'Exploitation</span>
                     {getSortIcon('os')}
                   </div>
+                  <ResizeHandle colKey="os" />
                 </th>
 
-                <th className="px-6 py-4">Version Agent</th>
+                <th style={getColStyle('agent_version')} className="px-6 py-4 relative group/th">
+                  <span>Version Agent</span>
+                  <ResizeHandle colKey="agent_version" />
+                </th>
 
                 {/* Tri par Dernier Heartbeat */}
                 <th
                   onClick={() => handleSort('last_seen_at')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('last_seen')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Dernier Heartbeat"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Dernier Heartbeat</span>
                     {getSortIcon('last_seen_at')}
                   </div>
+                  <ResizeHandle colKey="last_seen" />
                 </th>
 
                 {/* Tri par Statut */}
                 <th
                   onClick={() => handleSort('status')}
-                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('status')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Statut"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Statut</span>
                     {getSortIcon('status')}
                   </div>
+                  <ResizeHandle colKey="status" />
                 </th>
 
-                <th className="px-6 py-4 text-right">Actions Rapides</th>
+                <th style={getColStyle('actions')} className="px-6 py-4 text-right relative group/th">
+                  <span>Actions Rapides</span>
+                  <ResizeHandle colKey="actions" />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">

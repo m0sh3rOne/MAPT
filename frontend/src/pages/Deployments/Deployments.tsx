@@ -49,6 +49,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 
 const encodeUtf8Base64 = (str: string): string => {
   const bytes = new TextEncoder().encode(str);
@@ -71,6 +72,18 @@ export const Deployments: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'active' | 'recurring' | 'completed'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Resizable columns
+  const { getColStyle, ResizeHandle } = useResizableColumns<
+    'name' | 'deployment_type' | 'progress' | 'date' | 'status' | 'actions'
+  >('deployments', {
+    name: 280,
+    deployment_type: 140,
+    progress: 240,
+    date: 200,
+    status: 160,
+    actions: 140,
+  });
 
   // Sorting State
   const [sortBy, setSortBy] = useState<'name' | 'deployment_type' | 'progress' | 'date' | 'status'>('date');
@@ -955,64 +968,77 @@ Write-Output "Operation terminee avec succes pour '$u'."
                 {/* Tri par Nom & Planification */}
                 <th
                   onClick={() => handleSort('name')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('name')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Nom & Planification"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Nom & Planification</span>
                     {getSortIcon('name')}
                   </div>
+                  <ResizeHandle colKey="name" />
                 </th>
 
                 {/* Tri par Type */}
                 <th
                   onClick={() => handleSort('deployment_type')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('deployment_type')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Type"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Type</span>
                     {getSortIcon('deployment_type')}
                   </div>
+                  <ResizeHandle colKey="deployment_type" />
                 </th>
 
                 {/* Tri par Progression des Cibles */}
                 <th
                   onClick={() => handleSort('progress')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('progress')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Progression des Cibles"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Progression des Cibles</span>
                     {getSortIcon('progress')}
                   </div>
+                  <ResizeHandle colKey="progress" />
                 </th>
 
                 {/* Tri par Date / Prochaine Exécution */}
                 <th
                   onClick={() => handleSort('date')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('date')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Date / Prochaine Exécution"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Date / Prochaine Exéc.</span>
                     {getSortIcon('date')}
                   </div>
+                  <ResizeHandle colKey="date" />
                 </th>
 
                 {/* Tri par Statut Global */}
                 <th
                   onClick={() => handleSort('status')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('status')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Statut Global"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Statut Global</span>
                     {getSortIcon('status')}
                   </div>
+                  <ResizeHandle colKey="status" />
                 </th>
 
-                <th className="px-5 py-4 text-right">Actions</th>
+                <th style={getColStyle('actions')} className="px-5 py-4 text-right relative group/th">
+                  <span>Actions</span>
+                  <ResizeHandle colKey="actions" />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">

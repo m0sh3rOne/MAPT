@@ -21,12 +21,25 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { AuditLog } from '../../types';
+import { useResizableColumns } from '../../hooks/useResizableColumns';
 
 export const Audit: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+
+  const { getColStyle, ResizeHandle } = useResizableColumns<
+    'created_at' | 'action' | 'user_username' | 'entity_type' | 'details' | 'ip_address' | 'actions'
+  >('audit_logs', {
+    created_at: 160,
+    action: 180,
+    user_username: 180,
+    entity_type: 180,
+    details: 260,
+    ip_address: 140,
+    actions: 100,
+  });
 
   // Sorting state
   const [sortBy, setSortBy] = useState<'created_at' | 'action' | 'user_username' | 'entity_type' | 'ip_address'>('created_at');
@@ -411,66 +424,82 @@ export const Audit: React.FC = () => {
                 {/* Tri par Horodatage */}
                 <th
                   onClick={() => handleSort('created_at')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('created_at')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Horodatage"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Horodatage</span>
                     {getSortIcon('created_at')}
                   </div>
+                  <ResizeHandle colKey="created_at" />
                 </th>
 
                 {/* Tri par Action */}
                 <th
                   onClick={() => handleSort('action')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('action')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Action"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Action</span>
                     {getSortIcon('action')}
                   </div>
+                  <ResizeHandle colKey="action" />
                 </th>
 
                 {/* Tri par Utilisateur */}
                 <th
                   onClick={() => handleSort('user_username')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('user_username')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Utilisateur / Initiateur"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Utilisateur / Initiateur</span>
                     {getSortIcon('user_username')}
                   </div>
+                  <ResizeHandle colKey="user_username" />
                 </th>
 
                 {/* Tri par Cible / Entité */}
                 <th
                   onClick={() => handleSort('entity_type')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('entity_type')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Cible / Entité"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Cible / Entité</span>
                     {getSortIcon('entity_type')}
                   </div>
+                  <ResizeHandle colKey="entity_type" />
                 </th>
 
-                <th className="px-5 py-4">Détails</th>
+                <th style={getColStyle('details')} className="px-5 py-4 relative group/th">
+                  <span>Détails</span>
+                  <ResizeHandle colKey="details" />
+                </th>
 
                 {/* Tri par Adresse IP */}
                 <th
                   onClick={() => handleSort('ip_address')}
-                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  style={getColStyle('ip_address')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none relative group/th"
                   title="Cliquer pour trier par Adresse IP"
                 >
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 pr-2">
                     <span>Adresse IP</span>
                     {getSortIcon('ip_address')}
                   </div>
+                  <ResizeHandle colKey="ip_address" />
                 </th>
 
-                <th className="px-4 py-4 text-right">Actions</th>
+                <th style={getColStyle('actions')} className="px-4 py-4 text-right relative group/th">
+                  <span>Actions</span>
+                  <ResizeHandle colKey="actions" />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
