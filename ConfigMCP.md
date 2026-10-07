@@ -15,7 +15,7 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
 
 ---
 
-## 🛠️ Catalogue des 12 Outils MCP
+## 🛠️ Catalogue des 15 Outils MCP
 
 | Outil | Catégorie | Description |
 |---|---|---|
@@ -89,7 +89,7 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
   }
 }
 ```
-3. Redémarrez Claude Desktop. Le logo 🔨 marteau apparaîtra avec l'ensemble des 12 outils MAPT disponibles.
+3. Redémarrez Claude Desktop. Le logo 🔨 marteau apparaîtra avec l'ensemble des 15 outils MAPT disponibles.
 
 ---
 
