@@ -34,7 +34,7 @@ logger = logging.getLogger("mapt-mcp")
 # Configuration par défaut
 DEFAULT_API_URL = os.environ.get("MAPT_API_URL", "http://192.168.224.236/api/v1").rstrip("/")
 DEFAULT_USERNAME = os.environ.get("MAPT_USERNAME", "admin")
-DEFAULT_PASSWORD = os.environ.get("MAPT_PASSWORD", "***REDACTED***")
+DEFAULT_PASSWORD = os.environ.get("MAPT_PASSWORD", "")
 DEFAULT_VERIFY_SSL = os.environ.get("MAPT_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
 
 

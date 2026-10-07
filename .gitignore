@@ -48,9 +48,17 @@ credentials.json
 deploy_secrets.*
 *.secret
 
-# Test & Local Scratch Scripts
-scripts/test_*.py
+# Test, Scratch & Remote Automation Scripts
+scripts/*.py
+!scripts/deploy_remote.py
+scripts/*.ps1
+scripts/*.sh.local
+scripts/*_remote.py
+scripts/*_vm.py
+scripts/fix_*.py
+scripts/build_*.py
 scripts/check_*.py
+scripts/test_*.py
 scripts/tmp_*
 scripts/local_*
 *.tmp
