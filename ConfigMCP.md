@@ -6,10 +6,10 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
 
 ## 📋 Spécifications Générales
 
-* **Base URL par défaut** : `http://192.168.224.236/api/v1` (configurable via `MAPT_API_URL`)
+* **Base URL par défaut** : `http://<IP_SERVEUR_MAPT>/api/v1` (configurable via la variable `MAPT_API_URL` ou `http://localhost:8088/api/v1` en local)
 * **Transport supporté** :
   1. **Mode stdio (recommandé)** : Exécution directe en sous-processus par l'IDE / Claude Desktop.
-  2. **Mode HTTP / SSE** : `http://192.168.224.236:8080/sse` pour connexion réseau distante.
+  2. **Mode HTTP / SSE** : `http://<IP_SERVEUR_MAPT>:8080/sse` pour connexion réseau distante.
 * **Authentification** : Gestion automatique du jeton JWT (`POST /api/v1/auth/login`) et rafraîchissement transparent en cas de code HTTP `401 Unauthorized`.
 * **Règle critique PowerShell** : Les scripts PowerShell sont automatiquement encodés en Base64 UTF-16LE (`-EncodedCommand`) pour garantir une exécution parfaite sans altération par `cmd.exe /c`.
 
@@ -49,10 +49,10 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
     "mapt-admin": {
       "command": "python",
       "args": [
-        "c:/Users/Admin/Documents/Github/MAPT/mcp/server.py"
+        "c:/chemin/vers/MAPT/mcp/server.py"
       ],
       "env": {
-        "MAPT_API_URL": "http://192.168.224.236/api/v1",
+        "MAPT_API_URL": "http://<IP_SERVEUR_MAPT>/api/v1",
         "MAPT_USERNAME": "admin",
         "MAPT_PASSWORD": "VOTRE_MOT_DE_PASSE",
         "MAPT_VERIFY_SSL": "false"
@@ -77,10 +77,10 @@ Le serveur **MAPT MCP (Model Context Protocol)** permet à un assistant d'intell
     "mapt": {
       "command": "python",
       "args": [
-        "C:\\Users\\Admin\\Documents\\Github\\MAPT\\mcp\\server.py"
+        "C:\\chemin\\vers\\MAPT\\mcp\\server.py"
       ],
       "env": {
-        "MAPT_API_URL": "http://192.168.224.236/api/v1",
+        "MAPT_API_URL": "http://<IP_SERVEUR_MAPT>/api/v1",
         "MAPT_USERNAME": "admin",
         "MAPT_PASSWORD": "VOTRE_MOT_DE_PASSE",
         "MAPT_VERIFY_SSL": "false"
@@ -102,7 +102,7 @@ python mcp/server.py --sse --port 8080 --host 0.0.0.0
 2. Dans les paramètres Cursor (`Features` > `MCP Servers`), ajoutez :
    - **Nom** : `mapt`
    - **Type** : `sse`
-   - **URL** : `http://192.168.224.236:8080/sse`
+   - **URL** : `http://<IP_SERVEUR_MAPT>:8080/sse`
 
 ---
 
@@ -114,8 +114,8 @@ python mcp/server.py --test-auth
 ```
 Résultat attendu :
 ```text
-[OK] Connexion réussie à MAPT (http://192.168.224.236/api/v1) ! Token généré avec succès.
-[OK] Test inventaire : 83 machine(s) détectée(s).
+[OK] Connexion réussie à MAPT (http://<IP_SERVEUR_MAPT>/api/v1) ! Token généré avec succès.
+[OK] Test inventaire : XX machine(s) détectée(s).
 ```
 
 ---

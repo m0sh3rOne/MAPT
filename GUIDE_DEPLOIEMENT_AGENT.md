@@ -78,9 +78,9 @@ Idéal pour garantir que la dernière version est toujours téléchargée direct
 1. Dans FOG, créez un fichier `install-MAPT.ps1` contenant le script suivant :
    ```powershell
    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]'Tls12,Tls11,Tls'
-   $serverBase = "http://192.168.224.236"
+   $serverBase = "http://<IP_SERVEUR_MAPT>"
    $serverApi = "$serverBase/api/v1"
-   $enrollToken = "mapt-enroll-n044u01jvgtbwkbr"
+   $enrollToken = "VOTRE_ENROLL_TOKEN"
 
    # 1. Dossier d'installation 64-bit même sous processus 32-bit (FOG Client)
    $progFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }

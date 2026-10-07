@@ -124,8 +124,9 @@ export const McpServer: React.FC = () => {
   }
 
   const isEnabled = mcpStatus?.enabled ?? true;
-  const serverUrl = mcpStatus?.server_url || `http://192.168.224.236:8080/sse`;
-  const apiUrl = mcpStatus?.api_url || `http://192.168.224.236/api/v1`;
+  const defaultHost = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+  const serverUrl = mcpStatus?.server_url || `http://${defaultHost}:8080/sse`;
+  const apiUrl = mcpStatus?.api_url || `http://${defaultHost}/api/v1`;
 
   const antigravityConfigStr = JSON.stringify(mcpStatus?.config_antigravity || {}, null, 2);
   const claudeConfigStr = JSON.stringify(mcpStatus?.config_claude_desktop || {}, null, 2);
@@ -673,7 +674,7 @@ export const McpServer: React.FC = () => {
                   type="text"
                   value={editHost}
                   onChange={(e) => setEditHost(e.target.value)}
-                  placeholder="ex: 192.168.224.236 ou mapt.entreprise.local"
+                  placeholder="ex: 192.168.1.100 ou mapt.entreprise.local"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-slate-100 focus:outline-none focus:border-purple-500"
                 />
                 <span className="text-[11px] text-slate-500 mt-1 block">

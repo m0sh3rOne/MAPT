@@ -354,7 +354,7 @@ sudo ./install-server-production.sh
 **Causes fréquentes :**
 1. **Changement du nom d'interface ou de l'adresse MAC** : Proxmox réassigne une nouvelle adresse MAC ou un nouvel ID PCI (ex: `ens18` devient `ens19` ou `enp0s18`), tandis qu'Ubuntu/Netplan attend toujours l'ancien nom.
 2. **Bridge Proxmox non connecté** : L'interface réseau de la VM pointe vers un bridge inexistant ou inactif (ex: `vmbr0`).
-3. **Plan d'adressage IP différent** : L'IP statique de la VM (ex: `192.168.224.236`) n'appartient pas au sous-réseau du nouveau réseau local (ex: `192.168.1.0/24`).
+3. **Plan d'adressage IP différent** : L'IP statique de la VM (ex: `192.168.1.100`) n'appartient pas au sous-réseau du nouveau réseau local (ex: `192.168.1.0/24`).
 
 **Procédure de résolution pas-à-pas :**
 
