@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 export function useResizableColumns<T extends string>(
   tableKey: string,
@@ -19,58 +19,54 @@ export function useResizableColumns<T extends string>(
     return defaultWidths;
   });
 
-  const resizingRef = useRef<{
-    colKey: T;
-    startX: number;
-    startWidth: number;
-  } | null>(null);
+  const widthsRef = useRef<Record<T, number>>(widths);
+  useEffect(() => {
+    widthsRef.current = widths;
+  }, [widths]);
 
   const onMouseDown = useCallback(
     (colKey: T, e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const startWidth = widths[colKey] || defaultWidths[colKey] || 150;
-      resizingRef.current = {
-        colKey,
-        startX: e.clientX,
-        startWidth,
-      };
+
+      const startX = e.clientX;
+      const startWidth = widthsRef.current[colKey] || defaultWidths[colKey] || 150;
+      let currentWidth = startWidth;
 
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
 
       const onMouseMove = (moveEvent: MouseEvent) => {
-        if (!resizingRef.current) return;
-        const delta = moveEvent.clientX - resizingRef.current.startX;
-        const newWidth = Math.max(minWidth, resizingRef.current.startWidth + delta);
-        setWidths((prev) => {
-          const updated = { ...prev, [resizingRef.current!.colKey]: newWidth };
-          return updated;
-        });
+        const delta = moveEvent.clientX - startX;
+        currentWidth = Math.max(minWidth, startWidth + delta);
+        setWidths((prev) => ({
+          ...prev,
+          [colKey]: currentWidth,
+        }));
       };
 
       const onMouseUp = () => {
-        if (resizingRef.current) {
-          setWidths((current) => {
-            try {
-              localStorage.setItem(storageKey, JSON.stringify(current));
-            } catch (e) {
-              console.warn('Failed to save column widths to localStorage', e);
-            }
-            return current;
-          });
-        }
-        resizingRef.current = null;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
+
+        // Save to localStorage
+        try {
+          const updated = {
+            ...widthsRef.current,
+            [colKey]: currentWidth,
+          };
+          localStorage.setItem(storageKey, JSON.stringify(updated));
+        } catch (err) {
+          console.warn('Failed to save column widths to localStorage', err);
+        }
       };
 
       window.addEventListener('mousemove', onMouseMove);
       window.addEventListener('mouseup', onMouseUp);
     },
-    [widths, defaultWidths, minWidth, storageKey]
+    [defaultWidths, minWidth, storageKey]
   );
 
   const resetWidths = useCallback(() => {
@@ -105,10 +101,10 @@ export function useResizableColumns<T extends string>(
           return updated;
         });
       }}
-      className={`absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize select-none flex items-center justify-center group/resize z-20 hover:bg-emerald-500/25 transition ${className}`}
+      className={`absolute right-0 top-0 bottom-0 w-3 cursor-col-resize select-none flex items-center justify-center group/resize z-20 hover:bg-emerald-500/25 active:bg-emerald-500/40 transition ${className}`}
       title="Glisser pour redimensionner (Double-clic pour réinitialiser)"
     >
-      <div className="w-0.5 h-4 bg-slate-700/80 group-hover/resize:bg-emerald-400 group-active/resize:bg-emerald-300 transition rounded-full" />
+      <div className="w-0.5 h-4 bg-slate-700/80 group-hover/resize:bg-emerald-400 group-active/resize:bg-emerald-300 transition rounded-full pointer-events-none" />
     </div>
   );
 
