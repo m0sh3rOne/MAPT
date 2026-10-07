@@ -40,12 +40,20 @@ if [ -d ".git" ]; then
     # Sauvegarde des modifications locales éventuelles
     git stash >/dev/null 2>&1 || true
     
-    # Récupération et mise à jour de la branche principale
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    echo "    Branche active : $CURRENT_BRANCH"
-    git fetch origin "$CURRENT_BRANCH"
-    git checkout "$CURRENT_BRANCH"
-    git pull origin "$CURRENT_BRANCH"
+    # Récupération et bascule automatique sur la branche principale (main)
+    echo "    Synchronisation avec le dépôt distant GitHub..."
+    git fetch origin
+    
+    # Si le dépôt distant utilise 'main', basculer dessus
+    if git show-ref --verify --quiet refs/remotes/origin/main; then
+        git checkout -B main origin/main
+        git pull origin main
+    else
+        CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+        echo "    Branche active : $CURRENT_BRANCH"
+        git checkout "$CURRENT_BRANCH"
+        git pull origin "$CURRENT_BRANCH"
+    fi
     echo -e "${GREEN}[✓] Dépôt Git mis à jour avec succès (Dernier commit : $(git log -1 --format='%h - %s')).${NC}"
 else
     echo -e "${YELLOW}[!] Aucun dépôt Git (.git) détecté dans $DIR. Les fichiers locaux existants seront utilisés.${NC}"
