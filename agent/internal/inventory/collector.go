@@ -3,6 +3,7 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf16"
 )
 
 type InventoryData struct {
@@ -321,7 +323,15 @@ try {
 $res | ConvertTo-Json -Depth 4 -Compress
 `
 
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", psScript)
+	utf16Runes := utf16.Encode([]rune(psScript))
+	utf16Bytes := make([]byte, len(utf16Runes)*2)
+	for i, r := range utf16Runes {
+		utf16Bytes[i*2] = byte(r)
+		utf16Bytes[i*2+1] = byte(r >> 8)
+	}
+	encodedScript := base64.StdEncoding.EncodeToString(utf16Bytes)
+
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encodedScript)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

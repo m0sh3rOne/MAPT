@@ -12,19 +12,27 @@ FRENCH_WINDOWS_CORRECTIONS = {
         "Compte d'utilisateur d'administration",
     r"Compte d'utilisateur invit[\ufffd\?]?":
         "Compte d'utilisateur invité",
-    r"^Invit[\ufffd\?]?$":
-        "Invité",
-    r"syst[\ufffd\?]?me": "système",
-    r"g[\ufffd\?]?r[\ufffd\?]?": "géré",
-    r"utilis[\ufffd\?]?": "utilisé",
-    r"sc[\ufffd\?]?nario": "scénario",
-    r"sc[\ufffd\?]?narios": "scénarios",
-    r"param[\ufffd\?]?tre": "paramètre",
-    r"param[\ufffd\?]?tres": "paramètres",
-    r"d[\ufffd\?]?ploy[\ufffd\?]?": "déployé",
-    r"ex[\ufffd\?]?cution": "exécution",
-    r"t[\ufffd\?]?l[\ufffd\?]?chargement": "téléchargement",
-    r"[\ufffd\?]": " "  # Supprime les losanges résiduels isolés
+    
+    # Corrections de mots avec délimiteurs de mots (\b) pour ne JAMAIS altérer 'utilisateur'
+    r"\butilis[é\ufffd\?]+ateur(s?)\b": r"utilisateur\1",
+    r"\butilis[é\ufffd\?]+atrice(s?)\b": r"utilisatrice\1",
+    r"\butilis[\ufffd\?](e?s?)\b": r"utilisé\1",
+    r"\bg[\ufffd\?]r[\ufffd\?](e?s?)\b": r"géré\1",
+    r"\bsyst[\ufffd\?]me(s?)\b": r"système\1",
+    r"\bparam[\ufffd\?]tre(s?)\b": r"paramètre\1",
+    r"\bsc[\ufffd\?]nario(s?)\b": r"scénario\1",
+    r"\bd[\ufffd\?]ploy[\ufffd\?](e?s?)\b": r"déployé\1",
+    r"\bex[\ufffd\?]cution(s?)\b": r"exécution\1",
+    r"\bt[\ufffd\?]l[\ufffd\?]chargement(s?)\b": r"téléchargement\1",
+    r"\binvit[\ufffd\?](e?s?)\b": r"invité\1",
+    r"\benregistr[\ufffd\?](e?s?)\b": r"enregistré\1",
+    r"\bconnect[\ufffd\?](e?s?)\b": r"connecté\1",
+    r"\bd[\ufffd\?]connect[\ufffd\?](e?s?)\b": r"déconnecté\1",
+    r"\bd[\ufffd\?]sactiv[\ufffd\?](e?s?)\b": r"désactivé\1",
+    r"\bactiv[\ufffd\?](e?s?)\b": r"activé\1",
+    r"\bcr[\ufffd\?][\ufffd\?]?(e?s?)\b": r"créé\1",
+    r"\bpr[\ufffd\?]sent(e?s?)\b": r"présent\1",
+    r"\bd[\ufffd\?]tail(s?)\b": r"détail\1",
 }
 
 
@@ -40,16 +48,18 @@ def sanitize_string(val: str) -> str:
     except Exception:
         pass
 
-    # 2. Remplacement des séquences corrompues Windows FR avec \ufffd
+    # 2. Remplacer toute dérive 'utiliséateur' existante
+    val = re.sub(r"utilis[é\ufffd\?]+ateur", "utilisateur", val, flags=re.IGNORECASE)
+    val = re.sub(r"utilis[é\ufffd\?]+atrice", "utilisatrice", val, flags=re.IGNORECASE)
+
+    # 3. Remplacement des séquences corrompues Windows FR avec \ufffd
     for pattern, replacement in FRENCH_WINDOWS_CORRECTIONS.items():
-        if pattern == r"[\ufffd\?]":
-            continue
         try:
             val = re.sub(pattern, replacement, val, flags=re.IGNORECASE)
         except Exception:
             pass
 
-    # 3. Nettoyer les \ufffd restants
+    # 4. Nettoyer les \ufffd restants
     val = val.replace("\ufffd", " ")
     # Nettoyer les espaces doubles créés
     val = re.sub(r" {2,}", " ", val).strip()
