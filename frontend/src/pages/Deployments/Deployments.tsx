@@ -43,7 +43,10 @@ import {
   ChevronUp,
   ChevronDown,
   ListOrdered,
-  FileCode
+  FileCode,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { SchedulerSelector, ScheduleConfig } from '../../components/common/SchedulerSelector';
 
@@ -68,6 +71,10 @@ export const Deployments: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'active' | 'recurring' | 'completed'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Sorting State
+  const [sortBy, setSortBy] = useState<'name' | 'deployment_type' | 'progress' | 'date' | 'status'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Multi-selection and Deletion states
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -697,6 +704,57 @@ Write-Output "Operation terminee avec succes pour '$u'."
     (d: any) => d.status === 'COMPLETED' || d.status === 'CANCELLED'
   ).length;
 
+  // Sorted Deployments
+  const sortedDeployments = [...filteredDeployments].sort((a: any, b: any) => {
+    let comparison = 0;
+    if (sortBy === 'name') {
+      comparison = (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+    } else if (sortBy === 'deployment_type') {
+      comparison = (a.deployment_type || '').localeCompare(b.deployment_type || '', undefined, { sensitivity: 'base' });
+    } else if (sortBy === 'progress') {
+      const totalA = a.total_targets || 1;
+      const pctA = ((a.succeeded_targets || 0) + (a.failed_targets || 0)) / totalA;
+      const totalB = b.total_targets || 1;
+      const pctB = ((b.succeeded_targets || 0) + (b.failed_targets || 0)) / totalB;
+      comparison = pctA - pctB;
+    } else if (sortBy === 'date') {
+      const timeA = a.scheduled_at ? new Date(a.scheduled_at).getTime() : (a.created_at ? new Date(a.created_at).getTime() : 0);
+      const timeB = b.scheduled_at ? new Date(b.scheduled_at).getTime() : (b.created_at ? new Date(b.created_at).getTime() : 0);
+      comparison = timeA - timeB;
+    } else if (sortBy === 'status') {
+      const getStatusRank = (s: string) => {
+        if (s === 'RUNNING') return 0;
+        if (s === 'PENDING') return 1;
+        if (s === 'COMPLETED') return 2;
+        if (s === 'FAILED') return 3;
+        if (s === 'CANCELLED') return 4;
+        return 5;
+      };
+      comparison = getStatusRank(a.status) - getStatusRank(b.status);
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: 'name' | 'deployment_type' | 'progress' | 'date' | 'status') => {
+    if (sortBy === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDirection(field === 'date' ? 'desc' : 'asc');
+    }
+  };
+
+  const getSortIcon = (field: 'name' | 'deployment_type' | 'progress' | 'date' | 'status') => {
+    if (sortBy !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-emerald-400" />
+    );
+  };
+
   const toggleSelectAll = () => {
     if (selectedIds.length === filteredDeployments.length && filteredDeployments.length > 0) {
       setSelectedIds([]);
@@ -831,15 +889,41 @@ Write-Output "Operation terminee avec succes pour '$u'."
           </button>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Rechercher un job..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500 placeholder:text-slate-600"
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+          {/* Quick Sort Dropdown */}
+          <div className="flex items-center space-x-2">
+            <ArrowUpDown className="w-4 h-4 text-slate-500 shrink-0" />
+            <select
+              value={`${sortBy}_${sortDirection}`}
+              onChange={(e) => {
+                const [field, dir] = e.target.value.split('_') as [any, any];
+                setSortBy(field);
+                setSortDirection(dir);
+              }}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 outline-none focus:border-emerald-500"
+            >
+              <option value="date_desc">Tri : Date / Prochaine Exéc. (Récent)</option>
+              <option value="date_asc">Tri : Date / Prochaine Exéc. (Ancien)</option>
+              <option value="name_asc">Tri : Nom (A → Z)</option>
+              <option value="name_desc">Tri : Nom (Z → A)</option>
+              <option value="type_asc">Tri : Type de déploiement</option>
+              <option value="progress_desc">Tri : Progression (Plus avancée)</option>
+              <option value="progress_asc">Tri : Progression (Moins avancée)</option>
+              <option value="status_asc">Tri : Statut (En cours d'abord)</option>
+              <option value="status_desc">Tri : Statut (Terminé d'abord)</option>
+            </select>
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Rechercher un job..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 outline-none focus:border-emerald-500 placeholder:text-slate-600"
+            />
+          </div>
         </div>
       </div>
 
@@ -867,16 +951,72 @@ Write-Output "Operation terminee avec succes pour '$u'."
                     )}
                   </button>
                 </th>
-                <th className="px-5 py-4">Nom & Planification</th>
-                <th className="px-5 py-4">Type</th>
-                <th className="px-5 py-4">Progression des Cibles</th>
-                <th className="px-5 py-4">Date / Prochaine Exéc.</th>
-                <th className="px-5 py-4">Statut Global</th>
+
+                {/* Tri par Nom & Planification */}
+                <th
+                  onClick={() => handleSort('name')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Nom & Planification"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Nom & Planification</span>
+                    {getSortIcon('name')}
+                  </div>
+                </th>
+
+                {/* Tri par Type */}
+                <th
+                  onClick={() => handleSort('deployment_type')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Type"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Type</span>
+                    {getSortIcon('deployment_type')}
+                  </div>
+                </th>
+
+                {/* Tri par Progression des Cibles */}
+                <th
+                  onClick={() => handleSort('progress')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Progression des Cibles"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Progression des Cibles</span>
+                    {getSortIcon('progress')}
+                  </div>
+                </th>
+
+                {/* Tri par Date / Prochaine Exécution */}
+                <th
+                  onClick={() => handleSort('date')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Date / Prochaine Exécution"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Date / Prochaine Exéc.</span>
+                    {getSortIcon('date')}
+                  </div>
+                </th>
+
+                {/* Tri par Statut Global */}
+                <th
+                  onClick={() => handleSort('status')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Statut Global"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Statut Global</span>
+                    {getSortIcon('status')}
+                  </div>
+                </th>
+
                 <th className="px-5 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredDeployments.map((dep: any) => {
+              {sortedDeployments.map((dep: any) => {
                 const total = dep.total_targets || 1;
                 const percent = Math.round(((dep.succeeded_targets + dep.failed_targets) / total) * 100);
                 const scheduleSummary = getScheduleSummary(dep);

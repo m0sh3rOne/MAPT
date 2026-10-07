@@ -55,7 +55,10 @@ import {
   Copy,
   CheckCheck,
   ScrollText,
-  FileText
+  FileText,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 
@@ -71,19 +74,25 @@ export const DeviceDetail: React.FC = () => {
   const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
   const [isExportingAllLogs, setIsExportingAllLogs] = useState<boolean>(false);
 
-  // Software search & filter state
+  // Software search & filter & sort state
   const [softwareSearch, setSoftwareSearch] = useState('');
   const [softwareFilterPublisher, setSoftwareFilterPublisher] = useState<string>('all');
+  const [softwareSortBy, setSoftwareSortBy] = useState<'name' | 'version' | 'publisher' | 'install_date'>('name');
+  const [softwareSortDir, setSoftwareSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Users search & filter state
+  // Users search & filter & sort state
   const [userSearch, setUserSearch] = useState('');
   const [userFilterRole, setUserFilterRole] = useState<
     'all' | 'domain' | 'local' | 'connected' | 'active' | 'admin' | 'standard'
   >('all');
+  const [userAccountsSortBy, setUserAccountsSortBy] = useState<'name' | 'account_type' | 'full_name' | 'session' | 'is_admin' | 'last_login'>('name');
+  const [userAccountsSortDir, setUserAccountsSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Network search & filter state
+  // Network search & filter & sort state
   const [netSearch, setNetSearch] = useState('');
   const [netFilter, setNetFilter] = useState<'all' | 'connected' | 'physical' | 'disconnected'>('all');
+  const [netSortBy, setNetSortBy] = useState<'name' | 'mac' | 'ip' | 'gateway' | 'dhcp' | 'status'>('name');
+  const [netSortDir, setNetSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
@@ -1508,6 +1517,40 @@ Write-Output "Operation terminee avec succes pour '$u'."
           return matchSearch && matchPub;
         });
 
+        const sortedSoftwareList = [...filteredList].sort((a, b) => {
+          let comparison = 0;
+          if (softwareSortBy === 'name') {
+            comparison = (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+          } else if (softwareSortBy === 'version') {
+            comparison = (a.version || '').localeCompare(b.version || '', undefined, { numeric: true });
+          } else if (softwareSortBy === 'publisher') {
+            comparison = (a.publisher || '').localeCompare(b.publisher || '', undefined, { sensitivity: 'base' });
+          } else if (softwareSortBy === 'install_date') {
+            comparison = (a.install_date || '').localeCompare(b.install_date || '');
+          }
+          return softwareSortDir === 'asc' ? comparison : -comparison;
+        });
+
+        const handleSoftwareSort = (field: 'name' | 'version' | 'publisher' | 'install_date') => {
+          if (softwareSortBy === field) {
+            setSoftwareSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+          } else {
+            setSoftwareSortBy(field);
+            setSoftwareSortDir('asc');
+          }
+        };
+
+        const getSoftwareSortIcon = (field: 'name' | 'version' | 'publisher' | 'install_date') => {
+          if (softwareSortBy !== field) {
+            return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+          }
+          return softwareSortDir === 'asc' ? (
+            <ArrowUp className="w-3.5 h-3.5 text-purple-400" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5 text-purple-400" />
+          );
+        };
+
         return (
           <div className="space-y-6">
             {/* Header / Stats & Filter bar */}
@@ -1589,20 +1632,64 @@ Write-Output "Operation terminee avec succes pour '$u'."
 
             {/* Software Table */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              {filteredList.length > 0 ? (
+              {sortedSoftwareList.length > 0 ? (
                 <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                   <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-950/80 sticky top-0 backdrop-blur z-10 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                       <tr>
-                        <th className="py-3 px-4">Application</th>
-                        <th className="py-3 px-4">Version</th>
-                        <th className="py-3 px-4">Éditeur / Fournisseur</th>
-                        <th className="py-3 px-4">Date d'installation</th>
+                        {/* Tri par Application */}
+                        <th
+                          onClick={() => handleSoftwareSort('name')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Application"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Application</span>
+                            {getSoftwareSortIcon('name')}
+                          </div>
+                        </th>
+
+                        {/* Tri par Version */}
+                        <th
+                          onClick={() => handleSoftwareSort('version')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Version"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Version</span>
+                            {getSoftwareSortIcon('version')}
+                          </div>
+                        </th>
+
+                        {/* Tri par Éditeur */}
+                        <th
+                          onClick={() => handleSoftwareSort('publisher')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Éditeur / Fournisseur"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Éditeur / Fournisseur</span>
+                            {getSoftwareSortIcon('publisher')}
+                          </div>
+                        </th>
+
+                        {/* Tri par Date d'installation */}
+                        <th
+                          onClick={() => handleSoftwareSort('install_date')}
+                          className="py-3 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Date d'installation"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Date d'installation</span>
+                            {getSoftwareSortIcon('install_date')}
+                          </div>
+                        </th>
+
                         <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-sm">
-                      {filteredList.map((sw, idx) => (
+                      {sortedSoftwareList.map((sw, idx) => (
                         <tr key={idx} className="hover:bg-slate-850/60 transition group/row">
                           <td className="py-3 px-4">
                             <div className="flex items-center space-x-3">
@@ -1735,6 +1822,46 @@ Write-Output "Operation terminee avec succes pour '$u'."
           return nameMatch || descMatch || macMatch || ipMatch;
         });
 
+        const sortedNetInterfaces = [...filteredInterfaces].sort((a, b) => {
+          let comparison = 0;
+          if (netSortBy === 'name') {
+            comparison = (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+          } else if (netSortBy === 'mac') {
+            comparison = (a.mac || '').localeCompare(b.mac || '');
+          } else if (netSortBy === 'ip') {
+            const ipA = a.ip_addresses?.[0] || '';
+            const ipB = b.ip_addresses?.[0] || '';
+            comparison = ipA.localeCompare(ipB, undefined, { numeric: true });
+          } else if (netSortBy === 'dhcp') {
+            comparison = (a.dhcp_enabled === b.dhcp_enabled ? 0 : a.dhcp_enabled ? -1 : 1);
+          } else if (netSortBy === 'status') {
+            const connA = isIfaceConnected(a);
+            const connB = isIfaceConnected(b);
+            comparison = (connA === connB ? 0 : connA ? -1 : 1);
+          }
+          return netSortDir === 'asc' ? comparison : -comparison;
+        });
+
+        const handleNetSort = (field: 'name' | 'mac' | 'ip' | 'gateway' | 'dhcp' | 'status') => {
+          if (netSortBy === field) {
+            setNetSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+          } else {
+            setNetSortBy(field);
+            setNetSortDir('asc');
+          }
+        };
+
+        const getNetSortIcon = (field: 'name' | 'mac' | 'ip' | 'gateway' | 'dhcp' | 'status') => {
+          if (netSortBy !== field) {
+            return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+          }
+          return netSortDir === 'asc' ? (
+            <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5 text-emerald-400" />
+          );
+        };
+
         return (
           <div className="space-y-6">
             {/* Network Overview Card */}
@@ -1839,21 +1966,76 @@ Write-Output "Operation terminee avec succes pour '$u'."
 
             {/* Adapters Table */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              {filteredInterfaces.length > 0 ? (
+              {sortedNetInterfaces.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead className="bg-slate-950/80 sticky top-0 backdrop-blur z-10 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                       <tr>
-                        <th className="py-3.5 px-4">Interface / Carte réseau</th>
-                        <th className="py-3.5 px-4">Adresse MAC (Physique)</th>
-                        <th className="py-3.5 px-4">Adresse(s) IPv4 & Masque</th>
+                        {/* Tri par Interface */}
+                        <th
+                          onClick={() => handleNetSort('name')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Interface"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Interface / Carte réseau</span>
+                            {getNetSortIcon('name')}
+                          </div>
+                        </th>
+
+                        {/* Tri par MAC */}
+                        <th
+                          onClick={() => handleNetSort('mac')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Adresse MAC"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Adresse MAC (Physique)</span>
+                            {getNetSortIcon('mac')}
+                          </div>
+                        </th>
+
+                        {/* Tri par IP */}
+                        <th
+                          onClick={() => handleNetSort('ip')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par Adresse IP"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>Adresse(s) IPv4 & Masque</span>
+                            {getNetSortIcon('ip')}
+                          </div>
+                        </th>
+
                         <th className="py-3.5 px-4">Passerelle & DNS</th>
-                        <th className="py-3.5 px-4">DHCP</th>
-                        <th className="py-3.5 px-4 text-right">Statut</th>
+
+                        {/* Tri par DHCP */}
+                        <th
+                          onClick={() => handleNetSort('dhcp')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none"
+                          title="Cliquer pour trier par DHCP"
+                        >
+                          <div className="flex items-center space-x-1.5">
+                            <span>DHCP</span>
+                            {getNetSortIcon('dhcp')}
+                          </div>
+                        </th>
+
+                        {/* Tri par Statut */}
+                        <th
+                          onClick={() => handleNetSort('status')}
+                          className="py-3.5 px-4 cursor-pointer hover:bg-slate-900 transition select-none text-right"
+                          title="Cliquer pour trier par Statut"
+                        >
+                          <div className="flex items-center justify-end space-x-1.5">
+                            <span>Statut</span>
+                            {getNetSortIcon('status')}
+                          </div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 text-sm">
-                      {filteredInterfaces.map((iface, idx) => {
+                      {sortedNetInterfaces.map((iface, idx) => {
                         const isConnected = isIfaceConnected(iface);
                         const isPrimary = primaryConnectedIface?.mac && iface.mac === primaryConnectedIface.mac;
 
@@ -2131,6 +2313,50 @@ Write-Output "Operation terminee avec succes pour '$u'."
 
         const currentUsername = inventory?.current_user ? inventory.current_user.split('\\').pop() : '';
 
+        const sortedUsersList = [...filteredUsers].sort((a, b) => {
+          let comparison = 0;
+          if (userAccountsSortBy === 'name') {
+            comparison = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+          } else if (userAccountsSortBy === 'account_type') {
+            comparison = (a.account_type || '').localeCompare(b.account_type || '');
+          } else if (userAccountsSortBy === 'full_name') {
+            const descA = a.full_name || a.description || '';
+            const descB = b.full_name || b.description || '';
+            comparison = descA.localeCompare(descB, undefined, { sensitivity: 'base' });
+          } else if (userAccountsSortBy === 'session') {
+            const isConnA = Boolean(a.is_logged_in || (currentUsername && a.name?.toLowerCase() === currentUsername.toLowerCase()));
+            const isConnB = Boolean(b.is_logged_in || (currentUsername && b.name?.toLowerCase() === currentUsername.toLowerCase()));
+            comparison = (isConnA === isConnB ? 0 : isConnA ? -1 : 1);
+          } else if (userAccountsSortBy === 'is_admin') {
+            comparison = (a.is_admin === b.is_admin ? 0 : a.is_admin ? -1 : 1);
+          } else if (userAccountsSortBy === 'last_login') {
+            const timeA = a.last_logon ? new Date(a.last_logon).getTime() : 0;
+            const timeB = b.last_logon ? new Date(b.last_logon).getTime() : 0;
+            comparison = timeA - timeB;
+          }
+          return userAccountsSortDir === 'asc' ? comparison : -comparison;
+        });
+
+        const handleUserAccountsSort = (field: 'name' | 'account_type' | 'full_name' | 'session' | 'is_admin' | 'last_login') => {
+          if (userAccountsSortBy === field) {
+            setUserAccountsSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+          } else {
+            setUserAccountsSortBy(field);
+            setUserAccountsSortDir('asc');
+          }
+        };
+
+        const getUserAccountsSortIcon = (field: 'name' | 'account_type' | 'full_name' | 'session' | 'is_admin' | 'last_login') => {
+          if (userAccountsSortBy !== field) {
+            return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+          }
+          return userAccountsSortDir === 'asc' ? (
+            <ArrowUp className="w-3.5 h-3.5 text-teal-400" />
+          ) : (
+            <ArrowDown className="w-3.5 h-3.5 text-teal-400" />
+          );
+        };
+
         return (
           <div className="space-y-6">
             {/* System Details */}
@@ -2326,22 +2552,88 @@ Write-Output "Operation terminee avec succes pour '$u'."
 
               {/* Users Table */}
               <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden mt-4">
-                {filteredUsers.length > 0 ? (
+                {sortedUsersList.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead className="bg-slate-900/90 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                         <tr>
-                          <th className="py-3 px-4">Compte Utilisateur</th>
-                          <th className="py-3 px-4">Origine / Type</th>
-                          <th className="py-3 px-4">Nom complet & Description</th>
-                          <th className="py-3 px-4">Statut de Session</th>
-                          <th className="py-3 px-4">Niveau de Privilège</th>
-                          <th className="py-3 px-4">Dernière connexion</th>
+                          {/* Tri par Compte Utilisateur */}
+                          <th
+                            onClick={() => handleUserAccountsSort('name')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Compte Utilisateur"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Compte Utilisateur</span>
+                              {getUserAccountsSortIcon('name')}
+                            </div>
+                          </th>
+
+                          {/* Tri par Origine / Type */}
+                          <th
+                            onClick={() => handleUserAccountsSort('account_type')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Origine / Type"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Origine / Type</span>
+                              {getUserAccountsSortIcon('account_type')}
+                            </div>
+                          </th>
+
+                          {/* Tri par Nom complet & Description */}
+                          <th
+                            onClick={() => handleUserAccountsSort('full_name')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Nom complet & Description"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Nom complet & Description</span>
+                              {getUserAccountsSortIcon('full_name')}
+                            </div>
+                          </th>
+
+                          {/* Tri par Statut de Session */}
+                          <th
+                            onClick={() => handleUserAccountsSort('session')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Statut de Session"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Statut de Session</span>
+                              {getUserAccountsSortIcon('session')}
+                            </div>
+                          </th>
+
+                          {/* Tri par Niveau de Privilège */}
+                          <th
+                            onClick={() => handleUserAccountsSort('is_admin')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Niveau de Privilège"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Niveau de Privilège</span>
+                              {getUserAccountsSortIcon('is_admin')}
+                            </div>
+                          </th>
+
+                          {/* Tri par Dernière connexion */}
+                          <th
+                            onClick={() => handleUserAccountsSort('last_login')}
+                            className="py-3 px-4 cursor-pointer hover:bg-slate-850 transition select-none"
+                            title="Cliquer pour trier par Dernière connexion"
+                          >
+                            <div className="flex items-center space-x-1.5">
+                              <span>Dernière connexion</span>
+                              {getUserAccountsSortIcon('last_login')}
+                            </div>
+                          </th>
+
                           <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60 text-sm">
-                        {filteredUsers.map((u, idx) => {
+                        {sortedUsersList.map((u, idx) => {
                           const isDomain = u.account_type?.toLowerCase() === 'domaine' || (u.domain && u.domain.toLowerCase() !== device.hostname?.toLowerCase());
                           const isConnected = Boolean(
                             u.is_logged_in ||

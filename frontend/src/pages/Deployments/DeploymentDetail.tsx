@@ -15,13 +15,20 @@ import {
   Terminal,
   Ban,
   Trash2,
-  X
+  X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 export const DeploymentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [selectedTargetLogs, setSelectedTargetLogs] = useState<{ id: string; hostname: string } | null>(null);
+
+  // Sorting state
+  const [sortBy, setSortBy] = useState<'hostname' | 'status' | 'retries' | 'exit_code'>('hostname');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const { data: deployment, isLoading: loadingDep } = useQuery({
     queryKey: ['deployment', id],
@@ -69,6 +76,42 @@ export const DeploymentDetail: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
     },
   });
+
+  const sortedTargets = [...targets].sort((a, b) => {
+    let comparison = 0;
+    if (sortBy === 'hostname') {
+      comparison = (a.device_hostname || '').localeCompare(b.device_hostname || '', undefined, { numeric: true, sensitivity: 'base' });
+    } else if (sortBy === 'status') {
+      comparison = (a.status || '').localeCompare(b.status || '');
+    } else if (sortBy === 'retries') {
+      comparison = (a.retry_count || 0) - (b.retry_count || 0);
+    } else if (sortBy === 'exit_code') {
+      const codeA = a.exit_code !== null && a.exit_code !== undefined ? a.exit_code : 999;
+      const codeB = b.exit_code !== null && b.exit_code !== undefined ? b.exit_code : 999;
+      comparison = codeA - codeB;
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: 'hostname' | 'status' | 'retries' | 'exit_code') => {
+    if (sortBy === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (field: 'hostname' | 'status' | 'retries' | 'exit_code') => {
+    if (sortBy !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-emerald-400" />
+    );
+  };
 
   if (loadingDep || !deployment) {
     return <div className="py-12 text-center text-slate-500">Chargement du déploiement...</div>;
@@ -161,16 +204,60 @@ export const DeploymentDetail: React.FC = () => {
           <table className="w-full text-left text-sm text-slate-300">
             <thead className="bg-slate-950/80 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800">
               <tr>
-                <th className="px-6 py-4">Machine Cible</th>
-                <th className="px-6 py-4">Statut Machine à États</th>
-                <th className="px-6 py-4">Tentatives</th>
-                <th className="px-6 py-4">Code Retour</th>
+                {/* Tri par Machine Cible */}
+                <th
+                  onClick={() => handleSort('hostname')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Machine Cible"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Machine Cible</span>
+                    {getSortIcon('hostname')}
+                  </div>
+                </th>
+
+                {/* Tri par Statut */}
+                <th
+                  onClick={() => handleSort('status')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Statut"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Statut Machine à États</span>
+                    {getSortIcon('status')}
+                  </div>
+                </th>
+
+                {/* Tri par Tentatives */}
+                <th
+                  onClick={() => handleSort('retries')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Tentatives"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Tentatives</span>
+                    {getSortIcon('retries')}
+                  </div>
+                </th>
+
+                {/* Tri par Code Retour */}
+                <th
+                  onClick={() => handleSort('exit_code')}
+                  className="px-6 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Code Retour"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Code Retour</span>
+                    {getSortIcon('exit_code')}
+                  </div>
+                </th>
+
                 <th className="px-6 py-4">Message / Erreur</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {targets.map((target) => (
+              {sortedTargets.map((target) => (
                 <tr key={target.id} className="hover:bg-slate-850/50 transition">
                   <td className="px-6 py-4">
                     <div className="font-semibold text-slate-100">{target.device_hostname || 'Machine Inconnue'}</div>

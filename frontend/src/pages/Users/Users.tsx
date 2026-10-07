@@ -24,7 +24,10 @@ import {
   AlertTriangle,
   Lock,
   Sparkles,
-  Package
+  Package,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 const roleBadge = (role: string) => {
@@ -68,6 +71,10 @@ export const Users: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
+
+  // Sorting state
+  const [sortBy, setSortBy] = useState<'username' | 'email' | 'role' | 'is_active' | 'last_login_at'>('username');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Modals state
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -223,6 +230,55 @@ export const Users: React.FC = () => {
     return matchesSearch && matchesRole;
   });
 
+  // Sorted users
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    let comparison = 0;
+    if (sortBy === 'username') {
+      comparison = (a.username || '').localeCompare(b.username || '', undefined, { sensitivity: 'base' });
+    } else if (sortBy === 'email') {
+      comparison = (a.email || '').localeCompare(b.email || '', undefined, { sensitivity: 'base' });
+    } else if (sortBy === 'role') {
+      const rolePriority: { [k: string]: number } = {
+        super_admin: 1,
+        administrator: 2,
+        operator: 3,
+        app_store_client: 4,
+        viewer: 5,
+      };
+      comparison = (rolePriority[a.role] || 99) - (rolePriority[b.role] || 99);
+      if (comparison === 0) {
+        comparison = (a.username || '').localeCompare(b.username || '');
+      }
+    } else if (sortBy === 'is_active') {
+      comparison = (a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1);
+    } else if (sortBy === 'last_login_at') {
+      const timeA = a.last_login_at ? new Date(a.last_login_at).getTime() : 0;
+      const timeB = b.last_login_at ? new Date(b.last_login_at).getTime() : 0;
+      comparison = timeA - timeB;
+    }
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const handleSort = (field: 'username' | 'email' | 'role' | 'is_active' | 'last_login_at') => {
+    if (sortBy === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDirection(field === 'last_login_at' ? 'desc' : 'asc');
+    }
+  };
+
+  const getSortIcon = (field: 'username' | 'email' | 'role' | 'is_active' | 'last_login_at') => {
+    if (sortBy !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3.5 h-3.5 text-emerald-400" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-emerald-400" />
+    );
+  };
+
   const superAdminCount = users.filter((u) => u.role === 'super_admin').length;
   const activeCount = users.filter((u) => u.is_active).length;
 
@@ -315,20 +371,43 @@ export const Users: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center space-x-3 w-full md:w-auto">
-          <span className="text-xs text-slate-400 font-medium">Filtrer par rôle :</span>
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none transition"
-          >
-            <option value="all">Tous les rôles</option>
-            <option value="super_admin">Super Admin</option>
-            <option value="administrator">Administrateur</option>
-            <option value="operator">Opérateur</option>
-            <option value="app_store_client">Client App Store</option>
-            <option value="viewer">Lecteur</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          {/* Tri sélecteur rapide */}
+          <div className="flex items-center space-x-2">
+            <ArrowUpDown className="w-4 h-4 text-slate-500 shrink-0" />
+            <select
+              value={`${sortBy}_${sortDirection}`}
+              onChange={(e) => {
+                const [field, dir] = e.target.value.split('_') as [any, any];
+                setSortBy(field);
+                setSortDirection(dir);
+              }}
+              className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 outline-none focus:border-emerald-500"
+            >
+              <option value="username_asc">Tri : Identifiant (A → Z)</option>
+              <option value="username_desc">Tri : Identifiant (Z → A)</option>
+              <option value="role_asc">Tri : Rôle hiérarchique</option>
+              <option value="is_active_asc">Tri : Statut (Actifs d'abord)</option>
+              <option value="last_login_at_desc">Tri : Dernière connexion (Récent)</option>
+              <option value="email_asc">Tri : Email</option>
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-400 font-medium">Rôle :</span>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 outline-none transition"
+            >
+              <option value="all">Tous les rôles</option>
+              <option value="super_admin">Super Admin</option>
+              <option value="administrator">Administrateur</option>
+              <option value="operator">Opérateur</option>
+              <option value="app_store_client">Client App Store</option>
+              <option value="viewer">Lecteur</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -338,11 +417,66 @@ export const Users: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-950/80 border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">Utilisateur</th>
-                <th className="py-3.5 px-4">Email</th>
-                <th className="py-3.5 px-4">Rôle</th>
-                <th className="py-3.5 px-4">Statut</th>
-                <th className="py-3.5 px-4">Dernière Connexion</th>
+                {/* Tri par Utilisateur */}
+                <th
+                  onClick={() => handleSort('username')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Identifiant"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span>Utilisateur</span>
+                    {getSortIcon('username')}
+                  </div>
+                </th>
+
+                {/* Tri par Email */}
+                <th
+                  onClick={() => handleSort('email')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Email"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span>Email</span>
+                    {getSortIcon('email')}
+                  </div>
+                </th>
+
+                {/* Tri par Rôle */}
+                <th
+                  onClick={() => handleSort('role')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Rôle"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span>Rôle</span>
+                    {getSortIcon('role')}
+                  </div>
+                </th>
+
+                {/* Tri par Statut */}
+                <th
+                  onClick={() => handleSort('is_active')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Statut"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span>Statut</span>
+                    {getSortIcon('is_active')}
+                  </div>
+                </th>
+
+                {/* Tri par Dernière Connexion */}
+                <th
+                  onClick={() => handleSort('last_login_at')}
+                  className="py-3.5 px-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Dernière Connexion"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span>Dernière Connexion</span>
+                    {getSortIcon('last_login_at')}
+                  </div>
+                </th>
+
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -353,14 +487,14 @@ export const Users: React.FC = () => {
                     Chargement des utilisateurs...
                   </td>
                 </tr>
-              ) : filteredUsers.length === 0 ? (
+              ) : sortedUsers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-slate-500">
                     Aucun utilisateur trouvé.
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((u) => {
+                sortedUsers.map((u) => {
                   const badge = roleBadge(u.role);
                   const Icon = badge.icon;
                   const isCurrent = currentUser?.id === u.id;

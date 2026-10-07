@@ -15,7 +15,10 @@ import {
   X,
   SlidersHorizontal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { AuditLog } from '../../types';
 
@@ -24,6 +27,10 @@ export const Audit: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+
+  // Sorting state
+  const [sortBy, setSortBy] = useState<'created_at' | 'action' | 'user_username' | 'entity_type' | 'ip_address'>('created_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Modals state
   const [showClearModal, setShowClearModal] = useState(false);
@@ -51,6 +58,52 @@ export const Audit: React.FC = () => {
       return matchAction || matchUser || matchEntity || matchIp || matchDetails;
     });
   }, [logs, searchTerm]);
+
+  // Sorted logs
+  const sortedLogs = useMemo(() => {
+    const list = [...filteredLogs];
+    return list.sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'created_at') {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        comparison = timeA - timeB;
+      } else if (sortBy === 'action') {
+        comparison = (a.action || '').localeCompare(b.action || '', undefined, { sensitivity: 'base' });
+      } else if (sortBy === 'user_username') {
+        const uA = a.user_username || 'Système / Agent';
+        const uB = b.user_username || 'Système / Agent';
+        comparison = uA.localeCompare(uB, undefined, { sensitivity: 'base' });
+      } else if (sortBy === 'entity_type') {
+        const eA = `${a.entity_type || ''} ${a.entity_id || ''}`;
+        const eB = `${b.entity_type || ''} ${b.entity_id || ''}`;
+        comparison = eA.localeCompare(eB, undefined, { sensitivity: 'base' });
+      } else if (sortBy === 'ip_address') {
+        comparison = (a.ip_address || '').localeCompare(b.ip_address || '', undefined, { numeric: true });
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredLogs, sortBy, sortDirection]);
+
+  const handleSort = (field: 'created_at' | 'action' | 'user_username' | 'entity_type' | 'ip_address') => {
+    if (sortBy === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDirection(field === 'created_at' ? 'desc' : 'asc');
+    }
+  };
+
+  const getSortIcon = (field: 'created_at' | 'action' | 'user_username' | 'entity_type' | 'ip_address') => {
+    if (sortBy !== field) {
+      return <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 opacity-60" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3.5 h-3.5 text-cyan-400" />
+    ) : (
+      <ArrowDown className="w-3.5 h-3.5 text-cyan-400" />
+    );
+  };
 
   // Export full audit log
   const handleExportFull = async () => {
@@ -238,7 +291,7 @@ export const Audit: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter / Search Bar */}
+      {/* Filter / Search Bar & Quick Sort */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -259,11 +312,36 @@ export const Audit: React.FC = () => {
           )}
         </div>
 
-        {searchTerm && (
-          <div className="text-xs text-slate-400 whitespace-nowrap">
-            {filteredLogs.length} résultat{filteredLogs.length > 1 ? 's' : ''} sur {logs.length}
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          {/* Tri sélecteur rapide */}
+          <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <ArrowUpDown className="w-4 h-4 text-slate-500 shrink-0" />
+            <select
+              value={`${sortBy}_${sortDirection}`}
+              onChange={(e) => {
+                const [field, dir] = e.target.value.split('_') as [any, any];
+                setSortBy(field);
+                setSortDirection(dir);
+              }}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 outline-none focus:border-cyan-500 w-full sm:w-auto"
+            >
+              <option value="created_at_desc">Tri : Horodatage (Plus récent)</option>
+              <option value="created_at_asc">Tri : Horodatage (Plus ancien)</option>
+              <option value="action_asc">Tri : Action (A → Z)</option>
+              <option value="action_desc">Tri : Action (Z → A)</option>
+              <option value="user_username_asc">Tri : Utilisateur (A → Z)</option>
+              <option value="user_username_desc">Tri : Utilisateur (Z → A)</option>
+              <option value="entity_type_asc">Tri : Cible / Entité</option>
+              <option value="ip_address_asc">Tri : Adresse IP</option>
+            </select>
           </div>
-        )}
+
+          {searchTerm && (
+            <div className="text-xs text-slate-400 whitespace-nowrap">
+              {filteredLogs.length} résultat{filteredLogs.length > 1 ? 's' : ''} sur {logs.length}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Bulk selection toolbar */}
@@ -329,17 +407,74 @@ export const Audit: React.FC = () => {
                     )}
                   </button>
                 </th>
-                <th className="px-5 py-4">Horodatage</th>
-                <th className="px-5 py-4">Action</th>
-                <th className="px-5 py-4">Utilisateur / Initiateur</th>
-                <th className="px-5 py-4">Cible / Entité</th>
+
+                {/* Tri par Horodatage */}
+                <th
+                  onClick={() => handleSort('created_at')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Horodatage"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Horodatage</span>
+                    {getSortIcon('created_at')}
+                  </div>
+                </th>
+
+                {/* Tri par Action */}
+                <th
+                  onClick={() => handleSort('action')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Action"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Action</span>
+                    {getSortIcon('action')}
+                  </div>
+                </th>
+
+                {/* Tri par Utilisateur */}
+                <th
+                  onClick={() => handleSort('user_username')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Utilisateur / Initiateur"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Utilisateur / Initiateur</span>
+                    {getSortIcon('user_username')}
+                  </div>
+                </th>
+
+                {/* Tri par Cible / Entité */}
+                <th
+                  onClick={() => handleSort('entity_type')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Cible / Entité"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Cible / Entité</span>
+                    {getSortIcon('entity_type')}
+                  </div>
+                </th>
+
                 <th className="px-5 py-4">Détails</th>
-                <th className="px-5 py-4">Adresse IP</th>
+
+                {/* Tri par Adresse IP */}
+                <th
+                  onClick={() => handleSort('ip_address')}
+                  className="px-5 py-4 cursor-pointer hover:bg-slate-900/80 transition select-none"
+                  title="Cliquer pour trier par Adresse IP"
+                >
+                  <div className="flex items-center space-x-2">
+                    <span>Adresse IP</span>
+                    {getSortIcon('ip_address')}
+                  </div>
+                </th>
+
                 <th className="px-4 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filteredLogs.map((log) => {
+              {sortedLogs.map((log) => {
                 const isSelected = selectedIds.includes(log.id);
                 const isExpanded = expandedLogId === log.id;
 
