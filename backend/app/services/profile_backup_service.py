@@ -83,20 +83,11 @@ Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT..."
 try {{
     $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes"
     $checkHeaders = @{{ "Authorization" = "Bearer $AgentToken" }}
-    $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 30
+    $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 15
     $ServerFreeGB = [math]::Round($checkResp.server_free_bytes / 1GB, 2)
     Write-Output "[+] Serveur MAPT pret : $($checkResp.message) ($ServerFreeGB Go disponibles sur le serveur)"
 }} catch {{
-    $errDetail = $_.Exception.Message
-    try {{
-        if ($_.Exception.Response) {{
-            $stream = $_.Exception.Response.GetResponseStream()
-            $reader = New-Object System.IO.StreamReader($stream)
-            $errDetail = $reader.ReadToEnd()
-        }}
-    }} catch {{}}
-    Write-Error "[-] Espace serveur insuffisant ou verification impossible : $errDetail"
-    exit 1
+    Write-Output "[!] Note verification espace serveur : $($_.Exception.Message). Poursuite du processus..."
 }}
 
 # 3. Preparation de l'espace de travail temporaire local
@@ -603,7 +594,7 @@ exit 0
             created_by_user_id=user.id,
         )
 
-        api_url = base_api_url or "http://localhost:8088/api/v1"
+        api_url = base_api_url or "http://192.168.224.236/api/v1"
         agent_token = getattr(device, "agent_token", "mapt-agent-auth")
 
         script_content = self._generate_backup_script(
@@ -681,7 +672,7 @@ exit 0
             raise HTTPException(status_code=404, detail="Machine cible introuvable.")
 
         effective_username = target_username.strip() if target_username and target_username.strip() else backup.profile_name
-        api_url = base_api_url or "http://localhost:8088/api/v1"
+        api_url = base_api_url or "http://192.168.224.236/api/v1"
         agent_token = getattr(target_device, "agent_token", "mapt-agent-auth")
 
         restore_script = self._generate_restore_script(
