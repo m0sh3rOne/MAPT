@@ -127,6 +127,7 @@ $ExcludeDirs = @(
     "AppData\\Local\\Temp",
     "AppData\\Local\\Microsoft\\Windows\\INetCache",
     "AppData\\Local\\Microsoft\\Windows\\Explorer",
+    "AppData\\Local\\Microsoft\\Windows\\WebCache",
     "AppData\\Local\\CrashDumps",
     "AppData\\Local\\Package Cache",
     "AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache",
@@ -156,7 +157,7 @@ foreach ($x in $ExcludeDirs) {{
 $RoboExit = $LASTEXITCODE
 Write-Output "[+] Copie des fichiers terminee (Code retour Robocopy : $RoboExit)"
 
-# 6. Sauvegarde du registre utilisateur NTUSER.DAT
+# 6. Sauvegarde propre et complete du registre utilisateur (NTUSER.DAT)
 Write-Output "[*] Sauvegarde de la ruche de Registre (NTUSER.DAT)..."
 $DestNtUser = Join-Path $PackageDir "NTUSER.DAT"
 $ExportedRegistry = $false
@@ -164,8 +165,8 @@ $ExportedRegistry = $false
 if ($UserSid) {{
     try {{
         if (Test-Path "Registry::HKEY_USERS\\$UserSid") {{
-            Write-Output "[+] Profil actif en memoire, export securise..."
-            & reg.exe save "HKU\\$UserSid" "$DestNtUser" /y | Out-Null
+            Write-Output "[+] Profil actif en memoire, export direct depuis HKU\\$UserSid..."
+            & reg.exe save "HKU\\$UserSid" "$DestNtUser" /y 2>&1 | Out-Null
             if (Test-Path $DestNtUser) {{ $ExportedRegistry = $true }}
         }}
     }} catch {{}}
@@ -181,6 +182,10 @@ if (-not $ExportedRegistry) {{
     }}
 }}
 
+# Nettoyer les fichiers de transactions de registre résiduels pour éviter les locks corrompus
+Get-ChildItem -Path $PackageDir -Filter "NTUSER.DAT.LOG*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $PackageDir -Filter "NTUSER.DAT{{*}}*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
 # 7. Creation du fichier de métadonnées
 $Meta = @{{
     ProfileName = $ProfileName
@@ -190,7 +195,7 @@ $Meta = @{{
     OS = (Get-CimInstance Win32_OperatingSystem).Caption
     EstimatedSizeBytes = $EstimatedSizeBytes
     BackupDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    Version = "1.0"
+    Version = "2.0"
 }}
 $MetaJson = $Meta | ConvertTo-Json
 Set-Content -Path (Join-Path $PackageDir "mapt_profile_meta.json") -Value $MetaJson -Encoding UTF8
@@ -261,20 +266,7 @@ $AgentToken = "{agent_token}"
 
 Write-Output "[*] Demarrage de la restauration du profil vers '$TargetUsername' (Backup ID: $BackupId)..."
 
-$WorkDir = Join-Path $env:TEMP "MAPT_ProfileRestore_$BackupId"
-if (Test-Path $WorkDir) {{ Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }}
-New-Item -Path $WorkDir -ItemType Directory -Force | Out-Null
-$ZipPath = Join-Path $WorkDir "profile.zip"
-
-$DownloadUrl = "$ServerApiUrl/agent/profiles/$BackupId/download"
-Write-Output "[*] Telechargement de l'archive du profil..."
-
-$headers = @{{
-    "Authorization" = "Bearer $AgentToken"
-}}
-Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -TimeoutSec 7200
-Write-Output "[+] Archive telechargee ($([math]::Round((Get-Item $ZipPath).Length / 1MB, 2)) Mo)"
-
+# 1. Verification / Creation du compte utilisateur local cible
 $AccountExists = $false
 try {{
     $existing = Get-LocalUser -Name $TargetUsername -ErrorAction SilentlyContinue
@@ -284,50 +276,170 @@ try {{
 if (-not $AccountExists -and $CreateAccount) {{
     Write-Output "[*] Creation automatique du compte utilisateur local '$TargetUsername'..."
     try {{
-        & net.exe user "$TargetUsername" /add /expires:never
+        & net.exe user "$TargetUsername" /add /expires:never /active:yes
         & net.exe localgroup "Utilisateurs" "$TargetUsername" /add 2>$null
+        & net.exe localgroup "Users" "$TargetUsername" /add 2>$null
         Write-Output "[+] Compte local '$TargetUsername' cree avec succes."
     }} catch {{
         Write-Output "[!] Note creation compte : $($_.Exception.Message)"
     }}
 }}
 
+# 2. Resolution du SID Windows de l'utilisateur cible
+$TargetSid = $null
+try {{
+    $objUser = New-Object System.Security.Principal.NTAccount($TargetUsername)
+    $TargetSid = $objUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    Write-Output "[+] SID resolu pour '$TargetUsername' : $TargetSid"
+}} catch {{
+    Write-Error "[-] Impossible de resoudre le SID pour '$TargetUsername'. Verifiez que le compte existe."
+    exit 1
+}}
+
+# 3. Telechargement de l'archive du profil
+$WorkDir = Join-Path $env:TEMP "MAPT_ProfileRestore_$BackupId"
+if (Test-Path $WorkDir) {{ Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }}
+New-Item -Path $WorkDir -ItemType Directory -Force | Out-Null
+$ZipPath = Join-Path $WorkDir "profile.zip"
+
+$DownloadUrl = "$ServerApiUrl/agent/profiles/$BackupId/download"
+Write-Output "[*] Telechargement de l'archive du profil depuis le serveur MAPT..."
+
+$headers = @{{
+    "Authorization" = "Bearer $AgentToken"
+}}
+Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -TimeoutSec 7200
+$DownloadedMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)
+Write-Output "[+] Archive telechargee avec succes ($DownloadedMB Mo)"
+
+# 4. Preparation du dossier de profil de destination
 $DestProfilePath = "C:\\Users\\$TargetUsername"
 if (-not (Test-Path $DestProfilePath)) {{
     New-Item -Path $DestProfilePath -ItemType Directory -Force | Out-Null
 }}
 
-Write-Output "[*] Decompression des donnees du profil vers $DestProfilePath..."
+# 5. Extraction securisee avec ecrasement propre
+Write-Output "[*] Extraction des donnees du profil vers $DestProfilePath..."
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $DestProfilePath)
-
-Write-Output "[*] Configuration des permissions de securite NTFS..."
-& icacls.exe "$DestProfilePath" /grant "${{TargetUsername}}:(OI)(CI)F" /T /C /Q
-& icacls.exe "$DestProfilePath" /grant "SYSTEM:(OI)(CI)F" /T /C /Q
-& icacls.exe "$DestProfilePath" /grant "Administrateurs:(OI)(CI)F" /T /C /Q
-& icacls.exe "$DestProfilePath" /setowner "$TargetUsername" /T /C /Q
-
-try {{
-    $objUser = New-Object System.Security.Principal.NTAccount($TargetUsername)
-    $TargetSid = $objUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    
-    if ($TargetSid) {{
-        Write-Output "[+] SID resolu : $TargetSid"
-        $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
-        if (-not (Test-Path $ProfileKey)) {{
-            New-Item -Path $ProfileKey -Force | Out-Null
-        }}
-        Set-ItemProperty -Path $ProfileKey -Name "ProfileImagePath" -Value $DestProfilePath -Type ExpandString
-        Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord
-        Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord
-        Write-Output "[+] Profil associe dans la base de registre ProfileList ($ProfileKey)"
+$zipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+foreach ($entry in $zipArchive.Entries) {{
+    $destFilePath = [System.IO.Path]::Combine($DestProfilePath, $entry.FullName)
+    $destDir = [System.IO.Path]::GetDirectoryName($destFilePath)
+    if (-not (Test-Path $destDir)) {{
+        New-Item -Path $destDir -ItemType Directory -Force | Out-Null
     }}
+    if (-not [string]::IsNullOrEmpty($entry.Name)) {{
+        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFilePath, $true)
+    }}
+}}
+$zipArchive.Dispose()
+Write-Output "[+] Fichiers extraits avec succes."
+
+# 6. Purge des fichiers de transaction et cache GPO corrompus de l'ancienne machine
+Write-Output "[*] Nettoyage des caches et logs de transactions de registre..."
+Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT.LOG*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT{{*}}*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "*.blf" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "*.regtrans-ms" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+$OldGpoCache = Join-Path $DestProfilePath "AppData\\Local\\GroupPolicy"
+if (Test-Path $OldGpoCache) {{ Remove-Item -Path $OldGpoCache -Recurse -Force -ErrorAction SilentlyContinue }}
+
+# 7. RECONFIGURATION CRUCIALE DES DROITS INTERNES DU REGISTRE (NTUSER.DAT)
+# Resout definitivement : 'Echec de la connexion par le service Client de strategie de groupe. Acces refuse'
+$DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
+if (Test-Path $DestNtUser) {{
+    Write-Output "[*] Reattribution des descripteurs de securite internes du Registre (NTUSER.DAT)..."
+    Set-ItemProperty -Path $DestNtUser -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
+
+    # Decharger toute ruche residuelle
+    & reg.exe unload "HKLM\\MAPT_RestoreHive" 2>$null | Out-Null
+
+    # Charger temporairement la ruche NTUSER.DAT dans HKLM
+    & reg.exe load "HKLM\\MAPT_RestoreHive" "$DestNtUser" 2>&1 | Out-Null
+
+    if (Test-Path "Registry::HKEY_LOCAL_MACHINE\\MAPT_RestoreHive") {{
+        try {{
+            $hiveKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+                "MAPT_RestoreHive",
+                [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+                [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor [System.Security.AccessControl.RegistryRights]::FullControl
+            )
+            if ($hiveKey) {{
+                $regAcl = $hiveKey.GetAccessControl()
+                
+                $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
+                $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
+                $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+                $usersSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
+                $restrSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-12")
+
+                # Definir le proprietaire de la ruche sur le nouvel utilisateur
+                $regAcl.SetOwner($targetSidObj)
+
+                # Attribuer le controle total a SYSTEM, Administrateurs et a l'utilisateur cible
+                $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
+                $prop = [System.Security.AccessControl.PropagationFlags]::None
+                $allow = [System.Security.AccessControl.AccessControlType]::Allow
+
+                $ruleSys  = New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
+                $ruleAdm  = New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
+                $ruleUsr  = New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
+                $ruleRest = New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)
+
+                $regAcl.ResetAccessRule($ruleSys)
+                $regAcl.AddAccessRule($ruleAdm)
+                $regAcl.AddAccessRule($ruleUsr)
+                $regAcl.AddAccessRule($ruleRest)
+
+                $hiveKey.SetAccessControl($regAcl)
+                $hiveKey.Close()
+                Write-Output "[+] Permissions du Registre NTUSER.DAT reattribuees avec succes au SID $TargetSid"
+            }}
+        }} catch {{
+            Write-Output "[!] Note Registry ACL : $($_.Exception.Message)"
+        }} finally {{
+            [GC]::Collect()
+            [GC]::WaitForPendingFinalizers()
+            Start-Sleep -Milliseconds 500
+            & reg.exe unload "HKLM\\MAPT_RestoreHive" 2>&1 | Out-Null
+        }}
+    }}
+
+    # Restaurer les attributs systeme et cache de NTUSER.DAT
+    Set-ItemProperty -Path $DestNtUser -Name Attributes -Value "Hidden,System,Archive" -Force -ErrorAction SilentlyContinue
+}}
+
+# 8. Reconfiguration complete des permissions de securite NTFS et proprietaire
+Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProfilePath..."
+& takeown.exe /F "$DestProfilePath" /R /A /D O 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /inheritance:e /T /C /Q 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-5-18:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-5-32-544:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*$TargetSid:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /setowner "$TargetUsername" /T /C /Q 2>$null | Out-Null
+
+# 9. Inscription et activation du profil dans HKLM ProfileList
+Write-Output "[*] Inscription du profil dans le registre Windows ProfileList ($TargetSid)..."
+try {{
+    $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
+    if (-not (Test-Path $ProfileKey)) {{
+        New-Item -Path $ProfileKey -Force | Out-Null
+    }}
+    Set-ItemProperty -Path $ProfileKey -Name "ProfileImagePath" -Value $DestProfilePath -Type ExpandString -Force
+    Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeLow" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeHigh" -Value 0 -Type DWord -Force
+    Write-Output "[+] Profil active dans ProfileList Windows ($ProfileKey)"
 }} catch {{
     Write-Output "[!] Note ProfileList : $($_.Exception.Message)"
 }}
 
+# 10. Nettoyage de l'espace temporaire
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output "[✓] Migration du profil vers '$TargetUsername' terminee avec succes !"
+Write-Output "[✓] Migration et integration du profil vers '$TargetUsername' terminee avec succes !"
 exit 0
 """
 
