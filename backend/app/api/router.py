@@ -7,11 +7,13 @@ from app.api.admin.scripts import router as scripts_router
 from app.api.admin.deployments import router as deployments_router
 from app.api.admin.audit import router as audit_router
 from app.api.admin.mcp import router as mcp_router
+from app.api.admin.profiles import router as profiles_router
 
 from app.api.agent.enroll import router as agent_enroll_router
 from app.api.agent.jobs import router as agent_jobs_router
 from app.api.agent.inventory import router as agent_inventory_router
 from app.api.agent.packages import router as agent_packages_router
+from app.api.agent.profiles import router as agent_profiles_router
 
 api_router = APIRouter()
 
@@ -27,6 +29,7 @@ admin_router.include_router(scripts_router)
 admin_router.include_router(deployments_router)
 admin_router.include_router(audit_router)
 admin_router.include_router(mcp_router)
+admin_router.include_router(profiles_router)
 api_router.include_router(admin_router)
 
 # Agent routes
@@ -35,4 +38,5 @@ agent_router.include_router(agent_enroll_router)
 agent_router.include_router(agent_jobs_router)
 agent_router.include_router(agent_inventory_router)
 agent_router.include_router(agent_packages_router)
+agent_router.include_router(agent_profiles_router)
 api_router.include_router(agent_router)

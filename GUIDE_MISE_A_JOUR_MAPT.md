@@ -126,7 +126,7 @@ sudo chown -R $USER:$USER /opt/MAPT
 **Solution :**
 Rendez le script exécutable avec `chmod` :
 ```bash
-chmod +x /opt/MAPT/scripts/update-server-production.sh
+sudo chmod +x /opt/MAPT/scripts/update-server-production.sh
 sudo /opt/MAPT/scripts/update-server-production.sh
 ```
 

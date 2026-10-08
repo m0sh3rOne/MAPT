@@ -12,7 +12,8 @@ import {
   Server,
   Users as UsersIcon,
   ShieldCheck,
-  Bot
+  Bot,
+  FolderArchive
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/packages', label: 'Packages MSI/EXE', icon: Package },
   { to: '/scripts', label: 'Scripts PS/Python', icon: Code2 },
   { to: '/audit', label: 'Journal d’Audit', icon: ShieldAlert },
+  { to: '/profiles', label: 'Profils Utilisateurs', icon: FolderArchive },
 ];
 
 export const Sidebar: React.FC = () => {
@@ -32,8 +34,9 @@ export const Sidebar: React.FC = () => {
   const isAppStoreClient = user?.role === 'app_store_client';
 
   const visibleNavItems = navItems.filter((item) => {
-    if (isAppStoreClient && item.to === '/scripts') return false;
+    if (isAppStoreClient && (item.to === '/scripts' || item.to === '/profiles')) return false;
     if (item.to === '/audit' && !isSuperAdminOrAdmin) return false;
+    if (item.to === '/profiles' && !isSuperAdminOrAdmin) return false;
     return true;
   });
 

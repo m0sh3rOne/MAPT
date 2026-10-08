@@ -9,6 +9,7 @@ from app.models.deployment import Deployment, DeploymentTarget, DeploymentStatus
 from app.models.job import JobLog
 from app.models.audit import AuditLog, AuditAction
 from app.models.setting import SystemSetting
+from app.models.profile_backup import UserProfileBackup, ProfileBackupStatus
 
 __all__ = [
     "Base",
@@ -29,4 +30,6 @@ __all__ = [
     "AuditLog",
     "AuditAction",
     "SystemSetting",
+    "UserProfileBackup",
+    "ProfileBackupStatus",
 ]

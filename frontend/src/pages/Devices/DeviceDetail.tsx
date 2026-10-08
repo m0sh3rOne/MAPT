@@ -58,7 +58,8 @@ import {
   FileText,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  FolderArchive
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 import { useResizableColumns } from '../../hooks/useResizableColumns';
@@ -2828,22 +2829,46 @@ Write-Output "Operation terminee avec succes pour '$u'."
                                 )}
                               </td>
 
-                              {/* Actions: Delete Profile / Account */}
+                              {/* Actions: Backup Profile / Delete Profile / Account */}
                               <td className="py-3.5 px-4 text-right">
-                                <button
-                                  onClick={() => {
-                                    setDeleteUsername(u.name);
-                                    setDeleteProfileFiles(true);
-                                    setDeleteLocalAccount(!isDomain);
-                                    setDeleteForceLogoff(isConnected);
-                                    setActiveModal('delete_user');
-                                  }}
-                                  className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition inline-flex items-center gap-1.5 text-xs font-semibold"
-                                  title={`Supprimer le profil Windows ou le compte local de ${u.name}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>Supprimer</span>
-                                </button>
+                                <div className="flex items-center justify-end space-x-2">
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Lancer la sauvegarde complète du profil Windows de '${u.name}' sur MAPT ?`)) {
+                                        api.triggerProfileBackup({
+                                          device_id: device.id,
+                                          profile_name: u.name,
+                                          notes: `Sauvegarde rapide initiée depuis la fiche de ${device.hostname}`
+                                        }).then(() => {
+                                          alert(`Ordre de sauvegarde pour le profil '${u.name}' envoyé avec succès !`);
+                                          queryClient.invalidateQueries({ queryKey: ['profiles-backups'] });
+                                        }).catch((err) => {
+                                          alert(err.response?.data?.detail || 'Erreur lors du lancement de la sauvegarde.');
+                                        });
+                                      }
+                                    }}
+                                    className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition inline-flex items-center gap-1.5 text-xs font-semibold"
+                                    title={`Sauvegarder et archiver le profil Windows de ${u.name}`}
+                                  >
+                                    <FolderArchive className="w-3.5 h-3.5" />
+                                    <span>Sauvegarder</span>
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      setDeleteUsername(u.name);
+                                      setDeleteProfileFiles(true);
+                                      setDeleteLocalAccount(!isDomain);
+                                      setDeleteForceLogoff(isConnected);
+                                      setActiveModal('delete_user');
+                                    }}
+                                    className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition inline-flex items-center gap-1.5 text-xs font-semibold"
+                                    title={`Supprimer le profil Windows ou le compte local de ${u.name}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Supprimer</span>
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );

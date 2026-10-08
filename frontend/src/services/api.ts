@@ -3,7 +3,8 @@ import {
   User, Device, DeviceInventory, DeviceGroup, DeviceActionHistory,
   Package, PackageVersion, Script, ScriptVersion,
   Deployment, DeploymentTarget, JobLog, AuditLog, WolResult,
-  McpStatus, McpTestConnectionResponse
+  McpStatus, McpTestConnectionResponse,
+  UserProfileBackup, ProfileBackupSummary, ProfileBackupCreateRequest, ProfileRestoreRequest
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -438,6 +439,36 @@ export const api = {
   testMcpConnection: async (payload?: { username?: string; password?: string; api_url?: string }): Promise<McpTestConnectionResponse> => {
     const res = await apiClient.post('/admin/mcp/test-connection', payload || {});
     return res.data;
+  },
+
+  // Windows User Profile Backup & Migration
+  getProfiles: async (params?: { search?: string; status?: string; skip?: number; limit?: number }): Promise<UserProfileBackup[]> => {
+    const res = await apiClient.get('/admin/profiles', { params });
+    return res.data;
+  },
+  getProfilesSummary: async (): Promise<ProfileBackupSummary> => {
+    const res = await apiClient.get('/admin/profiles/summary');
+    return res.data;
+  },
+  getProfile: async (id: string): Promise<UserProfileBackup> => {
+    const res = await apiClient.get(`/admin/profiles/${id}`);
+    return res.data;
+  },
+  triggerProfileBackup: async (payload: ProfileBackupCreateRequest): Promise<UserProfileBackup> => {
+    const res = await apiClient.post('/admin/profiles/backup', payload);
+    return res.data;
+  },
+  triggerProfileRestore: async (backupId: string, payload: ProfileRestoreRequest): Promise<{ message: string; deployment_id: string; backup_id: string }> => {
+    const res = await apiClient.post(`/admin/profiles/${backupId}/restore`, payload);
+    return res.data;
+  },
+  deleteProfileBackup: async (backupId: string): Promise<{ message: string }> => {
+    const res = await apiClient.delete(`/admin/profiles/${backupId}`);
+    return res.data;
+  },
+  getProfileDownloadUrl: (backupId: string): string => {
+    const token = localStorage.getItem('mapt_token');
+    return `/api/v1/admin/profiles/${backupId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   }
 };
 

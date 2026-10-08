@@ -302,3 +302,46 @@ export interface McpTestConnectionResponse {
   latency_ms: number;
 }
 
+export interface UserProfileBackup {
+  id: string;
+  profile_name: string;
+  user_sid?: string | null;
+  source_device_id?: string | null;
+  source_hostname: string;
+  source_os?: string | null;
+  storage_key: string;
+  size_bytes: number;
+  sha256?: string | null;
+  status: 'PENDING' | 'BACKING_UP' | 'READY' | 'RESTORING' | 'FAILED' | 'CANCELLED';
+  error_message?: string | null;
+  notes?: string | null;
+  metadata_info?: Record<string, any> | null;
+  backup_deployment_id?: string | null;
+  last_restore_deployment_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_user_id?: string | null;
+}
+
+export interface ProfileBackupSummary {
+  total_profiles: number;
+  total_size_bytes: number;
+  ready_count: number;
+  in_progress_count: number;
+  failed_count: number;
+}
+
+export interface ProfileBackupCreateRequest {
+  device_id: string;
+  profile_name: string;
+  notes?: string;
+}
+
+export interface ProfileRestoreRequest {
+  target_device_id: string;
+  target_username?: string;
+  create_local_account?: boolean;
+  overwrite_existing?: boolean;
+  notes?: string;
+}
+
