@@ -15,6 +15,8 @@ class ProfileRestoreRequest(BaseModel):
     target_username: Optional[str] = None  # Si None, utilise le profile_name original
     create_local_account: bool = True
     overwrite_existing: bool = True
+    autologon: bool = True
+    autologon_password: Optional[str] = None
     notes: Optional[str] = None
 
 

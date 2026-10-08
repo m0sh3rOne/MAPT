@@ -99,6 +99,8 @@ async def trigger_profile_restore(
         target_username=req_in.target_username,
         create_account=req_in.create_local_account,
         overwrite_existing=req_in.overwrite_existing,
+        autologon=req_in.autologon,
+        autologon_password=req_in.autologon_password,
         user=current_user,
         notes=req_in.notes,
         base_api_url=base_api_url

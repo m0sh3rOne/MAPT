@@ -59,6 +59,8 @@ export const Profiles: React.FC = () => {
   const [restoreTargetUsername, setRestoreTargetUsername] = useState('');
   const [restoreCreateAccount, setRestoreCreateAccount] = useState(true);
   const [restoreOverwrite, setRestoreOverwrite] = useState(true);
+  const [restoreAutoLogon, setRestoreAutoLogon] = useState(true);
+  const [restoreAutoLogonPassword, setRestoreAutoLogonPassword] = useState('');
   const [restoreNotes, setRestoreNotes] = useState('');
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
@@ -229,6 +231,8 @@ export const Profiles: React.FC = () => {
     setRestoreTargetDeviceId('');
     setRestoreCreateAccount(true);
     setRestoreOverwrite(true);
+    setRestoreAutoLogon(true);
+    setRestoreAutoLogonPassword('');
     setRestoreNotes('');
     setRestoreError(null);
     setShowRestoreModal(true);
@@ -247,6 +251,8 @@ export const Profiles: React.FC = () => {
         target_username: restoreTargetUsername || selectedBackupForRestore.profile_name,
         create_local_account: restoreCreateAccount,
         overwrite_existing: restoreOverwrite,
+        autologon: restoreAutoLogon,
+        autologon_password: restoreAutoLogonPassword || undefined,
         notes: restoreNotes,
       },
     });
@@ -998,6 +1004,33 @@ export const Profiles: React.FC = () => {
                     Écraser les fichiers existants et réattribuer les permissions NTFS (icacls)
                   </span>
                 </label>
+
+                <label className="flex items-center space-x-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={restoreAutoLogon}
+                    onChange={(e) => setRestoreAutoLogon(e.target.checked)}
+                    className="w-4 h-4 rounded text-blue-600 bg-slate-950 border-slate-800 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <span className="text-xs text-slate-300 font-medium">
+                    Connexion automatique (AutoLogon) au démarrage du poste
+                  </span>
+                </label>
+
+                {restoreAutoLogon && (
+                  <div className="pl-6 pt-1">
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                      Mot de passe du compte (Optionnel si pas de mot de passe)
+                    </label>
+                    <input
+                      type="password"
+                      placeholder="Laisser vide si aucun mot de passe..."
+                      value={restoreAutoLogonPassword}
+                      onChange={(e) => setRestoreAutoLogonPassword(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">

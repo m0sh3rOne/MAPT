@@ -250,17 +250,24 @@ exit 0
         target_username: str,
         create_account: bool,
         overwrite_existing: bool,
+        autologon: bool,
+        autologon_password: Optional[str],
         server_api_url: str,
         agent_token: str
     ) -> str:
         clean_user = target_username.replace('"', '`"')
         create_acc_str = "$true" if create_account else "$false"
+        autologon_str = "$true" if autologon else "$false"
+        clean_pwd = (autologon_password or "").replace('"', '`"')
+
         return f"""$ErrorActionPreference = 'Stop'
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]'Tls12,Tls11,Tls'
 
 $BackupId = "{str(backup_id)}"
 $TargetUsername = "{clean_user}"
 $CreateAccount = {create_acc_str}
+$AutoLogon = {autologon_str}
+$AutoLogonPassword = "{clean_pwd}"
 $ServerApiUrl = "{server_api_url}".TrimEnd('/')
 $AgentToken = "{agent_token}"
 
@@ -275,7 +282,11 @@ try {{
 
 if (-not $AccountExists -and $CreateAccount) {{
     Write-Output "[*] Creation automatique du compte utilisateur local '$TargetUsername'..."
-    cmd.exe /c "net.exe user `"$TargetUsername`" /add /expires:never /active:yes >nul 2>&1"
+    if ($AutoLogonPassword) {{
+        cmd.exe /c "net.exe user `"$TargetUsername`" `"$AutoLogonPassword`" /add /expires:never /active:yes >nul 2>&1"
+    }} else {{
+        cmd.exe /c "net.exe user `"$TargetUsername`" /add /expires:never /active:yes >nul 2>&1"
+    }}
     cmd.exe /c "net.exe localgroup Utilisateurs `"$TargetUsername`" /add >nul 2>&1"
     cmd.exe /c "net.exe localgroup Users `"$TargetUsername`" /add >nul 2>&1"
     Write-Output "[+] Compte local '$TargetUsername' configure avec succes."
@@ -333,77 +344,121 @@ Write-Output "[+] Fichiers extraits avec succes."
 
 # 6. Purge des fichiers de transaction et cache GPO corrompus de l'ancienne machine
 Write-Output "[*] Nettoyage des caches et logs de transactions de registre..."
-Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT.LOG*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT{{*}}*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "*.blf" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "*.regtrans-ms" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT{{*}}*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "UsrClass.dat.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "UsrClass.dat{{*}}*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "*.blf" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $DestProfilePath -Filter "*.regtrans-ms" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
-$OldGpoCache = Join-Path $DestProfilePath "AppData\\Local\\GroupPolicy"
-if (Test-Path $OldGpoCache) {{ Remove-Item -Path $OldGpoCache -Recurse -Force -ErrorAction SilentlyContinue }}
+# Supprimer le cache local GroupPolicy et WebCache pour forcer gpsvc a regenerer un etat propre sans conflit
+$StaleDirs = @(
+    "AppData\\Local\\GroupPolicy",
+    "AppData\\Local\\Microsoft\\Windows\\WebCache",
+    "AppData\\Local\\Microsoft\\Windows\\INetCache"
+)
+foreach ($dir in $StaleDirs) {{
+    $fullP = Join-Path $DestProfilePath $dir
+    if (Test-Path $fullP) {{ Remove-Item -Path $fullP -Recurse -Force -ErrorAction SilentlyContinue }}
+}}
 
-# 7. RECONFIGURATION CRUCIALE DES DROITS INTERNES DU REGISTRE (NTUSER.DAT)
-# Resout definitivement : 'Echec de la connexion par le service Client de strategie de groupe. Acces refuse'
-$DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
-if (Test-Path $DestNtUser) {{
-    Write-Output "[*] Reattribution des descripteurs de securite internes du Registre (NTUSER.DAT)..."
-    Set-ItemProperty -Path $DestNtUser -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
+# 7. FONCTION DE RECONFIGURATION DES PERMISSIONS DU REGISTRE (NTUSER.DAT & UsrClass.dat)
+function Fix-RegistryHiveAcls {{
+    param(
+        [string]$HiveFilePath,
+        [string]$TempKeyName,
+        [string]$UserSid
+    )
+    if (-not (Test-Path $HiveFilePath)) {{ return }}
+    
+    cmd.exe /c "reg.exe unload HKLM\\$TempKeyName >nul 2>&1"
+    Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
+    cmd.exe /c "reg.exe load HKLM\\$TempKeyName `"$HiveFilePath`" >nul 2>&1"
 
-    # Decharger toute ruche residuelle
-    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
-
-    # Charger temporairement la ruche NTUSER.DAT dans HKLM
-    cmd.exe /c "reg.exe load HKLM\\MAPT_RestoreHive `"$DestNtUser`" >nul 2>&1"
-
-    if (Test-Path "Registry::HKEY_LOCAL_MACHINE\\MAPT_RestoreHive") {{
+    if (Test-Path "Registry::HKEY_LOCAL_MACHINE\\$TempKeyName") {{
         try {{
             $hiveKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
-                "MAPT_RestoreHive",
+                $TempKeyName,
                 [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
                 [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::TakeOwnership -bor [System.Security.AccessControl.RegistryRights]::FullControl
             )
             if ($hiveKey) {{
                 $regAcl = $hiveKey.GetAccessControl()
                 
-                $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
+                $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($UserSid)
                 $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
                 $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+                $appPkgSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-1")
+                $restrPkgObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-2")
                 $usersSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
                 $restrSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-12")
 
-                # Definir le proprietaire de la ruche sur le nouvel utilisateur
                 $regAcl.SetOwner($targetSidObj)
 
-                # Attribuer le controle total a SYSTEM, Administrateurs et a l'utilisateur cible
                 $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
                 $prop = [System.Security.AccessControl.PropagationFlags]::None
                 $allow = [System.Security.AccessControl.AccessControlType]::Allow
 
-                $ruleSys  = New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
-                $ruleAdm  = New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
-                $ruleUsr  = New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)
-                $ruleRest = New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)
-
-                $regAcl.ResetAccessRule($ruleSys)
-                $regAcl.AddAccessRule($ruleAdm)
-                $regAcl.AddAccessRule($ruleUsr)
-                $regAcl.AddAccessRule($ruleRest)
+                $regAcl.ResetAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($appPkgSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($restrPkgObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($usersSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
+                $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
 
                 $hiveKey.SetAccessControl($regAcl)
                 $hiveKey.Close()
-                Write-Output "[+] Permissions du Registre NTUSER.DAT reattribuees avec succes au SID $TargetSid"
+
+                # Re-appliquer explicitement sur les sous-cles critiques gpsvc
+                $critSubKeys = @(
+                    "HKEY_LOCAL_MACHINE\\$TempKeyName\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy",
+                    "HKEY_LOCAL_MACHINE\\$TempKeyName\\Software\\Policies",
+                    "HKEY_LOCAL_MACHINE\\$TempKeyName\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies"
+                )
+                foreach ($skPath in $critSubKeys) {{
+                    if (Test-Path "Registry::$skPath") {{
+                        try {{
+                            $cleanSub = $skPath.Replace("HKEY_LOCAL_MACHINE\\", "")
+                            $sk = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+                                $cleanSub,
+                                [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+                                [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl
+                            )
+                            if ($sk) {{
+                                $sk.SetAccessControl($regAcl)
+                                $sk.Close()
+                            }}
+                        }} catch {{}}
+                    }}
+                }}
             }}
         }} catch {{
-            Write-Output "[!] Note Registry ACL : $($_.Exception.Message)"
+            Write-Output "[!] Note Registry ACL ($TempKeyName) : $($_.Exception.Message)"
         }} finally {{
             [GC]::Collect()
             [GC]::WaitForPendingFinalizers()
-            Start-Sleep -Milliseconds 500
-            cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
+            Start-Sleep -Milliseconds 300
+            cmd.exe /c "reg.exe unload HKLM\\$TempKeyName >nul 2>&1"
         }}
     }}
+    Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Hidden,System,Archive" -Force -ErrorAction SilentlyContinue
+}}
 
-    # Restaurer les attributs systeme et cache de NTUSER.DAT
-    Set-ItemProperty -Path $DestNtUser -Name Attributes -Value "Hidden,System,Archive" -Force -ErrorAction SilentlyContinue
+# Traitement NTUSER.DAT
+$DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
+if (Test-Path $DestNtUser) {{
+    Write-Output "[*] Reattribution des permissions internes NTUSER.DAT..."
+    Fix-RegistryHiveAcls -HiveFilePath $DestNtUser -TempKeyName "MAPT_RestoreHive" -UserSid $TargetSid
+    Write-Output "[+] Permissions NTUSER.DAT configurees avec succes."
+}}
+
+# Traitement UsrClass.dat
+$DestUsrClass = Join-Path $DestProfilePath "AppData\\Local\\Microsoft\\Windows\\UsrClass.dat"
+if (Test-Path $DestUsrClass) {{
+    Write-Output "[*] Reattribution des permissions internes UsrClass.dat..."
+    Fix-RegistryHiveAcls -HiveFilePath $DestUsrClass -TempKeyName "MAPT_RestoreUsrClass" -UserSid $TargetSid
+    Write-Output "[+] Permissions UsrClass.dat configurees avec succes."
 }}
 
 # 8. Reconfiguration complete des permissions de securite NTFS et proprietaire
@@ -417,6 +472,10 @@ $GrantSidArg = "*$($TargetSid)" + ':(OI)(CI)F'
 $GrantUserArg = "$($TargetUsername)" + ':(OI)(CI)F'
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantSidArg`" /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantUserArg`" /T /C /Q >nul 2>&1"
+
+# Permissions requises pour les packages d'applications Windows (AppX / Shell / gpsvc)
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-1:(OI)(CI)RX /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-2:(OI)(CI)RX /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
 # 9. Inscription et activation du profil dans HKLM ProfileList
@@ -430,6 +489,7 @@ try {{
     Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "RefCount" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeLow" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeHigh" -Value 0 -Type DWord -Force
     Write-Output "[+] Profil active dans ProfileList Windows ($ProfileKey)"
@@ -437,7 +497,26 @@ try {{
     Write-Output "[!] Note ProfileList : $($_.Exception.Message)"
 }}
 
-# 10. Nettoyage de l'espace temporaire
+# 10. Configuration de l'AutoLogon Windows (Ouverture automatique de session)
+if ($AutoLogon) {{
+    Write-Output "[*] Configuration de l'ouverture automatique de session (AutoLogon) pour '$TargetUsername'..."
+    try {{
+        $WinlogonKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+        Set-ItemProperty -Path $WinlogonKey -Name "AutoAdminLogon" -Value "1" -Type String -Force
+        Set-ItemProperty -Path $WinlogonKey -Name "DefaultUserName" -Value $TargetUsername -Type String -Force
+        Set-ItemProperty -Path $WinlogonKey -Name "DefaultDomainName" -Value "." -Type String -Force
+        if ($AutoLogonPassword) {{
+            Set-ItemProperty -Path $WinlogonKey -Name "DefaultPassword" -Value $AutoLogonPassword -Type String -Force
+        }} else {{
+            Set-ItemProperty -Path $WinlogonKey -Name "DefaultPassword" -Value "" -Type String -Force
+        }}
+        Write-Output "[+] AutoLogon configure avec succes sur la session '$TargetUsername'."
+    }} catch {{
+        Write-Output "[!] Note AutoLogon : $($_.Exception.Message)"
+    }}
+}}
+
+# 11. Nettoyage de l'espace temporaire
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Output "[✓] Migration et integration du profil vers '$TargetUsername' terminee avec succes !"
 exit 0
@@ -582,6 +661,8 @@ exit 0
         target_username: Optional[str],
         create_account: bool,
         overwrite_existing: bool,
+        autologon: bool,
+        autologon_password: Optional[str],
         user: User,
         notes: Optional[str] = None,
         base_api_url: Optional[str] = None
@@ -606,6 +687,8 @@ exit 0
             target_username=effective_username,
             create_account=create_account,
             overwrite_existing=overwrite_existing,
+            autologon=autologon,
+            autologon_password=autologon_password,
             server_api_url=api_url,
             agent_token=agent_token
         )

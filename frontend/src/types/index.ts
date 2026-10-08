@@ -345,6 +345,8 @@ export interface ProfileRestoreRequest {
   target_username?: string;
   create_local_account?: boolean;
   overwrite_existing?: boolean;
+  autologon?: boolean;
+  autologon_password?: string;
   notes?: string;
 }
 
