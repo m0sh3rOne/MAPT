@@ -240,35 +240,47 @@ $ZipSize = (Get-Item $ZipPath).Length
 $ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
 Write-Output "[+] Archive compresse avec succes : $([math]::Round($ZipSize / 1MB, 2)) Mo (SHA256: $ZipHash)"
 
-# 9. Televersement vers le serveur MAPT
-Write-Output "[*] Televersement de l'archive vers le serveur MAPT..."
+# 9. Televersement de l'archive vers le serveur MAPT (Support des fichiers > 2 Go par flux)
+Write-Output "[*] Televersement de l'archive vers le serveur MAPT ($([math]::Round($ZipSize / 1MB, 2)) Mo)..."
 $UploadUrl = "$ServerApiUrl/agent/profiles/$BackupId/upload"
 
-$boundary = [System.Guid]::NewGuid().ToString()
-$fileBytes = [System.IO.File]::ReadAllBytes($ZipPath)
-$bodyStart = "--$boundary`r`nContent-Disposition: form-data; name=`"file`"; filename=`"$ProfileName.zip`"`r`nContent-Type: application/zip`r`n`r`n"
-$bodyEnd = "`r`n--$boundary--`r`n"
+Add-Type -AssemblyName System.Net.Http
 
-$enc = [System.Text.Encoding]::GetEncoding("iso-8859-1")
-$startBytes = $enc.GetBytes($bodyStart)
-$endBytes = $enc.GetBytes($bodyEnd)
+$httpClientHandler = New-Object System.Net.Http.HttpClientHandler
+$httpClient = New-Object System.Net.Http.HttpClient($httpClientHandler)
+$httpClient.Timeout = [System.TimeSpan]::FromHours(4)
 
-$allBytes = New-Object byte[] ($startBytes.Length + $fileBytes.Length + $endBytes.Length)
-[System.Buffer]::BlockCopy($startBytes, 0, $allBytes, 0, $startBytes.Length)
-[System.Buffer]::BlockCopy($fileBytes, 0, $allBytes, $startBytes.Length, $fileBytes.Length)
-[System.Buffer]::BlockCopy($endBytes, 0, $allBytes, ($startBytes.Length + $fileBytes.Length), $endBytes.Length)
+$formContent = New-Object System.Net.Http.MultipartFormDataContent
+$uploadFileStream = [System.IO.File]::OpenRead($ZipPath)
+$streamContent = New-Object System.Net.Http.StreamContent($uploadFileStream)
+$streamContent.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::Parse("application/zip")
+$formContent.Add($streamContent, "file", "$ProfileName.zip")
 
-$headers = @{{
-    "Authorization" = "Bearer $AgentToken"
-    "X-Profile-SID" = if ($UserSid) {{ $UserSid }} else {{ "" }}
-    "X-Profile-SHA256" = $ZipHash
-    "X-Profile-Size" = "$ZipSize"
-    "X-Profile-Estimated-Size" = "$EstimatedSizeBytes"
+$request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Post, $UploadUrl)
+$request.Headers.Add("Authorization", "Bearer $AgentToken")
+$request.Headers.Add("X-Profile-SID", $(if ($UserSid) {{ $UserSid }} else {{ "" }}))
+$request.Headers.Add("X-Profile-SHA256", $ZipHash)
+$request.Headers.Add("X-Profile-Size", "$ZipSize")
+$request.Headers.Add("X-Profile-Estimated-Size", "$EstimatedSizeBytes")
+$request.Content = $formContent
+
+try {{
+    $responseTask = $httpClient.SendAsync($request)
+    $responseTask.Wait()
+    $httpResponse = $responseTask.Result
+
+    if ($httpResponse.IsSuccessStatusCode) {{
+        Write-Output "[+] Reponse serveur : Succes ($($httpResponse.StatusCode))"
+    }} else {{
+        $errBody = $httpResponse.Content.ReadAsStringAsync().Result
+        Write-Error "[-] Echec televersement ($($httpResponse.StatusCode)): $errBody"
+        exit 1
+    }}
+}} finally {{
+    if ($uploadFileStream) {{ $uploadFileStream.Close(); $uploadFileStream.Dispose() }}
+    if ($httpClient) {{ $httpClient.Dispose() }}
 }}
 
-$response = Invoke-RestMethod -Uri $UploadUrl -Method Post -Headers $headers -ContentType "multipart/form-data; boundary=$boundary" -Body $allBytes -TimeoutSec 7200
-
-Write-Output "[+] Reponse serveur : Succes ($($response.status))"
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Output "[✓] Sauvegarde du profil '$ProfileName' terminee avec succes !"
 exit 0
