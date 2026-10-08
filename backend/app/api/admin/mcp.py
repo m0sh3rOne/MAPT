@@ -163,6 +163,57 @@ MAPT_MCP_TOOLS: List[McpToolInfo] = [
             McpToolParameter(name="name", type="string", description="Titre personnalisé du déploiement", required=False),
         ]
     ),
+    McpToolInfo(
+        name="mapt_list_profile_backups",
+        description="Liste les sauvegardes de profils utilisateurs Windows archivées sur MAPT.",
+        category="Profils Utilisateurs",
+        parameters=[
+            McpToolParameter(name="search", type="string", description="Filtre textuel (profil, machine)", required=False),
+            McpToolParameter(name="status", type="string", description="Filtre par statut (READY, PENDING, FAILED)", required=False),
+            McpToolParameter(name="limit", type="integer", description="Nombre max de profils", required=False, default=50),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_backup_user_profile",
+        description="Lance la sauvegarde et l'exportation complète du profil utilisateur Windows d'une machine vers le serveur MAPT (identique à profwiz / transwiz).",
+        category="Profils Utilisateurs",
+        parameters=[
+            McpToolParameter(name="device_id", type="string (UUID)", description="UUID de la machine source", required=True),
+            McpToolParameter(name="profile_name", type="string", description="Nom du profil utilisateur Windows (ex: eleve)", required=True),
+            McpToolParameter(name="notes", type="string", description="Notes / description", required=False),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_restore_user_profile",
+        description="Restaure et migre une archive de profil Windows sur un poste avec réattribution des permissions NTFS, réparation du registre (gpsvc fix) et AutoLogon.",
+        category="Profils Utilisateurs",
+        parameters=[
+            McpToolParameter(name="backup_id", type="string (UUID)", description="UUID de la sauvegarde à restaurer", required=True),
+            McpToolParameter(name="target_device_id", type="string (UUID)", description="UUID de la machine cible", required=True),
+            McpToolParameter(name="target_username", type="string", description="Nom du compte local cible", required=False),
+            McpToolParameter(name="create_local_account", type="boolean", description="Créer automatiquement le compte", required=False, default=True),
+            McpToolParameter(name="overwrite_existing", type="boolean", description="Écraser les fichiers existants", required=False, default=True),
+            McpToolParameter(name="autologon", type="boolean", description="Activer l'AutoLogon au démarrage", required=False, default=True),
+            McpToolParameter(name="autologon_password", type="string", description="Mot de passe pour l'AutoLogon", required=False),
+            McpToolParameter(name="notes", type="string", description="Notes / description", required=False),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_get_profile_backup",
+        description="Obtient les détails complets, statut, taille et métadonnées d'une sauvegarde de profil.",
+        category="Profils Utilisateurs",
+        parameters=[
+            McpToolParameter(name="backup_id", type="string (UUID)", description="UUID de la sauvegarde", required=True),
+        ]
+    ),
+    McpToolInfo(
+        name="mapt_delete_profile_backup",
+        description="Supprime définitivement une sauvegarde de profil utilisateur du serveur MAPT.",
+        category="Profils Utilisateurs",
+        parameters=[
+            McpToolParameter(name="backup_id", type="string (UUID)", description="UUID de la sauvegarde à supprimer", required=True),
+        ]
+    ),
 ]
 
 

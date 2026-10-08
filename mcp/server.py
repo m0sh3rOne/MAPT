@@ -512,6 +512,93 @@ def tool_deploy_script(
     }
 
 
+def tool_list_profile_backups(
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50
+) -> Dict[str, Any]:
+    """Liste les sauvegardes de profils utilisateurs Windows stockées sur le serveur MAPT."""
+    params = {"limit": limit}
+    if search:
+        params["search"] = search
+    if status:
+        params["status"] = status
+    backups = client.request("GET", "/admin/profiles", params=params)
+    return {
+        "backups": backups or [],
+        "count": len(backups or [])
+    }
+
+
+def tool_backup_user_profile(
+    device_id: str,
+    profile_name: str,
+    notes: Optional[str] = None
+) -> Dict[str, Any]:
+    """Déclenche la sauvegarde et l'archivage complet du profil utilisateur Windows d'un poste vers le serveur MAPT."""
+    payload = {
+        "device_id": device_id,
+        "profile_name": profile_name,
+        "notes": notes or f"Sauvegarde initiée via MCP pour '{profile_name}'"
+    }
+    resp = client.request("POST", "/admin/profiles/backup", data=payload)
+    return {
+        "success": True,
+        "message": f"Sauvegarde du profil '{profile_name}' initiée avec succès sur le poste cible.",
+        "backup_id": resp.get("id"),
+        "deployment_id": resp.get("backup_deployment_id"),
+        "status": resp.get("status"),
+        "raw_response": resp
+    }
+
+
+def tool_restore_user_profile(
+    backup_id: str,
+    target_device_id: str,
+    target_username: Optional[str] = None,
+    create_local_account: bool = True,
+    overwrite_existing: bool = True,
+    autologon: bool = True,
+    autologon_password: Optional[str] = None,
+    notes: Optional[str] = None
+) -> Dict[str, Any]:
+    """Restaure et migre une archive de profil utilisateur Windows sur un poste cible avec résolution automatique des permissions et AutoLogon."""
+    payload = {
+        "target_device_id": target_device_id,
+        "target_username": target_username,
+        "create_local_account": create_local_account,
+        "overwrite_existing": overwrite_existing,
+        "autologon": autologon,
+        "autologon_password": autologon_password,
+        "notes": notes
+    }
+    resp = client.request("POST", f"/admin/profiles/{backup_id}/restore", data=payload)
+    return {
+        "success": True,
+        "message": resp.get("message", "Ordre de restauration envoyé avec succès."),
+        "deployment_id": resp.get("deployment_id"),
+        "backup_id": backup_id,
+        "raw_response": resp
+    }
+
+
+def tool_get_profile_backup(backup_id: str) -> Dict[str, Any]:
+    """Récupère les détails complets d'une sauvegarde de profil utilisateur spécifique."""
+    backup = client.request("GET", f"/admin/profiles/{backup_id}")
+    return {
+        "backup": backup
+    }
+
+
+def tool_delete_profile_backup(backup_id: str) -> Dict[str, Any]:
+    """Supprime définitivement une sauvegarde de profil utilisateur du serveur MAPT."""
+    client.request("DELETE", f"/admin/profiles/{backup_id}")
+    return {
+        "success": True,
+        "message": f"Sauvegarde de profil {backup_id} supprimée avec succès."
+    }
+
+
 # Dictionnaire de métadonnées des outils MCP
 MCP_TOOLS = {
     "mapt_list_devices": {
@@ -724,6 +811,76 @@ MCP_TOOLS = {
                 "name": {"type": "string", "description": "Titre personnalisé du déploiement"}
             },
             "required": ["script_id"]
+        }
+    },
+    "mapt_list_profile_backups": {
+        "name": "mapt_list_profile_backups",
+        "description": "Liste les sauvegardes de profils utilisateurs Windows archivées sur MAPT.",
+        "func": tool_list_profile_backups,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string", "description": "Filtre de recherche (nom de profil, machine source, notes)"},
+                "status": {"type": "string", "enum": ["PENDING", "BACKING_UP", "READY", "RESTORING", "FAILED", "CANCELLED"], "description": "Filtre par statut"},
+                "limit": {"type": "integer", "description": "Nombre max de sauvegardes", "default": 50}
+            }
+        }
+    },
+    "mapt_backup_user_profile": {
+        "name": "mapt_backup_user_profile",
+        "description": "Lance la sauvegarde et l'exportation complète du profil utilisateur Windows d'une machine vers le serveur MAPT (identique à profwiz / transwiz).",
+        "func": tool_backup_user_profile,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "device_id": {"type": "string", "description": "UUID de la machine source"},
+                "profile_name": {"type": "string", "description": "Nom du profil utilisateur Windows à sauvegarder (ex: 'eleve', 'jdupont')"},
+                "notes": {"type": "string", "description": "Notes explicatives (optionnel)"}
+            },
+            "required": ["device_id", "profile_name"]
+        }
+    },
+    "mapt_restore_user_profile": {
+        "name": "mapt_restore_user_profile",
+        "description": "Restaure et migre une archive de profil Windows sur une machine cible avec réattribution des permissions NTFS, réparation du registre NTUSER.DAT/UsrClass.dat (gpsvc fix) et configuration optionnelle de l'AutoLogon.",
+        "func": tool_restore_user_profile,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "backup_id": {"type": "string", "description": "UUID de la sauvegarde de profil à restaurer"},
+                "target_device_id": {"type": "string", "description": "UUID de la machine de destination"},
+                "target_username": {"type": "string", "description": "Nom du compte local cible (si omis, utilise le nom d'origine)"},
+                "create_local_account": {"type": "boolean", "description": "Créer automatiquement le compte Windows local cible si absent", "default": True},
+                "overwrite_existing": {"type": "boolean", "description": "Écraser les fichiers existants", "default": True},
+                "autologon": {"type": "boolean", "description": "Activer la connexion automatique (AutoLogon) au démarrage", "default": True},
+                "autologon_password": {"type": "string", "description": "Mot de passe pour l'AutoLogon (optionnel)"},
+                "notes": {"type": "string", "description": "Notes explicatives (optionnel)"}
+            },
+            "required": ["backup_id", "target_device_id"]
+        }
+    },
+    "mapt_get_profile_backup": {
+        "name": "mapt_get_profile_backup",
+        "description": "Obtient les détails complets, taille, statut et métadonnées d'une sauvegarde de profil.",
+        "func": tool_get_profile_backup,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "backup_id": {"type": "string", "description": "UUID de la sauvegarde"}
+            },
+            "required": ["backup_id"]
+        }
+    },
+    "mapt_delete_profile_backup": {
+        "name": "mapt_delete_profile_backup",
+        "description": "Supprime définitivement une sauvegarde de profil utilisateur du serveur MAPT.",
+        "func": tool_delete_profile_backup,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "backup_id": {"type": "string", "description": "UUID de la sauvegarde à supprimer"}
+            },
+            "required": ["backup_id"]
         }
     }
 }
