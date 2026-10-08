@@ -63,6 +63,7 @@ export const Profiles: React.FC = () => {
   const [restoreAutoLogonPassword, setRestoreAutoLogonPassword] = useState('');
   const [restoreNotes, setRestoreNotes] = useState('');
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
 
   // Queries
   const {
@@ -273,6 +274,26 @@ export const Profiles: React.FC = () => {
       profile_name: backupProfileName.trim(),
       notes: backupNotes,
     });
+  };
+
+  const handleDownloadProfile = async (backup: UserProfileBackup) => {
+    try {
+      setDownloadingBackupId(backup.id);
+      const blob = await api.downloadProfileBlob(backup.id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = backup.profile_name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      a.download = `profile_${safeName}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Erreur lors du téléchargement de l'archive du profil.");
+    } finally {
+      setDownloadingBackupId(null);
+    }
   };
 
   return (
@@ -700,14 +721,19 @@ export const Profiles: React.FC = () => {
 
                           {/* Download ZIP */}
                           {isReady && (
-                            <a
-                              href={api.getProfileDownloadUrl(backup.id)}
-                              download
-                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 rounded-lg transition"
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadProfile(backup)}
+                              disabled={downloadingBackupId === backup.id}
+                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 rounded-lg transition disabled:opacity-50"
                               title="Télécharger l'archive ZIP du profil"
                             >
-                              <Download className="w-3.5 h-3.5" />
-                            </a>
+                              {downloadingBackupId === backup.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                              ) : (
+                                <Download className="w-3.5 h-3.5" />
+                              )}
+                            </button>
                           )}
 
                           {/* Delete */}

@@ -477,6 +477,12 @@ export const api = {
   getProfileDownloadUrl: (backupId: string): string => {
     const token = localStorage.getItem('mapt_token');
     return `/api/v1/admin/profiles/${backupId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+  downloadProfileBlob: async (backupId: string): Promise<Blob> => {
+    const res = await apiClient.get(`/admin/profiles/${backupId}/download`, {
+      responseType: 'blob'
+    });
+    return res.data;
   }
 };
 

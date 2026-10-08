@@ -1,6 +1,6 @@
 from typing import Optional, List
 from uuid import UUID
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
@@ -14,9 +14,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 
 
 async def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme),
+    token_header: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db)
 ) -> User:
+    token = token_header or token_query
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -124,12 +124,14 @@ async def download_profile_zip(
 
     try:
         stream = get_file_stream(backup.storage_key)
+        safe_name = "".join(c for c in backup.profile_name if c.isalnum() or c in ('_', '-')) or "profile"
+        filename_std = f"profile_{safe_name}.zip"
         encoded_filename = urllib.parse.quote(f"profile_{backup.profile_name}.zip")
         return StreamingResponse(
             stream,
             media_type="application/zip",
             headers={
-                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Content-Disposition": f'attachment; filename="{filename_std}"; filename*=UTF-8\'\'{encoded_filename}',
                 "Content-Length": str(backup.size_bytes) if backup.size_bytes else ""
             }
         )
