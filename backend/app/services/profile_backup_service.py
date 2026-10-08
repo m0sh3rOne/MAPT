@@ -275,14 +275,10 @@ try {{
 
 if (-not $AccountExists -and $CreateAccount) {{
     Write-Output "[*] Creation automatique du compte utilisateur local '$TargetUsername'..."
-    try {{
-        & net.exe user "$TargetUsername" /add /expires:never /active:yes
-        & net.exe localgroup "Utilisateurs" "$TargetUsername" /add 2>$null
-        & net.exe localgroup "Users" "$TargetUsername" /add 2>$null
-        Write-Output "[+] Compte local '$TargetUsername' cree avec succes."
-    }} catch {{
-        Write-Output "[!] Note creation compte : $($_.Exception.Message)"
-    }}
+    cmd.exe /c "net.exe user `"$TargetUsername`" /add /expires:never /active:yes >nul 2>&1"
+    cmd.exe /c "net.exe localgroup Utilisateurs `"$TargetUsername`" /add >nul 2>&1"
+    cmd.exe /c "net.exe localgroup Users `"$TargetUsername`" /add >nul 2>&1"
+    Write-Output "[+] Compte local '$TargetUsername' configure avec succes."
 }}
 
 # 2. Resolution du SID Windows de l'utilisateur cible
@@ -353,10 +349,10 @@ if (Test-Path $DestNtUser) {{
     Set-ItemProperty -Path $DestNtUser -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
 
     # Decharger toute ruche residuelle
-    & reg.exe unload "HKLM\\MAPT_RestoreHive" 2>$null | Out-Null
+    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
 
     # Charger temporairement la ruche NTUSER.DAT dans HKLM
-    & reg.exe load "HKLM\\MAPT_RestoreHive" "$DestNtUser" 2>&1 | Out-Null
+    cmd.exe /c "reg.exe load HKLM\\MAPT_RestoreHive `"$DestNtUser`" >nul 2>&1"
 
     if (Test-Path "Registry::HKEY_LOCAL_MACHINE\\MAPT_RestoreHive") {{
         try {{
@@ -402,7 +398,7 @@ if (Test-Path $DestNtUser) {{
             [GC]::Collect()
             [GC]::WaitForPendingFinalizers()
             Start-Sleep -Milliseconds 500
-            & reg.exe unload "HKLM\\MAPT_RestoreHive" 2>&1 | Out-Null
+            cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
         }}
     }}
 
@@ -412,15 +408,13 @@ if (Test-Path $DestNtUser) {{
 
 # 8. Reconfiguration complete des permissions de securite NTFS et proprietaire
 Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProfilePath..."
-& takeown.exe /F "$DestProfilePath" /R /A /D O 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /inheritance:e /T /C /Q 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /grant "*S-1-5-18:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /grant "*S-1-5-32-544:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
-$TargetSidGrant = "*$($TargetSid):(OI)(CI)F"
-$TargetUserGrant = "$($TargetUsername):(OI)(CI)F"
-& icacls.exe "$DestProfilePath" /grant "$TargetSidGrant" /T /C /Q 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /grant "$TargetUserGrant" /T /C /Q 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /setowner "$TargetUsername" /T /C /Q 2>$null | Out-Null
+cmd.exe /c "takeown.exe /F `"$DestProfilePath`" /R /A /D O >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /inheritance:e /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"*$TargetSid:(OI)(CI)F`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$TargetUsername:(OI)(CI)F`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
 # 9. Inscription et activation du profil dans HKLM ProfileList
 Write-Output "[*] Inscription du profil dans le registre Windows ProfileList ($TargetSid)..."
