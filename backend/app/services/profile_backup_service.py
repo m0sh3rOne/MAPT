@@ -218,7 +218,7 @@ $ZipArchive = New-Object System.IO.Compression.ZipArchive($ZipStream, [System.IO
 
 $FilesToZip = Get-ChildItem -Path $PackageDir -Recurse -File -Force -ErrorAction SilentlyContinue
 foreach ($f in $FilesToZip) {{
-    $relPath = $f.FullName.Substring($PackageDir.Length + 1).Replace('\', '/')
+    $relPath = $f.FullName.Substring($PackageDir.Length + 1).Replace([char]92, [char]47)
     try {{
         $entry = $ZipArchive.CreateEntry($relPath, [System.IO.Compression.CompressionLevel]::Optimal)
         $entryStream = $entry.Open()
