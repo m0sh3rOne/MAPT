@@ -8,6 +8,7 @@ class ProfileBackupCreateRequest(BaseModel):
     device_id: UUID
     profile_name: str  # ex: "jdupont" ou "ECOLE\prof01"
     notes: Optional[str] = None
+    compression_level: Optional[str] = "optimal"  # "fastest", "optimal", "maximum"
 
 
 class ProfileRestoreRequest(BaseModel):

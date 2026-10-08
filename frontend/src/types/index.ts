@@ -338,6 +338,7 @@ export interface ProfileBackupCreateRequest {
   device_id: string;
   profile_name: string;
   notes?: string;
+  compression_level?: 'fastest' | 'optimal' | 'maximum';
 }
 
 export interface ProfileRestoreRequest {

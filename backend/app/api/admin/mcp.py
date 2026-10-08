@@ -181,6 +181,7 @@ MAPT_MCP_TOOLS: List[McpToolInfo] = [
             McpToolParameter(name="device_id", type="string (UUID)", description="UUID de la machine source", required=True),
             McpToolParameter(name="profile_name", type="string", description="Nom du profil utilisateur Windows (ex: eleve)", required=True),
             McpToolParameter(name="notes", type="string", description="Notes / description", required=False),
+            McpToolParameter(name="compression_level", type="string (fastest|optimal|maximum)", description="Taux de compression : fastest (Faible), optimal (Moyen), maximum (Élevé)", required=False, default="optimal"),
         ]
     ),
     McpToolInfo(

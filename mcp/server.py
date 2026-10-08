@@ -533,13 +533,15 @@ def tool_list_profile_backups(
 def tool_backup_user_profile(
     device_id: str,
     profile_name: str,
-    notes: Optional[str] = None
+    notes: Optional[str] = None,
+    compression_level: str = "optimal"
 ) -> Dict[str, Any]:
     """Déclenche la sauvegarde et l'archivage complet du profil utilisateur Windows d'un poste vers le serveur MAPT."""
     payload = {
         "device_id": device_id,
         "profile_name": profile_name,
-        "notes": notes or f"Sauvegarde initiée via MCP pour '{profile_name}'"
+        "notes": notes or f"Sauvegarde initiée via MCP pour '{profile_name}'",
+        "compression_level": compression_level
     }
     resp = client.request("POST", "/admin/profiles/backup", data=payload)
     return {
@@ -835,7 +837,8 @@ MCP_TOOLS = {
             "properties": {
                 "device_id": {"type": "string", "description": "UUID de la machine source"},
                 "profile_name": {"type": "string", "description": "Nom du profil utilisateur Windows à sauvegarder (ex: 'eleve', 'jdupont')"},
-                "notes": {"type": "string", "description": "Notes explicatives (optionnel)"}
+                "notes": {"type": "string", "description": "Notes explicatives (optionnel)"},
+                "compression_level": {"type": "string", "description": "Taux de compression : 'fastest' (Faible/Rapide), 'optimal' (Moyen/Recommandé), 'maximum' (Élevé)", "default": "optimal"}
             },
             "required": ["device_id", "profile_name"]
         }

@@ -27,7 +27,9 @@ import {
   Info,
   XCircle,
   StopCircle,
-  AlertTriangle
+  AlertTriangle,
+  Zap,
+  Scale
 } from 'lucide-react';
 
 export const Profiles: React.FC = () => {
@@ -52,6 +54,7 @@ export const Profiles: React.FC = () => {
   const [backupSourceDeviceId, setBackupSourceDeviceId] = useState('');
   const [backupProfileName, setBackupProfileName] = useState('');
   const [backupNotes, setBackupNotes] = useState('');
+  const [backupCompressionLevel, setBackupCompressionLevel] = useState<'fastest' | 'optimal' | 'maximum'>('optimal');
   const [backupError, setBackupError] = useState<string | null>(null);
 
   // Restore form state
@@ -273,6 +276,7 @@ export const Profiles: React.FC = () => {
       device_id: backupSourceDeviceId,
       profile_name: backupProfileName.trim(),
       notes: backupNotes,
+      compression_level: backupCompressionLevel,
     });
   };
 
@@ -859,10 +863,73 @@ export const Profiles: React.FC = () => {
                 )}
               </div>
 
+              {/* Compression Level Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  3. Taux de Compression de l'Archive
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setBackupCompressionLevel('fastest')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      backupCompressionLevel === 'fastest'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Faible</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 leading-tight">
+                      Ultra-rapide, CPU minimal (idéal gros profils & LAN 1Gbps)
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBackupCompressionLevel('optimal')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      backupCompressionLevel === 'optimal'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <Scale className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Moyen</span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 rounded font-normal">Défaut</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 leading-tight">
+                      Équilibré vitesse / gain d'espace
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setBackupCompressionLevel('maximum')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      backupCompressionLevel === 'maximum'
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-300 ring-1 ring-emerald-500/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs">
+                      <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Élevé</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 leading-tight">
+                      Taille minimale, économise le stockage serveur
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               {/* Optional Notes */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  3. Notes / Description (Optionnel)
+                  4. Notes / Description (Optionnel)
                 </label>
                 <textarea
                   rows={2}

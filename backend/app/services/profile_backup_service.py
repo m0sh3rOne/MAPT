@@ -35,7 +35,8 @@ class ProfileBackupService:
         profile_name: str,
         backup_id: UUID,
         server_api_url: str,
-        agent_token: str
+        agent_token: str,
+        compression_level: str = "optimal"
     ) -> str:
         clean_profile = profile_name.replace('"', '`"')
         return f"""$ErrorActionPreference = 'Stop'
@@ -213,6 +214,23 @@ Write-Output "[*] Compression de l'archive ZIP..."
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
+# Configuration du niveau de compression (.NET)
+$CompLevel = [System.IO.Compression.CompressionLevel]::Optimal
+if ("{compression_level}".ToLower() -in @("fastest", "faible", "fast")) {{
+    $CompLevel = [System.IO.Compression.CompressionLevel]::Fastest
+    Write-Output "[*] Taux de compression : Faible / Rapide (Fastest - gain CPU maximal)"
+}} elseif ("{compression_level}".ToLower() -in @("maximum", "eleve", "high", "smallest")) {{
+    try {{
+        $CompLevel = [System.IO.Compression.CompressionLevel]::SmallestSize
+        Write-Output "[*] Taux de compression : Eleve (SmallestSize - taille minimale)"
+    }} catch {{
+        $CompLevel = [System.IO.Compression.CompressionLevel]::Optimal
+        Write-Output "[*] Taux de compression : Eleve / Optimal (Optimal)"
+    }}
+}} else {{
+    Write-Output "[*] Taux de compression : Moyen / Equilibre (Optimal)"
+}}
+
 $ZipStream = [System.IO.File]::Open($ZipPath, [System.IO.FileMode]::Create)
 $ZipArchive = New-Object System.IO.Compression.ZipArchive($ZipStream, [System.IO.Compression.ZipArchiveMode]::Create)
 
@@ -220,7 +238,7 @@ $FilesToZip = Get-ChildItem -Path $PackageDir -Recurse -File -Force -ErrorAction
 foreach ($f in $FilesToZip) {{
     $relPath = $f.FullName.Substring($PackageDir.Length + 1).Replace([char]92, [char]47)
     try {{
-        $entry = $ZipArchive.CreateEntry($relPath, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entry = $ZipArchive.CreateEntry($relPath, $CompLevel)
         $entryStream = $entry.Open()
         $fileStream = [System.IO.File]::Open($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $fileStream.CopyTo($entryStream)
@@ -621,7 +639,8 @@ exit 0
         profile_name: str,
         user: User,
         notes: Optional[str] = None,
-        base_api_url: Optional[str] = None
+        base_api_url: Optional[str] = None,
+        compression_level: str = "optimal"
     ) -> UserProfileBackup:
         device = await self.device_repo.get_by_id(device_id)
         if not device:
@@ -652,7 +671,8 @@ exit 0
             profile_name=profile_name,
             backup_id=backup_id,
             server_api_url=api_url,
-            agent_token=agent_token
+            agent_token=agent_token,
+            compression_level=compression_level
         )
 
         deployment = Deployment(
