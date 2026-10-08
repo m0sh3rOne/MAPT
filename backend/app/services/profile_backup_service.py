@@ -115,6 +115,9 @@ Write-Output "[+] SID utilisateur detecte : $(if ($UserSid) {{ $UserSid }} else 
 # 5. Copie Robocopy avec exclusions de caches volumineux et temporaires
 Write-Output "[*] Copie des fichiers et dossiers utilisateurs (Documents, Bureau, Images, AppData, etc.)..."
 $ExcludeDirs = @(
+    "Packages",
+    "WindowsApps",
+    "FeedSessions",
     "Temp",
     "INetCache",
     "WebCache",
@@ -207,19 +210,31 @@ Set-Content -Path (Join-Path $PackageDir "mapt_profile_meta.json") -Value $MetaJ
 # 8. Compression de l'archive ZIP
 $ZipPath = Join-Path $WorkDir "$ProfileName.zip"
 Write-Output "[*] Compression de l'archive ZIP..."
-$Compressed = $false
-try {{
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($PackageDir, $ZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-    $Compressed = $true
-}} catch {{
-    Write-Output "[!] Note compression standard : $($_.Exception.Message). Utilisation du fallback Compress-Archive..."
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+$ZipStream = [System.IO.File]::Open($ZipPath, [System.IO.FileMode]::Create)
+$ZipArchive = New-Object System.IO.Compression.ZipArchive($ZipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+
+$FilesToZip = Get-ChildItem -Path $PackageDir -Recurse -File -Force -ErrorAction SilentlyContinue
+foreach ($f in $FilesToZip) {{
+    $relPath = $f.FullName.Substring($PackageDir.Length + 1).Replace('\', '/')
+    try {{
+        $entry = $ZipArchive.CreateEntry($relPath, [System.IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $entry.Open()
+        $fileStream = [System.IO.File]::Open($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $fileStream.CopyTo($entryStream)
+        $fileStream.Close()
+        $fileStream.Dispose()
+        $entryStream.Close()
+        $entryStream.Dispose()
+    }} catch {{
+        # Ignorer en toute securite les fichiers transitoires verrouilles par le systeme
+    }}
 }}
 
-if (-not $Compressed -or -not (Test-Path $ZipPath) -or (Get-Item $ZipPath).Length -eq 0) {{
-    if (Test-Path $ZipPath) {{ Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue }}
-    Get-ChildItem -Path $PackageDir -Force | Compress-Archive -DestinationPath $ZipPath -CompressionLevel Optimal -Force
-}}
+$ZipArchive.Dispose()
+$ZipStream.Dispose()
 
 $ZipSize = (Get-Item $ZipPath).Length
 $ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
