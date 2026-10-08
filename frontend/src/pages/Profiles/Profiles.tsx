@@ -25,9 +25,9 @@ import {
   Layers,
   FileArchive,
   Info,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown
+  XCircle,
+  StopCircle,
+  AlertTriangle
 } from 'lucide-react';
 
 export const Profiles: React.FC = () => {
@@ -46,6 +46,7 @@ export const Profiles: React.FC = () => {
   const [showRestoreModal, setShowRestoreModal] = useState(false);
   const [selectedBackupForRestore, setSelectedBackupForRestore] = useState<UserProfileBackup | null>(null);
   const [backupToDelete, setBackupToDelete] = useState<UserProfileBackup | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Backup form state
   const [backupSourceDeviceId, setBackupSourceDeviceId] = useState('');
@@ -70,7 +71,7 @@ export const Profiles: React.FC = () => {
   } = useQuery({
     queryKey: ['profiles-backups'],
     queryFn: () => api.getProfiles(),
-    refetchInterval: 5000,
+    refetchInterval: 3000,
   });
 
   const { data: summary } = useQuery({
@@ -126,17 +127,29 @@ export const Profiles: React.FC = () => {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: (backupId: string) => api.cancelProfileBackup(backupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profiles-backups'] });
+      queryClient.invalidateQueries({ queryKey: ['profiles-summary'] });
+    },
+  });
+
   const deleteMutation = useMutation({
-    mutationFn: api.deleteProfileBackup,
+    mutationFn: (backupId: string) => api.deleteProfileBackup(backupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profiles-backups'] });
       queryClient.invalidateQueries({ queryKey: ['profiles-summary'] });
       setBackupToDelete(null);
+      setDeleteError(null);
+    },
+    onError: (err: any) => {
+      setDeleteError(err.response?.data?.detail || 'Erreur lors de la suppression.');
     },
   });
 
   // Format bytes helper
-  const formatBytes = (bytes: number) => {
+  const formatBytes = (bytes?: number | null) => {
     if (!bytes || bytes === 0) return '0 Mo';
     const k = 1024;
     const sizes = ['Octets', 'Ko', 'Mo', 'Go', 'To'];
@@ -197,11 +210,11 @@ export const Profiles: React.FC = () => {
   const defaultColWidths = useMemo(
     () => ({
       profile: 260,
-      source: 240,
-      size: 140,
-      date: 180,
-      status: 160,
-      actions: 200,
+      source: 220,
+      size: 150,
+      date: 170,
+      status: 180,
+      actions: 220,
     }),
     []
   );
@@ -259,31 +272,32 @@ export const Profiles: React.FC = () => {
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* ========================================================================= */}
-      {/* HEADER SECTION                                                            */}
+      {/* HEADER                                                                    */}
       {/* ========================================================================= */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-800/80 pb-5">
-        <div>
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
-              <FolderArchive className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-slate-100 tracking-tight flex items-center gap-2">
-                Sauvegarde & Migration de Profils
-              </h1>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Capture des dossiers utilisateurs, registre NTUSER.DAT et migration instantanée vers d'autres postes.
-              </p>
-            </div>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-lg shadow-emerald-500/10">
+            <FolderArchive className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-100 flex items-center space-x-2">
+              <span>Sauvegarde & Migration de Profils</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Sauvegardez les profils Windows distants (documents, registre NTUSER.DAT) et migrez-les instantanément vers d'autres postes.
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 w-full sm:w-auto">
+        <div className="flex items-center space-x-3">
           <button
-            onClick={() => refetchBackups()}
+            onClick={() => {
+              refetchBackups();
+              queryClient.invalidateQueries({ queryKey: ['profiles-summary'] });
+            }}
             disabled={fetchingBackups}
-            className="p-2.5 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-slate-100 rounded-xl transition duration-150 disabled:opacity-50"
-            title="Actualiser la liste"
+            className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-slate-100 transition shadow-sm"
+            title="Rafraîchir les statuts"
           >
             <RefreshCw className={`w-4 h-4 ${fetchingBackups ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
@@ -293,7 +307,7 @@ export const Profiles: React.FC = () => {
               setBackupError(null);
               setShowBackupModal(true);
             }}
-            className="flex-1 sm:flex-none flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-emerald-600/25 transition duration-150"
+            className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-emerald-600/20 transition duration-150"
           >
             <Plus className="w-4 h-4" />
             <span>Sauvegarder un Profil</span>
@@ -305,6 +319,7 @@ export const Profiles: React.FC = () => {
       {/* STATS OVERVIEW CARDS                                                      */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Backups */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Profils</div>
@@ -317,9 +332,10 @@ export const Profiles: React.FC = () => {
           </div>
         </div>
 
+        {/* Total Size */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Espace Stockage</div>
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Espace Profils MAPT</div>
             <div className="text-2xl font-black text-slate-100 mt-1">
               {formatBytes(summary?.total_size_bytes || 0)}
             </div>
@@ -329,25 +345,27 @@ export const Profiles: React.FC = () => {
           </div>
         </div>
 
+        {/* Server Free Disk Space */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Profils Prêts</div>
-            <div className="text-2xl font-black text-emerald-400 mt-1">
-              {summary?.ready_count ?? backups.filter((b) => b.status === 'READY').length}
+            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Espace Libre Serveur</div>
+            <div className="text-2xl font-black text-cyan-400 mt-1">
+              {formatBytes(summary?.server_free_space_bytes || 0)}
             </div>
           </div>
-          <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-            <CheckCircle2 className="w-5 h-5" />
+          <div className="w-11 h-11 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <Server className="w-5 h-5" />
           </div>
         </div>
 
+        {/* Status in progress / errors */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex items-center justify-between shadow-sm">
           <div>
             <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">En Cours / Échecs</div>
             <div className="text-2xl font-black text-amber-400 mt-1">
               {summary?.in_progress_count ?? 0}
               <span className="text-xs font-medium text-slate-500 ml-1.5">
-                ({summary?.failed_count ?? 0} err)
+                ({summary?.failed_count ?? 0} échec{(summary?.failed_count ?? 0) > 1 ? 's' : ''})
               </span>
             </div>
           </div>
@@ -464,7 +482,7 @@ export const Profiles: React.FC = () => {
                   onClick={() => handleSort('size_bytes')}
                 >
                   <div className="flex items-center space-x-1.5">
-                    <span>Taille</span>
+                    <span>Taille Archive</span>
                     {sortKey === 'size_bytes' && (
                       <span className="text-emerald-400">{sortDirection === 'asc' ? '↑' : '↓'}</span>
                     )}
@@ -534,6 +552,7 @@ export const Profiles: React.FC = () => {
                   const isReady = backup.status === 'READY';
                   const isInProgress = backup.status === 'BACKING_UP' || backup.status === 'RESTORING' || backup.status === 'PENDING';
                   const isFailed = backup.status === 'FAILED';
+                  const isCancelled = backup.status === 'CANCELLED';
 
                   return (
                     <tr
@@ -576,7 +595,13 @@ export const Profiles: React.FC = () => {
                       <td className="px-5 py-4">
                         <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-300">
                           <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-                          <span>{formatBytes(backup.size_bytes)}</span>
+                          <span>
+                            {backup.size_bytes > 0
+                              ? formatBytes(backup.size_bytes)
+                              : backup.estimated_size_bytes && backup.estimated_size_bytes > 0
+                              ? `~${formatBytes(backup.estimated_size_bytes)} (est.)`
+                              : '0 Mo'}
+                          </span>
                         </div>
                       </td>
 
@@ -602,28 +627,40 @@ export const Profiles: React.FC = () => {
                         {isReady && (
                           <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Prêt</span>
+                            <span>Prêt à migrer</span>
                           </span>
                         )}
                         {isInProgress && (
-                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>
-                              {backup.status === 'BACKING_UP'
-                                ? 'Sauvegarde...'
-                                : backup.status === 'RESTORING'
-                                ? 'Restauration...'
-                                : 'En attente...'}
+                          <div className="flex items-center space-x-2">
+                            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>
+                                {backup.status === 'BACKING_UP'
+                                  ? 'Sauvegarde...'
+                                  : backup.status === 'RESTORING'
+                                  ? 'Restauration...'
+                                  : 'En attente...'}
+                              </span>
                             </span>
-                          </span>
+                          </div>
                         )}
                         {isFailed && (
-                          <span
-                            className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20"
-                            title={backup.error_message || 'Échec'}
-                          >
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            <span>Échec</span>
+                          <div className="flex flex-col gap-1">
+                            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 w-fit">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span>Échec</span>
+                            </span>
+                            {backup.error_message && (
+                              <span className="text-[10px] text-red-400/80 font-mono truncate max-w-[180px]" title={backup.error_message}>
+                                {backup.error_message}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {isCancelled && (
+                          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Annulé</span>
                           </span>
                         )}
                       </td>
@@ -631,6 +668,20 @@ export const Profiles: React.FC = () => {
                       {/* Actions */}
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end space-x-2">
+                          {/* Cancel button if currently in progress */}
+                          {isInProgress && (
+                            <button
+                              onClick={() => cancelMutation.mutate(backup.id)}
+                              disabled={cancelMutation.isPending}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold rounded-lg transition"
+                              title="Annuler la sauvegarde en cours"
+                            >
+                              <StopCircle className="w-3.5 h-3.5" />
+                              <span>Arrêter</span>
+                            </button>
+                          )}
+
+                          {/* Restore button */}
                           <button
                             onClick={() => handleOpenRestore(backup)}
                             disabled={!isReady}
@@ -641,6 +692,7 @@ export const Profiles: React.FC = () => {
                             <span>Restaurer</span>
                           </button>
 
+                          {/* Download ZIP */}
                           {isReady && (
                             <a
                               href={api.getProfileDownloadUrl(backup.id)}
@@ -652,8 +704,12 @@ export const Profiles: React.FC = () => {
                             </a>
                           )}
 
+                          {/* Delete */}
                           <button
-                            onClick={() => setBackupToDelete(backup)}
+                            onClick={() => {
+                              setDeleteError(null);
+                              setBackupToDelete(backup);
+                            }}
                             className="p-1.5 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition"
                             title="Supprimer la sauvegarde"
                           >
@@ -699,86 +755,100 @@ export const Profiles: React.FC = () => {
 
               {/* Source Device */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                   1. Poste Windows Source *
                 </label>
                 <select
                   value={backupSourceDeviceId}
-                  onChange={(e) => {
-                    setBackupSourceDeviceId(e.target.value);
-                    setBackupProfileName('');
-                  }}
-                  required
+                  onChange={(e) => setBackupSourceDeviceId(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  required
                 >
-                  <option value="">Sélectionner une machine du parc...</option>
-                  {devices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.hostname} ({d.ip_address || 'IP inconnue'}) — {d.is_online ? '🟢 En ligne' : '⚪ Hors ligne'}
-                    </option>
-                  ))}
+                  <option value="">Sélectionner une machine Windows...</option>
+                  {devices
+                    .filter((d) => d.is_online)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
+                      </option>
+                    ))}
+                  {devices
+                    .filter((d) => !d.is_online)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
+                      </option>
+                    ))}
                 </select>
               </div>
 
-              {/* Profile Name & Auto-suggestions */}
+              {/* Profile Name */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                   2. Nom du Profil / Utilisateur Windows *
                 </label>
                 <input
                   type="text"
-                  placeholder="ex: jdupont, prof01 ou Administrateur"
+                  placeholder="Ex: Admin, Dupont, Professeur..."
                   value={backupProfileName}
                   onChange={(e) => setBackupProfileName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   required
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
                 />
 
-                {/* Suggestions from inventory */}
-                {selectedDeviceInventory?.local_users && selectedDeviceInventory.local_users.length > 0 && (
-                  <div className="mt-2">
-                    <div className="text-[11px] text-slate-500 mb-1 font-medium">Comptes détectés sur ce poste :</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedDeviceInventory.local_users.map((u: any) => (
-                        <button
-                          type="button"
-                          key={u.name}
-                          onClick={() => setBackupProfileName(u.name)}
-                          className={`px-2 py-0.5 rounded text-xs font-mono transition ${
-                            backupProfileName === u.name
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {u.name} {u.is_admin ? '🛡️' : ''}
-                        </button>
-                      ))}
+                {/* Suggestions from Device Inventory */}
+                {selectedDeviceInventory?.local_users && (
+                  <div className="mt-2.5 space-y-1.5">
+                    <span className="text-[11px] text-slate-400 font-semibold">
+                      Comptes détectés sur ce poste :
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {selectedDeviceInventory.local_users.map((u, i) => {
+                        const uname = typeof u === 'string' ? u : u.name || u.full_name || '';
+                        const isSelected = backupProfileName.toLowerCase() === uname.toLowerCase();
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setBackupProfileName(uname)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition flex items-center space-x-1 ${
+                              isSelected
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <span>{uname}</span>
+                            {u.is_admin && <span className="text-[10px] text-blue-400">🛡️</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Notes */}
+              {/* Optional Notes */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                   3. Notes / Description (Optionnel)
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="ex: Sauvegarde avant formatage salle 102..."
+                  placeholder="Ex: Profil administrateur pédagogique avant réinstallation du poste..."
                   value={backupNotes}
                   onChange={(e) => setBackupNotes(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
-              <div className="p-3.5 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs text-slate-400 space-y-1">
-                <div className="font-semibold text-slate-300 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Dossiers et paramètres inclus :</span>
+              {/* Storage Info Banner */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-1 text-xs text-slate-400">
+                <div className="flex items-center space-x-2 text-slate-300 font-semibold">
+                  <Info className="w-4 h-4 text-cyan-400" />
+                  <span>Vérification d'espace & Sécurité automatique :</span>
                 </div>
-                <p>
-                  Documents, Bureau, Téléchargements, Images, AppData/Roaming, registre NTUSER.DAT (HKCU). Les caches et fichiers temporaires sont automatiquement purgés.
+                <p className="text-[11px] leading-relaxed">
+                  L'agent MAPT effectue une estimation de la taille brute, vérifie l'espace libre sur le serveur ({formatBytes(summary?.server_free_space_bytes || 0)} disponibles) et exclut intelligemment les caches (Chrome/Edge/Temp).
                 </p>
               </div>
 
@@ -798,7 +868,7 @@ export const Profiles: React.FC = () => {
                   {backupMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Envoi de l'ordre...</span>
+                      <span>Lancement...</span>
                     </>
                   ) : (
                     <>
@@ -822,7 +892,7 @@ export const Profiles: React.FC = () => {
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50">
               <div className="flex items-center space-x-2.5">
                 <Share2 className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-slate-100">Restaurer / Migrer le Profil</h3>
+                <h3 className="font-bold text-slate-100">Migrer / Restaurer le Profil</h3>
               </div>
               <button
                 onClick={() => setShowRestoreModal(false)}
@@ -840,61 +910,71 @@ export const Profiles: React.FC = () => {
                 </div>
               )}
 
-              {/* Selected Profile Summary Box */}
-              <div className="p-3.5 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-                    {selectedBackupForRestore.profile_name.charAt(0).toUpperCase()}
+              {/* Summary of Profile to Restore */}
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-blue-400 font-semibold">Profil Source</div>
+                  <div className="text-sm font-bold text-slate-100 mt-0.5">
+                    {selectedBackupForRestore.profile_name} ({selectedBackupForRestore.source_hostname})
                   </div>
-                  <div>
-                    <div className="font-bold text-blue-200 text-sm">{selectedBackupForRestore.profile_name}</div>
-                    <div className="text-[11px] text-blue-400">
-                      Origine : {selectedBackupForRestore.source_hostname} • {formatBytes(selectedBackupForRestore.size_bytes)}
-                    </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-blue-400 font-semibold">Taille Archive</div>
+                  <div className="text-sm font-bold text-slate-200 mt-0.5">
+                    {formatBytes(selectedBackupForRestore.size_bytes)}
                   </div>
                 </div>
               </div>
 
               {/* Target Device */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
                   1. Poste Windows Cible *
                 </label>
                 <select
                   value={restoreTargetDeviceId}
                   onChange={(e) => setRestoreTargetDeviceId(e.target.value)}
-                  required
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-blue-500"
+                  required
                 >
                   <option value="">Sélectionner la machine de destination...</option>
-                  {devices.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.hostname} ({d.ip_address || 'IP inconnue'}) — {d.is_online ? '🟢 En ligne' : '⚪ Hors ligne'}
-                    </option>
-                  ))}
+                  {devices
+                    .filter((d) => d.is_online)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
+                      </option>
+                    ))}
+                  {devices
+                    .filter((d) => !d.is_online)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
+                      </option>
+                    ))}
                 </select>
               </div>
 
               {/* Target Username */}
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  2. Nom du compte sur la machine cible
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  2. Nom du Compte Local Cible *
                 </label>
                 <input
                   type="text"
-                  placeholder="ex: jdupont"
+                  placeholder="Ex: jdupont"
                   value={restoreTargetUsername}
                   onChange={(e) => setRestoreTargetUsername(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
                   required
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-blue-500"
                 />
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  Le profil sera injecté dans <code className="text-slate-300 font-mono">C:\Users\{restoreTargetUsername || selectedBackupForRestore.profile_name}</code>.
-                </span>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Par défaut identique au profil d'origine. Vous pouvez le renommer lors de la migration.
+                </p>
               </div>
 
-              {/* Options */}
-              <div className="space-y-2.5 pt-2">
+              {/* Restore Options */}
+              <div className="space-y-2.5 pt-1">
                 <label className="flex items-center space-x-2.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -965,13 +1045,23 @@ export const Profiles: React.FC = () => {
               <p className="text-xs text-slate-400 mt-1">
                 Êtes-vous sûr de vouloir supprimer définitivement la sauvegarde du profil{' '}
                 <strong className="text-slate-200">"{backupToDelete.profile_name}"</strong> ({backupToDelete.source_hostname}) ?
-                Cette action est irréversible.
+                Cette action supprimera également les fichiers d'archives et annulera tout job associé.
               </p>
             </div>
 
+            {deleteError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-center space-x-3 pt-2">
               <button
-                onClick={() => setBackupToDelete(null)}
+                onClick={() => {
+                  setBackupToDelete(null);
+                  setDeleteError(null);
+                }}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition"
               >
                 Annuler

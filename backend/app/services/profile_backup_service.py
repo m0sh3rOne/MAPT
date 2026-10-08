@@ -1,11 +1,13 @@
 import io
 import os
+import shutil
 import hashlib
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, or_
 
 from app.models.profile_backup import UserProfileBackup, ProfileBackupStatus
 from app.models.device import Device
@@ -44,7 +46,7 @@ $BackupId = "{str(backup_id)}"
 $ServerApiUrl = "{server_api_url}".TrimEnd('/')
 $AgentToken = "{agent_token}"
 
-Write-Output "[*] Demarrage de la sauvegarde du profil '$ProfileName' (Backup ID: $BackupId)..."
+Write-Output "[*] Initialisation de la sauvegarde du profil '$ProfileName' (Backup ID: $BackupId)..."
 
 $UserProfilesRoot = "C:\\Users"
 $TargetFolder = Join-Path $UserProfilesRoot $ProfileName
@@ -53,18 +55,57 @@ if (-not (Test-Path $TargetFolder)) {{
     $MatchedFolder = Get-ChildItem -Path $UserProfilesRoot -Directory -ErrorAction SilentlyContinue | Where-Object {{ $_.Name -eq $ProfileName -or $_.Name -like "*$ProfileName*" }} | Select-Object -First 1
     if ($MatchedFolder) {{
         $TargetFolder = $MatchedFolder.FullName
-        Write-Output "[+] Dossier de profil trouve: $TargetFolder"
+        Write-Output "[+] Dossier de profil trouve : $TargetFolder"
     }} else {{
         Write-Error "[-] Le dossier du profil '$ProfileName' est introuvable dans C:\\Users."
         exit 1
     }}
 }}
 
+# 1. Estimation de la taille brute du profil
+Write-Output "[*] Calcul et estimation de la taille du profil..."
+$EstimatedSizeBytes = 0
+try {{
+    $Measure = Get-ChildItem -Path $TargetFolder -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
+    if ($Measure -and $Measure.Sum) {{
+        $EstimatedSizeBytes = [long]$Measure.Sum
+    }}
+}} catch {{
+    $EstimatedSizeBytes = 0
+}}
+
+$EstGB = [math]::Round($EstimatedSizeBytes / 1GB, 2)
+$EstMB = [math]::Round($EstimatedSizeBytes / 1MB, 2)
+Write-Output "[+] Taille brute estimee : $(if ($EstGB -ge 1) {{ "$EstGB Go" }} else {{ "$EstMB Mo" }}) ($EstimatedSizeBytes octets)"
+
+# 2. Verification de l'espace de stockage disponible sur le serveur MAPT
+Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT..."
+try {{
+    $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes"
+    $checkHeaders = @{{ "Authorization" = "Bearer $AgentToken" }}
+    $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 30
+    $ServerFreeGB = [math]::Round($checkResp.server_free_bytes / 1GB, 2)
+    Write-Output "[+] Serveur MAPT pret : $($checkResp.message) ($ServerFreeGB Go disponibles sur le serveur)"
+}} catch {{
+    $errDetail = $_.Exception.Message
+    try {{
+        if ($_.Exception.Response) {{
+            $stream = $_.Exception.Response.GetResponseStream()
+            $reader = New-Object System.IO.StreamReader($stream)
+            $errDetail = $reader.ReadToEnd()
+        }}
+    }} catch {{}}
+    Write-Error "[-] Espace serveur insuffisant ou verification impossible : $errDetail"
+    exit 1
+}}
+
+# 3. Preparation de l'espace de travail temporaire local
 $WorkDir = Join-Path $env:TEMP "MAPT_ProfileBackup_$BackupId"
 if (Test-Path $WorkDir) {{ Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }}
 $PackageDir = Join-Path $WorkDir "profile_data"
 New-Item -Path $PackageDir -ItemType Directory -Force | Out-Null
 
+# 4. Identification du SID Windows dans la Registry
 $UserSid = $null
 try {{
     $ProfileList = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList"
@@ -75,12 +116,13 @@ try {{
         }}
     }}
 }} catch {{
-    Write-Output "[!] Note detection SID: $($_.Exception.Message)"
+    Write-Output "[!] Note detection SID : $($_.Exception.Message)"
 }}
 
-Write-Output "[+] SID detecte: $(if ($UserSid) {{ $UserSid }} else {{ 'Non-specifie' }})"
+Write-Output "[+] SID utilisateur detecte : $(if ($UserSid) {{ $UserSid }} else {{ 'Non-specifie' }})"
 
-Write-Output "[*] Copie des fichiers et donnees utilisateurs..."
+# 5. Copie Robocopy avec exclusions de caches volumineux et temporaires
+Write-Output "[*] Copie des fichiers et dossiers utilisateurs..."
 $ExcludeDirs = @(
     "AppData\\Local\\Temp",
     "AppData\\Local\\Microsoft\\Windows\\INetCache",
@@ -88,7 +130,8 @@ $ExcludeDirs = @(
     "AppData\\Local\\CrashDumps",
     "AppData\\Local\\Package Cache",
     "AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache",
-    "AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache"
+    "AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache",
+    "AppData\\Local\\Mozilla\\Firefox\\Profiles\\*\\cache2"
 )
 
 $RoboLog = Join-Path $WorkDir "robocopy.log"
@@ -111,16 +154,17 @@ foreach ($x in $ExcludeDirs) {{
 
 & robocopy.exe @RoboArgs
 $RoboExit = $LASTEXITCODE
-Write-Output "[+] Robocopy termine (code retour: $RoboExit)"
+Write-Output "[+] Copie des fichiers terminee (Code retour Robocopy : $RoboExit)"
 
-Write-Output "[*] Sauvegarde de la configuration du Registre..."
+# 6. Sauvegarde du registre utilisateur NTUSER.DAT
+Write-Output "[*] Sauvegarde de la ruche de Registre (NTUSER.DAT)..."
 $DestNtUser = Join-Path $PackageDir "NTUSER.DAT"
 $ExportedRegistry = $false
 
 if ($UserSid) {{
     try {{
         if (Test-Path "Registry::HKEY_USERS\\$UserSid") {{
-            Write-Output "[+] Profil charge en memoire, export direct..."
+            Write-Output "[+] Profil actif en memoire, export securise..."
             & reg.exe save "HKU\\$UserSid" "$DestNtUser" /y | Out-Null
             if (Test-Path $DestNtUser) {{ $ExportedRegistry = $true }}
         }}
@@ -137,27 +181,31 @@ if (-not $ExportedRegistry) {{
     }}
 }}
 
+# 7. Creation du fichier de métadonnées
 $Meta = @{{
     ProfileName = $ProfileName
     OriginalPath = $TargetFolder
     UserSid = $UserSid
     Hostname = $env:COMPUTERNAME
     OS = (Get-CimInstance Win32_OperatingSystem).Caption
+    EstimatedSizeBytes = $EstimatedSizeBytes
     BackupDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     Version = "1.0"
 }}
 $MetaJson = $Meta | ConvertTo-Json
 Set-Content -Path (Join-Path $PackageDir "mapt_profile_meta.json") -Value $MetaJson -Encoding UTF8
 
+# 8. Compression de l'archive ZIP
 $ZipPath = Join-Path $WorkDir "$ProfileName.zip"
-Write-Output "[*] Compression de l'archive ($ZipPath)..."
+Write-Output "[*] Compression de l'archive ZIP..."
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($PackageDir, $ZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
 $ZipSize = (Get-Item $ZipPath).Length
 $ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
-Write-Output "[+] Archive creee avec succes : $([math]::Round($ZipSize / 1MB, 2)) Mo (SHA256: $ZipHash)"
+Write-Output "[+] Archive compresse avec succes : $([math]::Round($ZipSize / 1MB, 2)) Mo (SHA256: $ZipHash)"
 
+# 9. Televersement vers le serveur MAPT
 Write-Output "[*] Televersement de l'archive vers le serveur MAPT..."
 $UploadUrl = "$ServerApiUrl/agent/profiles/$BackupId/upload"
 
@@ -180,11 +228,12 @@ $headers = @{{
     "X-Profile-SID" = if ($UserSid) {{ $UserSid }} else {{ "" }}
     "X-Profile-SHA256" = $ZipHash
     "X-Profile-Size" = "$ZipSize"
+    "X-Profile-Estimated-Size" = "$EstimatedSizeBytes"
 }}
 
-$response = Invoke-RestMethod -Uri $UploadUrl -Method Post -Headers $headers -ContentType "multipart/form-data; boundary=$boundary" -Body $allBytes -TimeoutSec 1800
+$response = Invoke-RestMethod -Uri $UploadUrl -Method Post -Headers $headers -ContentType "multipart/form-data; boundary=$boundary" -Body $allBytes -TimeoutSec 7200
 
-Write-Output "[+] Reponse serveur: OK"
+Write-Output "[+] Reponse serveur : Succes ($($response.status))"
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Output "[✓] Sauvegarde du profil '$ProfileName' terminee avec succes !"
 exit 0
@@ -223,7 +272,7 @@ Write-Output "[*] Telechargement de l'archive du profil..."
 $headers = @{{
     "Authorization" = "Bearer $AgentToken"
 }}
-Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -TimeoutSec 1800
+Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -TimeoutSec 7200
 Write-Output "[+] Archive telechargee ($([math]::Round((Get-Item $ZipPath).Length / 1MB, 2)) Mo)"
 
 $AccountExists = $false
@@ -233,13 +282,13 @@ try {{
 }} catch {{}}
 
 if (-not $AccountExists -and $CreateAccount) {{
-    Write-Output "[*] Creation du compte utilisateur local '$TargetUsername'..."
+    Write-Output "[*] Creation automatique du compte utilisateur local '$TargetUsername'..."
     try {{
         & net.exe user "$TargetUsername" /add /expires:never
         & net.exe localgroup "Utilisateurs" "$TargetUsername" /add 2>$null
-        Write-Output "[+] Compte local '$TargetUsername' cree."
+        Write-Output "[+] Compte local '$TargetUsername' cree avec succes."
     }} catch {{
-        Write-Output "[!] Note creation compte: $($_.Exception.Message)"
+        Write-Output "[!] Note creation compte : $($_.Exception.Message)"
     }}
 }}
 
@@ -252,7 +301,7 @@ Write-Output "[*] Decompression des donnees du profil vers $DestProfilePath..."
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $DestProfilePath)
 
-Write-Output "[*] Configuration des permissions NTFS..."
+Write-Output "[*] Configuration des permissions de securite NTFS..."
 & icacls.exe "$DestProfilePath" /grant "${{TargetUsername}}:(OI)(CI)F" /T /C /Q
 & icacls.exe "$DestProfilePath" /grant "SYSTEM:(OI)(CI)F" /T /C /Q
 & icacls.exe "$DestProfilePath" /grant "Administrateurs:(OI)(CI)F" /T /C /Q
@@ -263,7 +312,7 @@ try {{
     $TargetSid = $objUser.Translate([System.Security.Principal.SecurityIdentifier]).Value
     
     if ($TargetSid) {{
-        Write-Output "[+] SID resolu: $TargetSid"
+        Write-Output "[+] SID resolu : $TargetSid"
         $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
         if (-not (Test-Path $ProfileKey)) {{
             New-Item -Path $ProfileKey -Force | Out-Null
@@ -271,16 +320,42 @@ try {{
         Set-ItemProperty -Path $ProfileKey -Name "ProfileImagePath" -Value $DestProfilePath -Type ExpandString
         Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord
         Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord
-        Write-Output "[+] Profil enregistre dans la ProfileList Windows ($ProfileKey)"
+        Write-Output "[+] Profil associe dans la base de registre ProfileList ($ProfileKey)"
     }}
 }} catch {{
-    Write-Output "[!] Note ProfileList: $($_.Exception.Message)"
+    Write-Output "[!] Note ProfileList : $($_.Exception.Message)"
 }}
 
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Output "[✓] Migration du profil vers '$TargetUsername' terminee avec succes !"
 exit 0
 """
+
+    def check_storage(self, estimated_size_bytes: int = 0) -> Dict[str, Any]:
+        """
+        Vérifie l'espace disque disponible sur le stockage local du serveur MAPT.
+        Garantit une marge de sécurité de 2 Go minimum.
+        """
+        os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
+        total, used, free = shutil.disk_usage(LOCAL_STORAGE_DIR)
+        safety_buffer = 2 * 1024 * 1024 * 1024  # 2 GB margin
+
+        if estimated_size_bytes > 0:
+            required = estimated_size_bytes + safety_buffer
+            if free < required:
+                free_gb = round(free / (1024**3), 2)
+                req_gb = round(estimated_size_bytes / (1024**3), 2)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Espace disque insuffisant sur le serveur MAPT ({free_gb} Go libres, ~{req_gb} Go requis pour sauvegarder ce profil)."
+                )
+
+        return {
+            "server_free_bytes": free,
+            "server_total_bytes": total,
+            "server_used_bytes": used,
+            "message": f"Espace disque disponible : {round(free / (1024**3), 2)} Go libres sur {round(total / (1024**3), 2)} Go."
+        }
 
     async def get_all_backups(
         self,
@@ -298,7 +373,12 @@ exit 0
         return backup
 
     async def get_summary(self) -> dict:
-        return await self.repo.get_summary()
+        summary_data = await self.repo.get_summary()
+        os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
+        total, used, free = shutil.disk_usage(LOCAL_STORAGE_DIR)
+        summary_data["server_free_space_bytes"] = free
+        summary_data["server_total_space_bytes"] = total
+        return summary_data
 
     async def trigger_backup(
         self,
@@ -311,6 +391,9 @@ exit 0
         device = await self.device_repo.get_by_id(device_id)
         if not device:
             raise HTTPException(status_code=404, detail="Machine source introuvable.")
+
+        # Vérifier l'espace disque du serveur à l'avance
+        self.check_storage(estimated_size_bytes=0)
 
         backup_id = UUID(int=int.from_bytes(os.urandom(16), "big"))
         storage_key = f"profiles/{backup_id}/{profile_name}.zip"
@@ -340,7 +423,7 @@ exit 0
         deployment = Deployment(
             name=f"Sauvegarde Profil: {profile_name} sur {device.hostname}",
             description=f"Export et téléversement du profil Windows de l'utilisateur '{profile_name}'.",
-            deployment_type="command",
+            deployment_type="powershell",
             custom_command=script_content,
             created_by=user.id,
             status=DeploymentStatus.PENDING,
@@ -361,18 +444,22 @@ exit 0
         backup.backup_deployment_id = deployment.id
         await self.repo.create(backup)
 
-        await self.audit_repo.create(
-            action=AuditAction.DEPLOYMENT_CREATED,
-            user_id=user.id,
-            username=user.username,
-            details={
-                "type": "profile_backup",
-                "profile_name": profile_name,
-                "device_id": str(device.id),
-                "hostname": device.hostname,
-                "backup_id": str(backup.id),
-            }
-        )
+        try:
+            await self.audit_repo.create(
+                action=AuditAction.DEPLOYMENT_CREATED,
+                entity_type="user_profile_backup",
+                user_id=user.id,
+                entity_id=backup.id,
+                details={
+                    "type": "profile_backup",
+                    "profile_name": profile_name,
+                    "device_id": str(device.id),
+                    "hostname": device.hostname,
+                    "backup_id": str(backup.id),
+                }
+            )
+        except Exception:
+            pass
 
         return backup
 
@@ -414,7 +501,7 @@ exit 0
         deployment = Deployment(
             name=f"Restauration Profil: {backup.profile_name} -> {effective_username} sur {target_device.hostname}",
             description=f"Migration et intégration du profil '{backup.profile_name}' vers le poste {target_device.hostname}.",
-            deployment_type="command",
+            deployment_type="powershell",
             custom_command=restore_script,
             created_by=user.id,
             status=DeploymentStatus.PENDING,
@@ -435,21 +522,39 @@ exit 0
         backup.last_restore_deployment_id = deployment.id
         await self.db.commit()
 
-        await self.audit_repo.create(
-            action=AuditAction.DEPLOYMENT_CREATED,
-            user_id=user.id,
-            username=user.username,
-            details={
-                "type": "profile_restore",
-                "backup_id": str(backup.id),
-                "profile_name": backup.profile_name,
-                "target_device_id": str(target_device.id),
-                "target_hostname": target_device.hostname,
-                "target_username": effective_username,
-            }
-        )
+        try:
+            await self.audit_repo.create(
+                action=AuditAction.DEPLOYMENT_CREATED,
+                entity_type="user_profile_restore",
+                user_id=user.id,
+                entity_id=backup.id,
+                details={
+                    "type": "profile_restore",
+                    "backup_id": str(backup.id),
+                    "profile_name": backup.profile_name,
+                    "target_device_id": str(target_device.id),
+                    "target_hostname": target_device.hostname,
+                    "target_username": effective_username,
+                }
+            )
+        except Exception:
+            pass
 
         return deployment
+
+    async def cancel_backup(self, backup_id: UUID, user: User) -> UserProfileBackup:
+        backup = await self.get_backup_by_id(backup_id)
+        if backup.backup_deployment_id:
+            try:
+                await self.dep_repo.cancel_deployment(backup.backup_deployment_id)
+            except Exception:
+                pass
+
+        backup.status = ProfileBackupStatus.CANCELLED
+        backup.error_message = "Sauvegarde annulée par l'administrateur."
+        await self.db.commit()
+        await self.db.refresh(backup)
+        return backup
 
     async def save_uploaded_backup(
         self,
@@ -457,7 +562,8 @@ exit 0
         file: UploadFile,
         user_sid: Optional[str],
         reported_sha256: Optional[str],
-        reported_size: Optional[int]
+        reported_size: Optional[int],
+        estimated_size: Optional[int] = 0
     ) -> UserProfileBackup:
         backup = await self.get_backup_by_id(backup_id)
 
@@ -474,7 +580,10 @@ exit 0
         backup.storage_key = storage_key
         backup.sha256 = sha256_hash
         backup.size_bytes = actual_size
+        if estimated_size:
+            backup.estimated_size_bytes = estimated_size
         backup.status = ProfileBackupStatus.READY
+        backup.error_message = None
         if user_sid:
             backup.user_sid = user_sid
 
@@ -483,26 +592,40 @@ exit 0
         return backup
 
     async def delete_backup(self, backup_id: UUID, user: User) -> bool:
-        backup = await self.get_backup_by_id(backup_id)
-        
-        # Remove local file if present
-        local_path = os.path.join(LOCAL_STORAGE_DIR, backup.storage_key)
-        if os.path.exists(local_path):
+        backup = await self.repo.get_by_id(backup_id)
+        if not backup:
+            return False
+
+        # If backup has active deployment, cancel it
+        if backup.backup_deployment_id:
             try:
-                os.remove(local_path)
+                await self.dep_repo.cancel_deployment(backup.backup_deployment_id)
             except Exception:
                 pass
 
-        await self.audit_repo.create(
-            action=AuditAction.DEVICE_DELETED,
-            user_id=user.id,
-            username=user.username,
-            details={
-                "type": "profile_deleted",
-                "backup_id": str(backup.id),
-                "profile_name": backup.profile_name,
-                "source_hostname": backup.source_hostname,
-            }
-        )
+        # Remove local file if present
+        if backup.storage_key:
+            local_path = os.path.join(LOCAL_STORAGE_DIR, backup.storage_key)
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except Exception:
+                    pass
+
+        try:
+            await self.audit_repo.create(
+                action=AuditAction.DEVICE_DELETED,
+                entity_type="user_profile_backup",
+                user_id=user.id,
+                entity_id=backup.id,
+                details={
+                    "type": "profile_deleted",
+                    "backup_id": str(backup.id),
+                    "profile_name": backup.profile_name,
+                    "source_hostname": backup.source_hostname,
+                }
+            )
+        except Exception:
+            pass
 
         return await self.repo.delete(backup_id)

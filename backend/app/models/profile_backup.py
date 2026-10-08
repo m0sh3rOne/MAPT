@@ -29,6 +29,7 @@ class UserProfileBackup(Base):
     
     storage_key = Column(String(255), nullable=False)  # profiles/{id}/profile.zip
     size_bytes = Column(BigInteger, default=0, nullable=False)
+    estimated_size_bytes = Column(BigInteger, default=0, nullable=True)
     sha256 = Column(String(64), nullable=True)
     
     status = Column(String(50), default=ProfileBackupStatus.PENDING, nullable=False, index=True)

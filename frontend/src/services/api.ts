@@ -462,6 +462,14 @@ export const api = {
     const res = await apiClient.post(`/admin/profiles/${backupId}/restore`, payload);
     return res.data;
   },
+  cancelProfileBackup: async (backupId: string): Promise<UserProfileBackup> => {
+    const res = await apiClient.post(`/admin/profiles/${backupId}/cancel`);
+    return res.data;
+  },
+  checkProfileStorage: async (estimatedSizeBytes: number = 0): Promise<{ server_free_bytes: number; server_total_bytes: number; server_used_bytes: number; message: string }> => {
+    const res = await apiClient.get('/admin/profiles/storage-check', { params: { estimated_size_bytes: estimatedSizeBytes } });
+    return res.data;
+  },
   deleteProfileBackup: async (backupId: string): Promise<{ message: string }> => {
     const res = await apiClient.delete(`/admin/profiles/${backupId}`);
     return res.data;

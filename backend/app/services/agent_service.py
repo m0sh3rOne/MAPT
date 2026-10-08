@@ -313,6 +313,13 @@ class AgentService:
                     "content": sv.content,
                     "sha256": sv.sha256
                 }
+            elif dep.deployment_type in ["powershell", "script", "ps1"] or (dep.custom_command and any(k in dep.custom_command for k in ["$ErrorActionPreference", "Write-Output", "Get-ChildItem", "$ProfileName"])):
+                job_type = "powershell"
+                timeout = 7200  # 2 hours for massive profile backups
+                payload_data = {
+                    "content": dep.custom_command,
+                    "language": "powershell"
+                }
             elif dep.deployment_type == "command":
                 job_type = "command"
                 payload_data = {
@@ -369,6 +376,26 @@ class AgentService:
         await self.dep_repo.add_target_log(job_id, "ERROR", f"Échec du job (code {exit_code}): {error}")
         if output:
             await self.dep_repo.add_target_log(job_id, "DEBUG", f"Sortie: {output}")
+
+        # Synchroniser l'état du backup de profil si ce job est lié à un UserProfileBackup
+        try:
+            from app.models.profile_backup import UserProfileBackup, ProfileBackupStatus
+            res = await self.db.execute(
+                select(UserProfileBackup).where(
+                    or_(
+                        UserProfileBackup.backup_deployment_id == target.deployment_id,
+                        UserProfileBackup.last_restore_deployment_id == target.deployment_id
+                    )
+                )
+            )
+            backup = res.scalar_one_or_none()
+            if backup:
+                if backup.backup_deployment_id == target.deployment_id and backup.status == ProfileBackupStatus.BACKING_UP:
+                    backup.status = ProfileBackupStatus.FAILED
+                    backup.error_message = error or f"Échec du job de sauvegarde (code {exit_code})"
+                await self.db.commit()
+        except Exception:
+            pass
 
     async def add_job_logs(self, device: Device, job_id: UUID, logs: List[TargetLogCreate]):
         target = await self.dep_repo.get_target_by_id(job_id)

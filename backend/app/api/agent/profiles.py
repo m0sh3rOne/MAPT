@@ -14,6 +14,16 @@ from app.storage.minio import get_file_stream, LOCAL_STORAGE_DIR
 router = APIRouter(prefix="/profiles", tags=["Agent - Profils Windows"])
 
 
+@router.get("/storage-check")
+async def agent_check_storage(
+    estimated_size: int = 0,
+    device: Device = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProfileBackupService(db)
+    return service.check_storage(estimated_size_bytes=estimated_size)
+
+
 @router.post("/{backup_id}/upload")
 async def agent_upload_profile_backup(
     backup_id: UUID,
@@ -21,6 +31,7 @@ async def agent_upload_profile_backup(
     x_profile_sid: Optional[str] = Header(None, alias="X-Profile-SID"),
     x_profile_sha256: Optional[str] = Header(None, alias="X-Profile-SHA256"),
     x_profile_size: Optional[int] = Header(None, alias="X-Profile-Size"),
+    x_profile_estimated_size: Optional[int] = Header(None, alias="X-Profile-Estimated-Size"),
     device: Device = Depends(get_current_agent),
     db: AsyncSession = Depends(get_db)
 ):
@@ -30,7 +41,8 @@ async def agent_upload_profile_backup(
         file=file,
         user_sid=x_profile_sid,
         reported_sha256=x_profile_sha256,
-        reported_size=x_profile_size
+        reported_size=x_profile_size,
+        estimated_size=x_profile_estimated_size
     )
 
     return {

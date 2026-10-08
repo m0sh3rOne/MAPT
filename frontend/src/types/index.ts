@@ -311,6 +311,7 @@ export interface UserProfileBackup {
   source_os?: string | null;
   storage_key: string;
   size_bytes: number;
+  estimated_size_bytes?: number | null;
   sha256?: string | null;
   status: 'PENDING' | 'BACKING_UP' | 'READY' | 'RESTORING' | 'FAILED' | 'CANCELLED';
   error_message?: string | null;
@@ -329,6 +330,8 @@ export interface ProfileBackupSummary {
   ready_count: number;
   in_progress_count: number;
   failed_count: number;
+  server_free_space_bytes?: number;
+  server_total_space_bytes?: number;
 }
 
 export interface ProfileBackupCreateRequest {

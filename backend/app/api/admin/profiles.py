@@ -135,6 +135,26 @@ async def download_profile_zip(
         raise HTTPException(status_code=404, detail=f"Fichier de profil introuvable sur le stockage: {e}")
 
 
+@router.get("/storage-check")
+async def check_server_storage(
+    estimated_size_bytes: int = Query(0, ge=0),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProfileBackupService(db)
+    return service.check_storage(estimated_size_bytes=estimated_size_bytes)
+
+
+@router.post("/{backup_id}/cancel", response_model=ProfileBackupResponse)
+async def cancel_profile_backup(
+    backup_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProfileBackupService(db)
+    return await service.cancel_backup(backup_id, current_user)
+
+
 @router.delete("/{backup_id}")
 async def delete_profile_backup(
     backup_id: UUID,

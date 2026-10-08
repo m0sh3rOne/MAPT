@@ -27,6 +27,7 @@ class ProfileBackupResponse(BaseModel):
     source_os: Optional[str] = None
     storage_key: str
     size_bytes: int
+    estimated_size_bytes: Optional[int] = 0
     sha256: Optional[str] = None
     status: str
     error_message: Optional[str] = None
@@ -48,3 +49,5 @@ class ProfileBackupSummary(BaseModel):
     ready_count: int
     in_progress_count: int
     failed_count: int
+    server_free_space_bytes: Optional[int] = 0
+    server_total_space_bytes: Optional[int] = 0

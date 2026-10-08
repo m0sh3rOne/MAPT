@@ -35,6 +35,9 @@ func ExecuteCommand(ctx context.Context, commandStr string, timeoutSeconds int) 
 			cmdPart = strings.Trim(cmdPart, "\"")
 			cmd = exec.CommandContext(execCtx, "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", cmdPart)
 		}
+	} else if strings.HasPrefix(trimmed, "$") || strings.Contains(trimmed, "$ErrorActionPreference") || strings.Contains(trimmed, "Write-Output") || strings.Contains(trimmed, "Get-ChildItem") || strings.Contains(trimmed, "Get-CimInstance") {
+		// Detect pure PowerShell script content passed as a generic command
+		return ExecutePowerShell(ctx, commandStr, timeoutSeconds)
 	}
 
 	// If command is long (> 500 chars) or contains newlines, execute via temporary script to avoid cmd.exe 8191-char limit
