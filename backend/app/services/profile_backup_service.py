@@ -412,8 +412,11 @@ cmd.exe /c "takeown.exe /F `"$DestProfilePath`" /R /A /D O >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /inheritance:e /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"*$TargetSid:(OI)(CI)F`" /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$TargetUsername:(OI)(CI)F`" /T /C /Q >nul 2>&1"
+
+$GrantSidArg = "*$($TargetSid)" + ':(OI)(CI)F'
+$GrantUserArg = "$($TargetUsername)" + ':(OI)(CI)F'
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantSidArg`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantUserArg`" /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
 # 9. Inscription et activation du profil dans HKLM ProfileList
