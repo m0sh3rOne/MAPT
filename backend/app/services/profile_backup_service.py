@@ -317,30 +317,32 @@ $headers = @{{
 }}
 Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -TimeoutSec 7200
 $DownloadedMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)
-Write-Output "[+] Archive telechargee avec succes ($DownloadedMB Mo)"
-
 # 4. Preparation du dossier de profil de destination
 $DestProfilePath = "C:\\Users\\$TargetUsername"
 if (-not (Test-Path $DestProfilePath)) {{
     New-Item -Path $DestProfilePath -ItemType Directory -Force | Out-Null
+}} else {{
+    # Decharger les ruches potentielles et reinitialiser les attributs de fichiers pour eviter tout verrou
+    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
+    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreUsrClass >nul 2>&1"
+    cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
+    cmd.exe /c "takeown.exe /F `"$DestProfilePath`" /R /A /D O >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
 }}
 
-# 5. Extraction securisee avec ecrasement propre
-Write-Output "[*] Extraction des donnees du profil vers $DestProfilePath..."
+# 5. Extraction securisee vers repertoire temporaire puis synchronisation robuste
+Write-Output "[*] Extraction des donnees du profil..."
+$ExtractDir = Join-Path $WorkDir "extracted"
+if (Test-Path $ExtractDir) {{ Remove-Item -Path $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue }}
+New-Item -Path $ExtractDir -ItemType Directory -Force | Out-Null
+
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zipArchive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
-foreach ($entry in $zipArchive.Entries) {{
-    $destFilePath = [System.IO.Path]::Combine($DestProfilePath, $entry.FullName)
-    $destDir = [System.IO.Path]::GetDirectoryName($destFilePath)
-    if (-not (Test-Path $destDir)) {{
-        New-Item -Path $destDir -ItemType Directory -Force | Out-Null
-    }}
-    if (-not [string]::IsNullOrEmpty($entry.Name)) {{
-        [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destFilePath, $true)
-    }}
-}}
-$zipArchive.Dispose()
-Write-Output "[+] Fichiers extraits avec succes."
+[System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $ExtractDir)
+
+Write-Output "[*] Copie et integration des fichiers vers $DestProfilePath..."
+cmd.exe /c "robocopy.exe `"$ExtractDir`" `"$DestProfilePath`" /E /R:1 /W:1 /NP /NFL /NDL /XJ >nul 2>&1"
+Write-Output "[+] Fichiers integres avec succes."
 
 # 6. Purge des fichiers de transaction et cache GPO corrompus de l'ancienne machine
 Write-Output "[*] Nettoyage des caches et logs de transactions de registre..."
