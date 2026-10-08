@@ -416,7 +416,10 @@ Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProf
 & icacls.exe "$DestProfilePath" /inheritance:e /T /C /Q 2>$null | Out-Null
 & icacls.exe "$DestProfilePath" /grant "*S-1-5-18:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
 & icacls.exe "$DestProfilePath" /grant "*S-1-5-32-544:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
-& icacls.exe "$DestProfilePath" /grant "*$TargetSid:(OI)(CI)F" /T /C /Q 2>$null | Out-Null
+$TargetSidGrant = "*$($TargetSid):(OI)(CI)F"
+$TargetUserGrant = "$($TargetUsername):(OI)(CI)F"
+& icacls.exe "$DestProfilePath" /grant "$TargetSidGrant" /T /C /Q 2>$null | Out-Null
+& icacls.exe "$DestProfilePath" /grant "$TargetUserGrant" /T /C /Q 2>$null | Out-Null
 & icacls.exe "$DestProfilePath" /setowner "$TargetUsername" /T /C /Q 2>$null | Out-Null
 
 # 9. Inscription et activation du profil dans HKLM ProfileList
