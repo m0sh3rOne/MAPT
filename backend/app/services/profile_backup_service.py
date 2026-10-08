@@ -123,7 +123,13 @@ $ExcludeDirs = @(
     "Cache",
     "cache2",
     "GPUCache",
-    "Code Cache"
+    "Code Cache",
+    "DawnCache",
+    "ShaderCache",
+    "GrShaderCache",
+    "CacheStorage",
+    "ScriptCache",
+    "Service Worker"
 )
 
 $ExcludeFiles = @(
@@ -201,8 +207,19 @@ Set-Content -Path (Join-Path $PackageDir "mapt_profile_meta.json") -Value $MetaJ
 # 8. Compression de l'archive ZIP
 $ZipPath = Join-Path $WorkDir "$ProfileName.zip"
 Write-Output "[*] Compression de l'archive ZIP..."
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($PackageDir, $ZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+$Compressed = $false
+try {{
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($PackageDir, $ZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    $Compressed = $true
+}} catch {{
+    Write-Output "[!] Note compression standard : $($_.Exception.Message). Utilisation du fallback Compress-Archive..."
+}}
+
+if (-not $Compressed -or -not (Test-Path $ZipPath) -or (Get-Item $ZipPath).Length -eq 0) {{
+    if (Test-Path $ZipPath) {{ Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue }}
+    Get-ChildItem -Path $PackageDir -Force | Compress-Archive -DestinationPath $ZipPath -CompressionLevel Optimal -Force
+}}
 
 $ZipSize = (Get-Item $ZipPath).Length
 $ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
