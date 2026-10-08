@@ -401,23 +401,74 @@ Invoke-WebRequest -Uri $DownloadUrl -Headers $headers -OutFile $ZipPath -Timeout
 $DownloadedMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)
 Write-Output "[+] Archive telechargee avec succes ($DownloadedMB Mo)"
 
-# 4. Preparation du dossier de profil de destination
+# 4. Provisionnement et verification du profil vierge natif pour '$TargetUsername'
 $DestProfilePath = "C:\\Users\\$TargetUsername"
-if (-not (Test-Path $DestProfilePath)) {{
-    New-Item -Path $DestProfilePath -ItemType Directory -Force | Out-Null
-}} else {{
-    # Decharger les ruches potentielles et reinitialiser les attributs de fichiers pour eviter tout verrou
-    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
-    cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreUsrClass >nul 2>&1"
-    cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
-    cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
-    cmd.exe /c "echo O | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
+Write-Output "[*] Initialisation du profil utilisateur natif propre..."
+
+# Supprimer toute clef corrompue .bak issue d'une tentative precedente
+$BakKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid.bak"
+if (Test-Path $BakKey) {{
+    Remove-Item -Path $BakKey -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Output "[+] Clef orpheline ProfileList $TargetSid.bak supprimee."
 }}
 
-# 5. Extraction securisee vers repertoire temporaire puis synchronisation robuste
-Write-Output "[*] Extraction des donnees du profil..."
+# Utiliser l'API officielle Windows CreateProfile pour generer un profil vierge et sain (userenv.dll)
+try {{
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace UserProfile {{
+    public static class ProfileManager {{
+        [DllImport("userenv.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern int CreateProfile(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszUserSid,
+            [MarshalAs(UnmanagedType.LPWStr)] string pszUserName,
+            [Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszProfilePath,
+            uint cchProfilePath);
+    }}
+}}
+'@ -ErrorAction SilentlyContinue
+
+    $sb = New-Object System.Text.StringBuilder(260)
+    $res = [UserProfile.ProfileManager]::CreateProfile($TargetSid, $TargetUsername, $sb, 260)
+    if ($res -eq 0 -or $res -eq -2147024713) {{
+        Write-Output "[+] Profil vierge officiel initialise par l'API Windows (userenv.dll)."
+    }} else {{
+        Write-Output "[!] Note CreateProfile (Code $res)."
+    }}
+}} catch {{
+    Write-Output "[!] Note API CreateProfile : $($_.Exception.Message)"
+}}
+
+if (-not (Test-Path $DestProfilePath)) {{
+    New-Item -Path $DestProfilePath -ItemType Directory -Force | Out-Null
+}}
+
+# Inscription et validation dans ProfileList
+try {{
+    $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
+    if (-not (Test-Path $ProfileKey)) {{
+        New-Item -Path $ProfileKey -Force | Out-Null
+    }}
+    Set-ItemProperty -Path $ProfileKey -Name "ProfileImagePath" -Value $DestProfilePath -Type ExpandString -Force
+    Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
+    Set-ItemProperty -Path $ProfileKey -Name "RefCount" -Value 0 -Type DWord -Force
+
+    $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
+    $sidBinary = New-Object byte[] ($targetSidObj.BinaryLength)
+    $targetSidObj.GetBinaryForm($sidBinary, 0)
+    Set-ItemProperty -Path $ProfileKey -Name "Sid" -Value $sidBinary -Type Binary -Force
+    Write-Output "[+] Entree ProfileList configuree et validee pour $TargetSid."
+}} catch {{
+    Write-Output "[!] Note ProfileList : $($_.Exception.Message)"
+}}
+
+# 5. Extraction de l'archive de sauvegarde dans un dossier temporaire
+Write-Output "[*] Extraction des donnees de l'archive de sauvegarde..."
 $ExtractDir = Join-Path $WorkDir "extracted"
 if (Test-Path $ExtractDir) {{ Remove-Item -Path $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue }}
 New-Item -Path $ExtractDir -ItemType Directory -Force | Out-Null
@@ -425,189 +476,69 @@ New-Item -Path $ExtractDir -ItemType Directory -Force | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $ExtractDir)
 
-Write-Output "[*] Copie et integration des fichiers vers $DestProfilePath..."
-cmd.exe /c "robocopy.exe `"$ExtractDir`" `"$DestProfilePath`" /E /R:1 /W:1 /NP /NFL /NDL /XJ >nul 2>&1"
-Write-Output "[+] Fichiers integres avec succes."
+# 6. FUSION DES FICHIERS ET DOSSIERS UTILISATEURS (SANS TOUCHER AU REGISTRE)
+Write-Output "[*] Fusion des documents et donnees applicatives vers $DestProfilePath..."
 
-# 6. Neutralisation des services conflictuels et reset DPAPI de l'ancienne machine
-Write-Output "[*] Neutralisation des composants incompatibles de l'ancienne machine..."
+# Exclure strictement les ruches de registre et fichiers temporaires/metadonnees
+$ExcludeFiles = @(
+    "NTUSER.DAT*",
+    "UsrClass.dat*",
+    "*.blf",
+    "*.regtrans-ms",
+    "mapt_profile_meta.json",
+    "*.tmp"
+)
 
-# Desactivation du service AMD External Events Utility si present (empeche le crash fatal atieclxx.exe 0xc000041d)
-$amdSvc = Get-Service -Name "AMD External Events Utility" -ErrorAction SilentlyContinue
-if ($amdSvc) {{
-    Stop-Service -Name "AMD External Events Utility" -Force -ErrorAction SilentlyContinue
-    Set-Service -Name "AMD External Events Utility" -StartupType Disabled -ErrorAction SilentlyContinue
-    Write-Output "[+] Service 'AMD External Events Utility' neutralise (evite le crash atieclxx.exe au logon)."
-}}
+# Exclure les dossiers machine-specifiques (DPAPI de l'ancienne machine, AppX Packages, caches)
+$ExcludeDirs = @(
+    "Packages",
+    "Protect",
+    "GroupPolicy",
+    "WebCache",
+    "INetCache",
+    "Temp",
+    "CrashDumps",
+    "Package Cache"
+)
 
-# Reinitialisation des cles DPAPI incompatibles (AppData\\Roaming\\Microsoft\\Protect)
-$protectDir = Join-Path $DestProfilePath "AppData\\Roaming\\Microsoft\\Protect"
-if (Test-Path $protectDir) {{
-    $protectBak = "$protectDir.bak_" + (Get-Date -Format "yyyyMMddHHmmss")
-    Rename-Item -Path $protectDir -NewName (Split-Path $protectBak -Leaf) -Force -ErrorAction SilentlyContinue
-    Write-Output "[+] Cles DPAPI de l'ancienne machine neutralisees ($protectBak). Windows regenerera des cles locales."
-}}
+$RoboArgs = @(
+    $ExtractDir,
+    $DestProfilePath,
+    "/E",
+    "/R:1",
+    "/W:1",
+    "/NP",
+    "/NFL",
+    "/NDL",
+    "/XJ"
+) + @("/XF") + $ExcludeFiles + @("/XD") + $ExcludeDirs
 
-# Initialisation des dossiers systemes indispensables et AppData\\Local\\Packages (Obligatoire Windows 10/11 24H2 AppX/Shell)
-$packagesDir = Join-Path $DestProfilePath "AppData\\Local\\Packages"
+& robocopy.exe @RoboArgs
+Write-Output "[+] Fichiers et dossiers utilisateurs fusionnes avec succes (Bureau, Documents, AppData, etc.)."
+
+# 7. Initialisation des dossiers systemes indispensables et AppData/Local/Packages (Windows 10/11 Shell)
+Write-Output "[*] Initialisation de l'arborescence standard et AppData/Local/Packages..."
+$packagesDir = [System.IO.Path]::Combine($DestProfilePath, "AppData", "Local", "Packages")
 if (-not (Test-Path $packagesDir)) {{
     New-Item -Path $packagesDir -ItemType Directory -Force | Out-Null
-    Write-Output "[+] Dossier AppData\\Local\\Packages cree (Requis initialisation Shell / AppX)."
+    Write-Output "[+] Dossier AppData/Local/Packages initialise."
 }}
 
-$stdFolders = @("Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "AppData\\Local", "AppData\\Roaming")
+$stdFolders = @("Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "AppData/Local", "AppData/Roaming")
 foreach ($f in $stdFolders) {{
     $p = Join-Path $DestProfilePath $f
     if (-not (Test-Path $p)) {{ New-Item -Path $p -ItemType Directory -Force | Out-Null }}
 }}
 
-# Purge complete des fichiers de transaction de registre et cache GPO
-Write-Output "[*] Nettoyage des caches et logs de transactions de registre..."
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\NTUSER.DAT.LOG*`" /s /d >nul 2>&1"
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\NTUSER.DAT{{*`" /s /d >nul 2>&1"
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\*.blf`" /s /d >nul 2>&1"
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\*.regtrans-ms`" /s /d >nul 2>&1"
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\UsrClass.dat.LOG*`" /s /d >nul 2>&1"
-cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\UsrClass.dat{{*`" /s /d >nul 2>&1"
-
-Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT{{*}}*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "UsrClass.dat.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "UsrClass.dat{{*}}*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "*.blf" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $DestProfilePath -Filter "*.regtrans-ms" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-
-# Supprimer le cache local GroupPolicy et WebCache pour forcer gpsvc a regenerer un etat propre sans conflit
-$staleDirs = @(
-    "AppData\\Local\\GroupPolicy",
-    "AppData\\Local\\Microsoft\\Windows\\WebCache",
-    "AppData\\Local\\Microsoft\\Windows\\INetCache"
-)
-foreach ($dir in $staleDirs) {{
-    $fullP = Join-Path $DestProfilePath $dir
-    if (Test-Path $fullP) {{ Remove-Item -Path $fullP -Recurse -Force -ErrorAction SilentlyContinue }}
+# Neutralisation du service AMD External Events Utility si present (empeche le crash fatal atieclxx.exe 0xc000041d)
+$amdSvc = Get-Service -Name "AMD External Events Utility" -ErrorAction SilentlyContinue
+if ($amdSvc) {{
+    Stop-Service -Name "AMD External Events Utility" -Force -ErrorAction SilentlyContinue
+    Set-Service -Name "AMD External Events Utility" -StartupType Disabled -ErrorAction SilentlyContinue
+    Write-Output "[+] Service 'AMD External Events Utility' neutralise (evite le crash de session atieclxx.exe)."
 }}
 
-# 7. FONCTION DE RECONFIGURATION RECURSIVE DES PERMISSIONS DU REGISTRE (NTUSER.DAT & UsrClass.dat)
-function Fix-RegistryHiveAcls {{
-    param(
-        [string]$HiveFilePath,
-        [string]$TempKeyName,
-        [string]$UserSid
-    )
-    if (-not (Test-Path $HiveFilePath)) {{ return }}
-    
-    & reg.exe unload "HKLM\\$TempKeyName" 2>&1 | Out-Null
-    Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
-    
-    $loadOut = & reg.exe load "HKLM\\$TempKeyName" "$HiveFilePath" 2>&1
-    if ($LASTEXITCODE -ne 0) {{
-        Write-Output "[!] Attention : Echec chargement ruche HKLM\\$TempKeyName : $loadOut"
-        return
-    }}
-
-    try {{
-        $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($UserSid)
-        $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
-        $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-        $appPkgSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-1")
-        $restrPkgObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-2")
-        $usersSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
-        $restrSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-12")
-
-        $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
-        $prop = [System.Security.AccessControl.PropagationFlags]::None
-        $allow = [System.Security.AccessControl.AccessControlType]::Allow
-
-        $rules = @(
-            (New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($appPkgSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($restrPkgObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($usersSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
-            (New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow))
-        )
-
-        function Apply-SubKeyAclRecursively {{
-            param([Microsoft.Win32.RegistryKey]$Key, [System.Security.AccessControl.RegistryAccessRule[]]$AccessRules)
-            try {{
-                # Utiliser AccessControlSections::Access uniquement pour eviter tout rejet de proprietaire
-                $keyAcl = $Key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
-                foreach ($r in $AccessRules) {{
-                    $keyAcl.AddAccessRule($r)
-                }}
-                $Key.SetAccessControl($keyAcl)
-            }} catch {{
-                Write-Output "[!] Note ACL $($Key.Name) : $($_.Exception.Message)"
-            }}
-
-            foreach ($subName in $Key.GetSubKeyNames()) {{
-                try {{
-                    $sub = $Key.OpenSubKey($subName, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl)
-                    if (-not $sub) {{
-                        $sub = $Key.OpenSubKey($subName, $true)
-                    }}
-                    if ($sub) {{
-                        Apply-SubKeyAclRecursively -Key $sub -AccessRules $AccessRules
-                        $sub.Close()
-                    }}
-                }} catch {{}}
-            }}
-        }}
-
-        $rootKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
-            $TempKeyName,
-            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
-            [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl
-        )
-        if ($rootKey) {{
-            # Nettoyer l'historique Group Policy obsolete de la machine source pour forcer gpsvc a reinitialiser un cycle neuf
-            try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History", $false) }} catch {{}}
-            try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status", $false) }} catch {{}}
-            
-            Apply-SubKeyAclRecursively -Key $rootKey -AccessRules $rules
-            $rootKey.Close()
-        }}
-    }} catch {{
-        Write-Output "[!] Note Registry ACL ($TempKeyName) : $($_.Exception.Message)"
-    }} finally {{
-        $unloaded = $false
-        for ($attempt = 1; $attempt -le 5; $attempt++) {{
-            [GC]::Collect()
-            [GC]::WaitForPendingFinalizers()
-            Start-Sleep -Milliseconds 400
-            $unloadOut = & reg.exe unload "HKLM\\$TempKeyName" 2>&1
-            if ($LASTEXITCODE -eq 0) {{
-                $unloaded = $true
-                break
-            }}
-            Start-Sleep -Milliseconds 600
-        }}
-        if (-not $unloaded) {{
-            Write-Output "[!] Avertissement : Dechargement ruche HKLM\\$TempKeyName incomplet : $unloadOut"
-        }}
-    }}
-    Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Hidden,System,Archive" -Force -ErrorAction SilentlyContinue
-}}
-
-# Traitement NTUSER.DAT
-$DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
-if (Test-Path $DestNtUser) {{
-    Write-Output "[*] Reattribution recursive des permissions internes NTUSER.DAT (gpsvc & Group Policy fix)..."
-    Fix-RegistryHiveAcls -HiveFilePath $DestNtUser -TempKeyName "MAPT_RestoreHive" -UserSid $TargetSid
-    Write-Output "[+] Permissions NTUSER.DAT configurees avec succes."
-}}
-
-# Traitement UsrClass.dat
-$DestUsrClass = Join-Path $DestProfilePath "AppData\\Local\\Microsoft\\Windows\\UsrClass.dat"
-if (Test-Path $DestUsrClass) {{
-    Write-Output "[*] Reattribution recursive des permissions internes UsrClass.dat..."
-    Fix-RegistryHiveAcls -HiveFilePath $DestUsrClass -TempKeyName "MAPT_RestoreUsrClass" -UserSid $TargetSid
-    Write-Output "[+] Permissions UsrClass.dat configurees avec succes."
-}}
-
-# 8. Reconfiguration complete des permissions de securite NTFS, AppContainer et proprietaire
+# 8. Reconfiguration complete des permissions NTFS, AppContainer et proprietaire
 Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProfilePath..."
 cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
 cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
@@ -628,7 +559,15 @@ cmd.exe /c "icacls.exe `"$packagesDir`" /grant *S-1-15-2-2:(OI)(CI)F /T /C /Q >n
 cmd.exe /c "icacls.exe `"$packagesDir`" /grant *${{TargetSid}}:(OI)(CI)F /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
-# Permissions specifiques et obligatoires sur NTUSER.DAT
+# S'assurer que NTUSER.DAT local dispose des permissions adequates sans modification interne
+$DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
+if (-not (Test-Path $DestNtUser)) {{
+    $DefaultNtUser = "C:\\Users\\Default\\NTUSER.DAT"
+    if (Test-Path $DefaultNtUser) {{
+        Copy-Item -Path $DefaultNtUser -Destination $DestNtUser -Force -ErrorAction SilentlyContinue
+        Write-Output "[+] NTUSER.DAT vierge initialise depuis le profil par defaut local."
+    }}
+}}
 if (Test-Path $DestNtUser) {{
     cmd.exe /c "attrib.exe -r -s -h `"$DestNtUser`" >nul 2>&1"
     cmd.exe /c "icacls.exe `"$DestNtUser`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant *${{TargetSid}}:F /grant *${{TargetUsername}}:F /grant *S-1-15-2-1:RX /Q >nul 2>&1"
@@ -636,49 +575,10 @@ if (Test-Path $DestNtUser) {{
     cmd.exe /c "attrib.exe +h +s `"$DestNtUser`" >nul 2>&1"
 }}
 
-# Permissions specifiques et obligatoires sur UsrClass.dat
-if (Test-Path $DestUsrClass) {{
-    cmd.exe /c "attrib.exe -r -s -h `"$DestUsrClass`" >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestUsrClass`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant *${{TargetSid}}:F /grant *${{TargetUsername}}:F /grant *S-1-15-2-1:RX /Q >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestUsrClass`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
-    cmd.exe /c "attrib.exe +h +s `"$DestUsrClass`" >nul 2>&1"
-}}
-
-# 9. Inscription et activation du profil dans HKLM ProfileList (avec Sid Binaire et purge .bak)
-Write-Output "[*] Inscription et validation du profil dans ProfileList ($TargetSid)..."
-try {{
-    # Supprimer toute clef corrompue .bak issue d'une tentative precedente
-    $BakKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid.bak"
-    if (Test-Path $BakKey) {{
-        Remove-Item -Path $BakKey -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Output "[+] Clef corrompue ProfileList $TargetSid.bak supprimee."
-    }}
-
-    $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
-    if (-not (Test-Path $ProfileKey)) {{
-        New-Item -Path $ProfileKey -Force | Out-Null
-    }}
-    Set-ItemProperty -Path $ProfileKey -Name "ProfileImagePath" -Value $DestProfilePath -Type ExpandString -Force
-    Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "RefCount" -Value 0 -Type DWord -Force
-
-    # Enregistrer la signature binaire du SID (clef pour la validation profsvc & gpsvc)
-    $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
-    $sidBinary = New-Object byte[] ($targetSidObj.BinaryLength)
-    $targetSidObj.GetBinaryForm($sidBinary, 0)
-    Set-ItemProperty -Path $ProfileKey -Name "Sid" -Value $sidBinary -Type Binary -Force
-
-    # Si la ruche est actuellement chargee sous HKU, nettoyer l'historique GPO
-    if (Test-Path "Registry::HKEY_USERS\\$TargetSid") {{
-        Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History" -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status" -Recurse -Force -ErrorAction SilentlyContinue
-    }}
-
-    Write-Output "[+] Profil valide et active dans ProfileList Windows ($ProfileKey)"
-}} catch {{
-    Write-Output "[!] Note ProfileList : $($_.Exception.Message)"
+# Nettoyer l'historique GPO sous HKU si la ruche etait precedemment montee
+if (Test-Path "Registry::HKEY_USERS\\$TargetSid") {{
+    Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status" -Recurse -Force -ErrorAction SilentlyContinue
 }}
 
 # 10. Configuration de l'AutoLogon Windows (Ouverture automatique de session)
