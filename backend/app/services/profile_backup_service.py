@@ -113,17 +113,23 @@ try {{
 Write-Output "[+] SID utilisateur detecte : $(if ($UserSid) {{ $UserSid }} else {{ 'Non-specifie' }})"
 
 # 5. Copie Robocopy avec exclusions de caches volumineux et temporaires
-Write-Output "[*] Copie des fichiers et dossiers utilisateurs..."
+Write-Output "[*] Copie des fichiers et dossiers utilisateurs (Documents, Bureau, Images, AppData, etc.)..."
 $ExcludeDirs = @(
-    "AppData\\Local\\Temp",
-    "AppData\\Local\\Microsoft\\Windows\\INetCache",
-    "AppData\\Local\\Microsoft\\Windows\\Explorer",
-    "AppData\\Local\\Microsoft\\Windows\\WebCache",
-    "AppData\\Local\\CrashDumps",
-    "AppData\\Local\\Package Cache",
-    "AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cache",
-    "AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Cache",
-    "AppData\\Local\\Mozilla\\Firefox\\Profiles\\*\\cache2"
+    "Temp",
+    "INetCache",
+    "WebCache",
+    "CrashDumps",
+    "Package Cache",
+    "Cache",
+    "cache2",
+    "GPUCache",
+    "Code Cache"
+)
+
+$ExcludeFiles = @(
+    "NTUSER.DAT.LOG*",
+    "NTUSER.DAT{{*}}*",
+    "*.tmp"
 )
 
 $RoboLog = Join-Path $WorkDir "robocopy.log"
@@ -137,16 +143,17 @@ $RoboArgs = @(
     "/NFL",
     "/NDL",
     "/XJ",
-    "/LOG:$RoboLog"
-)
-foreach ($x in $ExcludeDirs) {{
-    $RoboArgs += "/XD"
-    $RoboArgs += (Join-Path $TargetFolder $x)
-}}
+    "/LOG:$RoboLog",
+    "/XD"
+) + $ExcludeDirs + @("/XF") + $ExcludeFiles
 
 & robocopy.exe @RoboArgs
 $RoboExit = $LASTEXITCODE
-Write-Output "[+] Copie des fichiers terminee (Code retour Robocopy : $RoboExit)"
+if ($RoboExit -ge 16) {{
+    Write-Output "[!] Attention : Robocopy a signale une anomalie fatale (Code $RoboExit)."
+}} else {{
+    Write-Output "[+] Copie des fichiers utilisateurs terminee avec succes (Code Robocopy : $RoboExit)"
+}}
 
 # 6. Sauvegarde propre et complete du registre utilisateur (NTUSER.DAT)
 Write-Output "[*] Sauvegarde de la ruche de Registre (NTUSER.DAT)..."
