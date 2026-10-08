@@ -346,19 +346,22 @@ if (-not $AccountExists -and $CreateAccount) {{
     try {{
         if ($AutoLogonPassword) {{
             $secPass = ConvertTo-SecureString $AutoLogonPassword -AsPlainText -Force
-            New-LocalUser -Name $TargetUsername -Password $secPass -PasswordNeverExpires -UserMayNotChangePassword:$false -Description "Compte migre par MAPT" -ErrorAction Stop | Out-Null
+            New-LocalUser -Name $TargetUsername -Password $secPass -Description "Compte migre par MAPT" -ErrorAction Stop | Out-Null
+            Set-LocalUser -Name $TargetUsername -PasswordNeverExpires $true -UserMayNotChangePassword $false -ErrorAction SilentlyContinue
         }} else {{
-            New-LocalUser -Name $TargetUsername -NoPassword -PasswordNeverExpires -UserMayNotChangePassword:$false -Description "Compte migre par MAPT" -ErrorAction Stop | Out-Null
+            New-LocalUser -Name $TargetUsername -NoPassword -Description "Compte migre par MAPT" -ErrorAction Stop | Out-Null
+            Set-LocalUser -Name $TargetUsername -PasswordNeverExpires $true -UserMayNotChangePassword $false -ErrorAction SilentlyContinue
         }}
         $UserCreated = $true
         Write-Output "[+] Compte local '$TargetUsername' cree via PowerShell LocalAccounts."
     }} catch {{
-        Write-Output "[!] Fallback creation compte via net.exe..."
+        Write-Output "[!] Fallback creation compte via net.exe : $($_.Exception.Message)"
         if ($AutoLogonPassword) {{
             cmd.exe /c "net.exe user `"$TargetUsername`" `"$AutoLogonPassword`" /add /expires:never /active:yes >nul 2>&1"
         }} else {{
             cmd.exe /c "net.exe user `"$TargetUsername`" /add /expires:never /active:yes >nul 2>&1"
         }}
+        cmd.exe /c "wmic useraccount where name='$TargetUsername' set passwordexpires=false >nul 2>&1"
     }}
 
     # S'assurer de l'appartenance au groupe standard Utilisateurs (S-1-5-32-545) independamment de la langue
@@ -407,7 +410,8 @@ if (-not (Test-Path $DestProfilePath)) {{
     cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreHive >nul 2>&1"
     cmd.exe /c "reg.exe unload HKLM\\MAPT_RestoreUsrClass >nul 2>&1"
     cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
-    cmd.exe /c "takeown.exe /F `"$DestProfilePath`" /R /A /D O >nul 2>&1"
+    cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
+    cmd.exe /c "echo O | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
     cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
     cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
 }}
@@ -454,73 +458,95 @@ function Fix-RegistryHiveAcls {{
     )
     if (-not (Test-Path $HiveFilePath)) {{ return }}
     
-    cmd.exe /c "reg.exe unload HKLM\\$TempKeyName >nul 2>&1"
+    & reg.exe unload "HKLM\\$TempKeyName" 2>&1 | Out-Null
     Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Archive" -Force -ErrorAction SilentlyContinue
-    cmd.exe /c "reg.exe load HKLM\\$TempKeyName `"$HiveFilePath`" >nul 2>&1"
+    
+    $loadOut = & reg.exe load "HKLM\\$TempKeyName" "$HiveFilePath" 2>&1
+    if ($LASTEXITCODE -ne 0) {{
+        Write-Output "[!] Attention : Echec chargement ruche HKLM\\$TempKeyName : $loadOut"
+        return
+    }}
 
-    if (Test-Path "Registry::HKEY_LOCAL_MACHINE\\$TempKeyName") {{
-        try {{
-            $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($UserSid)
-            $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
-            $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
-            $appPkgSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-1")
-            $restrPkgObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-2")
-            $usersSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
-            $restrSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-12")
+    try {{
+        $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($UserSid)
+        $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
+        $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+        $appPkgSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-1")
+        $restrPkgObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-15-2-2")
+        $usersSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
+        $restrSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-12")
 
-            $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
-            $prop = [System.Security.AccessControl.PropagationFlags]::None
-            $allow = [System.Security.AccessControl.AccessControlType]::Allow
+        $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
+        $prop = [System.Security.AccessControl.PropagationFlags]::None
+        $allow = [System.Security.AccessControl.AccessControlType]::Allow
 
-            $regAcl = New-Object System.Security.AccessControl.RegistrySecurity
-            $regAcl.SetOwner($targetSidObj)
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($appPkgSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($restrPkgObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($usersSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
-            $regAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)))
+        $rules = @(
+            (New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($appPkgSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($restrPkgObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($usersSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow)),
+            (New-Object System.Security.AccessControl.RegistryAccessRule($restrSidObj, [System.Security.AccessControl.RegistryRights]::ReadKey, $inherit, $prop, $allow))
+        )
 
-            function Apply-SubKeyAclRecursively {{
-                param([Microsoft.Win32.RegistryKey]$Key, [System.Security.AccessControl.RegistrySecurity]$Acl)
-                try {{
-                    $Key.SetAccessControl($Acl)
-                }} catch {{}}
-                foreach ($subName in $Key.GetSubKeyNames()) {{
-                    try {{
-                        $sub = $Key.OpenSubKey($subName, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl)
-                        if (-not $sub) {{
-                            $sub = $Key.OpenSubKey($subName, $true)
-                        }}
-                        if ($sub) {{
-                            Apply-SubKeyAclRecursively -Key $sub -Acl $Acl
-                            $sub.Close()
-                        }}
-                    }} catch {{}}
+        function Apply-SubKeyAclRecursively {{
+            param([Microsoft.Win32.RegistryKey]$Key, [System.Security.AccessControl.RegistryAccessRule[]]$AccessRules)
+            try {{
+                # Utiliser AccessControlSections::Access uniquement pour eviter tout rejet de proprietaire
+                $keyAcl = $Key.GetAccessControl([System.Security.AccessControl.AccessControlSections]::Access)
+                foreach ($r in $AccessRules) {{
+                    $keyAcl.AddAccessRule($r)
                 }}
+                $Key.SetAccessControl($keyAcl)
+            }} catch {{
+                Write-Output "[!] Note ACL $($Key.Name) : $($_.Exception.Message)"
             }}
 
-            $rootKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
-                $TempKeyName,
-                [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
-                [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl
-            )
-            if ($rootKey) {{
-                # Nettoyer l'historique Group Policy obsolete de la machine source pour eviter l'erreur gpsvc
-                try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History", $false) }} catch {{}}
-                try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status", $false) }} catch {{}}
-                
-                Apply-SubKeyAclRecursively -Key $rootKey -Acl $regAcl
-                $rootKey.Close()
+            foreach ($subName in $Key.GetSubKeyNames()) {{
+                try {{
+                    $sub = $Key.OpenSubKey($subName, [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree, [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl)
+                    if (-not $sub) {{
+                        $sub = $Key.OpenSubKey($subName, $true)
+                    }}
+                    if ($sub) {{
+                        Apply-SubKeyAclRecursively -Key $sub -AccessRules $AccessRules
+                        $sub.Close()
+                    }}
+                }} catch {{}}
             }}
-        }} catch {{
-            Write-Output "[!] Note Registry ACL ($TempKeyName) : $($_.Exception.Message)"
-        }} finally {{
+        }}
+
+        $rootKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey(
+            $TempKeyName,
+            [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+            [System.Security.AccessControl.RegistryRights]::ChangePermissions -bor [System.Security.AccessControl.RegistryRights]::FullControl
+        )
+        if ($rootKey) {{
+            # Nettoyer l'historique Group Policy obsolete de la machine source pour forcer gpsvc a reinitialiser un cycle neuf
+            try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History", $false) }} catch {{}}
+            try {{ $rootKey.DeleteSubKeyTree("Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status", $false) }} catch {{}}
+            
+            Apply-SubKeyAclRecursively -Key $rootKey -AccessRules $rules
+            $rootKey.Close()
+        }}
+    }} catch {{
+        Write-Output "[!] Note Registry ACL ($TempKeyName) : $($_.Exception.Message)"
+    }} finally {{
+        $unloaded = $false
+        for ($attempt = 1; $attempt -le 5; $attempt++) {{
             [GC]::Collect()
             [GC]::WaitForPendingFinalizers()
-            Start-Sleep -Milliseconds 500
-            cmd.exe /c "reg.exe unload HKLM\\$TempKeyName >nul 2>&1"
+            Start-Sleep -Milliseconds 400
+            $unloadOut = & reg.exe unload "HKLM\\$TempKeyName" 2>&1
+            if ($LASTEXITCODE -eq 0) {{
+                $unloaded = $true
+                break
+            }}
+            Start-Sleep -Milliseconds 600
+        }}
+        if (-not $unloaded) {{
+            Write-Output "[!] Avertissement : Dechargement ruche HKLM\\$TempKeyName incomplet : $unloadOut"
         }}
     }}
     Set-ItemProperty -Path $HiveFilePath -Name Attributes -Value "Hidden,System,Archive" -Force -ErrorAction SilentlyContinue
@@ -544,24 +570,48 @@ if (Test-Path $DestUsrClass) {{
 
 # 8. Reconfiguration complete des permissions de securite NTFS et proprietaire
 Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProfilePath..."
-cmd.exe /c "takeown.exe /F `"$DestProfilePath`" /R /A /D O >nul 2>&1"
+cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
+cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
+cmd.exe /c "echo O | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
+
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /inheritance:e /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-
-$GrantSidArg = "*$($TargetSid)" + ':(OI)(CI)F'
-$GrantUserArg = "$($TargetUsername)" + ':(OI)(CI)F'
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantSidArg`" /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$GrantUserArg`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"*$TargetSid:(OI)(CI)F`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$TargetUsername:(OI)(CI)F`" /T /C /Q >nul 2>&1"
 
 # Permissions requises pour les packages d'applications Windows (AppX / Shell / gpsvc)
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-1:(OI)(CI)RX /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-2:(OI)(CI)RX /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
-# 9. Inscription et activation du profil dans HKLM ProfileList (avec Sid Binaire)
+# Permissions specifiques et obligatoires sur NTUSER.DAT
+if (Test-Path $DestNtUser) {{
+    cmd.exe /c "attrib.exe -r -s -h `"$DestNtUser`" >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestNtUser`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant `"*$TargetSid:F`" /grant `"$TargetUsername:F`" /grant *S-1-15-2-1:RX /Q >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestNtUser`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
+    cmd.exe /c "attrib.exe +h +s `"$DestNtUser`" >nul 2>&1"
+}}
+
+# Permissions specifiques et obligatoires sur UsrClass.dat
+if (Test-Path $DestUsrClass) {{
+    cmd.exe /c "attrib.exe -r -s -h `"$DestUsrClass`" >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestUsrClass`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant `"*$TargetSid:F`" /grant `"$TargetUsername:F`" /grant *S-1-15-2-1:RX /Q >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestUsrClass`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
+    cmd.exe /c "attrib.exe +h +s `"$DestUsrClass`" >nul 2>&1"
+}}
+
+# 9. Inscription et activation du profil dans HKLM ProfileList (avec Sid Binaire et purge .bak)
 Write-Output "[*] Inscription et validation du profil dans ProfileList ($TargetSid)..."
 try {{
+    # Supprimer toute clef corrompue .bak issue d'une tentative precedente
+    $BakKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid.bak"
+    if (Test-Path $BakKey) {{
+        Remove-Item -Path $BakKey -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Output "[+] Clef corrompue ProfileList $TargetSid.bak supprimee."
+    }}
+
     $ProfileKey = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\$TargetSid"
     if (-not (Test-Path $ProfileKey)) {{
         New-Item -Path $ProfileKey -Force | Out-Null
@@ -570,9 +620,7 @@ try {{
     Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "RefCount" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeLow" -Value 0 -Type DWord -Force
-    Set-ItemProperty -Path $ProfileKey -Name "ProfileLoadTimeHigh" -Value 0 -Type DWord -Force
+    Remove-ItemProperty -Path $ProfileKey -Name "RefCount" -Force -ErrorAction SilentlyContinue
 
     # Enregistrer la signature binaire du SID (clef pour la validation profsvc & gpsvc)
     $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
