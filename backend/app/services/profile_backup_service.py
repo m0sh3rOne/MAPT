@@ -300,7 +300,7 @@ try {{
 }}
 
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output "[✓] Sauvegarde du profil '$ProfileName' terminee avec succes !"
+Write-Output "[+] Sauvegarde du profil '$ProfileName' terminee avec succes !"
 exit 0
 """
 
@@ -429,8 +429,47 @@ Write-Output "[*] Copie et integration des fichiers vers $DestProfilePath..."
 cmd.exe /c "robocopy.exe `"$ExtractDir`" `"$DestProfilePath`" /E /R:1 /W:1 /NP /NFL /NDL /XJ >nul 2>&1"
 Write-Output "[+] Fichiers integres avec succes."
 
-# 6. Purge des fichiers de transaction et cache GPO corrompus de l'ancienne machine
+# 6. Neutralisation des services conflictuels et reset DPAPI de l'ancienne machine
+Write-Output "[*] Neutralisation des composants incompatibles de l'ancienne machine..."
+
+# Desactivation du service AMD External Events Utility si present (empeche le crash fatal atieclxx.exe 0xc000041d)
+$amdSvc = Get-Service -Name "AMD External Events Utility" -ErrorAction SilentlyContinue
+if ($amdSvc) {{
+    Stop-Service -Name "AMD External Events Utility" -Force -ErrorAction SilentlyContinue
+    Set-Service -Name "AMD External Events Utility" -StartupType Disabled -ErrorAction SilentlyContinue
+    Write-Output "[+] Service 'AMD External Events Utility' neutralise (evite le crash atieclxx.exe au logon)."
+}}
+
+# Reinitialisation des cles DPAPI incompatibles (AppData\\Roaming\\Microsoft\\Protect)
+$protectDir = Join-Path $DestProfilePath "AppData\\Roaming\\Microsoft\\Protect"
+if (Test-Path $protectDir) {{
+    $protectBak = "$protectDir.bak_" + (Get-Date -Format "yyyyMMddHHmmss")
+    Rename-Item -Path $protectDir -NewName (Split-Path $protectBak -Leaf) -Force -ErrorAction SilentlyContinue
+    Write-Output "[+] Cles DPAPI de l'ancienne machine neutralisees ($protectBak). Windows regenerera des cles locales."
+}}
+
+# Initialisation des dossiers systemes indispensables et AppData\\Local\\Packages (Obligatoire Windows 10/11 24H2 AppX/Shell)
+$packagesDir = Join-Path $DestProfilePath "AppData\\Local\\Packages"
+if (-not (Test-Path $packagesDir)) {{
+    New-Item -Path $packagesDir -ItemType Directory -Force | Out-Null
+    Write-Output "[+] Dossier AppData\\Local\\Packages cree (Requis initialisation Shell / AppX)."
+}}
+
+$stdFolders = @("Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "AppData\\Local", "AppData\\Roaming")
+foreach ($f in $stdFolders) {{
+    $p = Join-Path $DestProfilePath $f
+    if (-not (Test-Path $p)) {{ New-Item -Path $p -ItemType Directory -Force | Out-Null }}
+}}
+
+# Purge complete des fichiers de transaction de registre et cache GPO
 Write-Output "[*] Nettoyage des caches et logs de transactions de registre..."
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\NTUSER.DAT.LOG*`" /s /d >nul 2>&1"
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\NTUSER.DAT{{*`" /s /d >nul 2>&1"
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\*.blf`" /s /d >nul 2>&1"
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\*.regtrans-ms`" /s /d >nul 2>&1"
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\UsrClass.dat.LOG*`" /s /d >nul 2>&1"
+cmd.exe /c "attrib.exe -h -s -r `"$DestProfilePath\\UsrClass.dat{{*`" /s /d >nul 2>&1"
+
 Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $DestProfilePath -Filter "NTUSER.DAT{{*}}*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $DestProfilePath -Filter "UsrClass.dat.LOG*" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -439,12 +478,12 @@ Get-ChildItem -Path $DestProfilePath -Filter "*.blf" -Force -Recurse -ErrorActio
 Get-ChildItem -Path $DestProfilePath -Filter "*.regtrans-ms" -Force -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 # Supprimer le cache local GroupPolicy et WebCache pour forcer gpsvc a regenerer un etat propre sans conflit
-$StaleDirs = @(
+$staleDirs = @(
     "AppData\\Local\\GroupPolicy",
     "AppData\\Local\\Microsoft\\Windows\\WebCache",
     "AppData\\Local\\Microsoft\\Windows\\INetCache"
 )
-foreach ($dir in $StaleDirs) {{
+foreach ($dir in $staleDirs) {{
     $fullP = Join-Path $DestProfilePath $dir
     if (Test-Path $fullP) {{ Remove-Item -Path $fullP -Recurse -Force -ErrorAction SilentlyContinue }}
 }}
@@ -568,7 +607,7 @@ if (Test-Path $DestUsrClass) {{
     Write-Output "[+] Permissions UsrClass.dat configurees avec succes."
 }}
 
-# 8. Reconfiguration complete des permissions de securite NTFS et proprietaire
+# 8. Reconfiguration complete des permissions de securite NTFS, AppContainer et proprietaire
 Write-Output "[*] Reconfiguration des permissions de securite NTFS sur $DestProfilePath..."
 cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
 cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
@@ -577,19 +616,22 @@ cmd.exe /c "echo O | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /inheritance:e /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"*$TargetSid:(OI)(CI)F`" /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant `"$TargetUsername:(OI)(CI)F`" /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *${{TargetSid}}:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *${{TargetUsername}}:(OI)(CI)F /T /C /Q >nul 2>&1"
 
 # Permissions requises pour les packages d'applications Windows (AppX / Shell / gpsvc)
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-1:(OI)(CI)RX /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-2:(OI)(CI)RX /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$packagesDir`" /grant *S-1-15-2-1:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$packagesDir`" /grant *S-1-15-2-2:(OI)(CI)F /T /C /Q >nul 2>&1"
+cmd.exe /c "icacls.exe `"$packagesDir`" /grant *${{TargetSid}}:(OI)(CI)F /T /C /Q >nul 2>&1"
 cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
 
 # Permissions specifiques et obligatoires sur NTUSER.DAT
 if (Test-Path $DestNtUser) {{
     cmd.exe /c "attrib.exe -r -s -h `"$DestNtUser`" >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestNtUser`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant `"*$TargetSid:F`" /grant `"$TargetUsername:F`" /grant *S-1-15-2-1:RX /Q >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestNtUser`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant *${{TargetSid}}:F /grant *${{TargetUsername}}:F /grant *S-1-15-2-1:RX /Q >nul 2>&1"
     cmd.exe /c "icacls.exe `"$DestNtUser`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
     cmd.exe /c "attrib.exe +h +s `"$DestNtUser`" >nul 2>&1"
 }}
@@ -597,7 +639,7 @@ if (Test-Path $DestNtUser) {{
 # Permissions specifiques et obligatoires sur UsrClass.dat
 if (Test-Path $DestUsrClass) {{
     cmd.exe /c "attrib.exe -r -s -h `"$DestUsrClass`" >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestUsrClass`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant `"*$TargetSid:F`" /grant `"$TargetUsername:F`" /grant *S-1-15-2-1:RX /Q >nul 2>&1"
+    cmd.exe /c "icacls.exe `"$DestUsrClass`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant *${{TargetSid}}:F /grant *${{TargetUsername}}:F /grant *S-1-15-2-1:RX /Q >nul 2>&1"
     cmd.exe /c "icacls.exe `"$DestUsrClass`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
     cmd.exe /c "attrib.exe +h +s `"$DestUsrClass`" >nul 2>&1"
 }}
@@ -620,13 +662,19 @@ try {{
     Set-ItemProperty -Path $ProfileKey -Name "Flags" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "State" -Value 0 -Type DWord -Force
     Set-ItemProperty -Path $ProfileKey -Name "FullProfile" -Value 1 -Type DWord -Force
-    Remove-ItemProperty -Path $ProfileKey -Name "RefCount" -Force -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $ProfileKey -Name "RefCount" -Value 0 -Type DWord -Force
 
     # Enregistrer la signature binaire du SID (clef pour la validation profsvc & gpsvc)
     $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
     $sidBinary = New-Object byte[] ($targetSidObj.BinaryLength)
     $targetSidObj.GetBinaryForm($sidBinary, 0)
     Set-ItemProperty -Path $ProfileKey -Name "Sid" -Value $sidBinary -Type Binary -Force
+
+    # Si la ruche est actuellement chargee sous HKU, nettoyer l'historique GPO
+    if (Test-Path "Registry::HKEY_USERS\\$TargetSid") {{
+        Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "Registry::HKEY_USERS\\$TargetSid\\Software\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\Status" -Recurse -Force -ErrorAction SilentlyContinue
+    }}
 
     Write-Output "[+] Profil valide et active dans ProfileList Windows ($ProfileKey)"
 }} catch {{
@@ -654,7 +702,7 @@ if ($AutoLogon) {{
 
 # 11. Nettoyage de l'espace temporaire
 Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-Write-Output "[✓] Migration et integration du profil vers '$TargetUsername' terminee avec succes !"
+Write-Output "[+] Migration et integration du profil vers '$TargetUsername' terminee avec succes !"
 exit 0
 """
 
