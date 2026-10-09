@@ -63,8 +63,8 @@ func ExecuteCommand(ctx context.Context, commandStr string, timeoutSeconds int) 
 	runErr := cmd.Run()
 	duration := time.Since(start)
 
-	output := stdoutBuf.String()
-	errMsg := stderrBuf.String()
+	output := decodeConsoleOutput(stdoutBuf.Bytes())
+	errMsg := decodeConsoleOutput(stderrBuf.Bytes())
 
 	exitCode := 0
 	if runErr != nil {
@@ -114,8 +114,8 @@ func ExecutePython(ctx context.Context, scriptContent string, timeoutSeconds int
 	runErr := cmd.Run()
 	duration := time.Since(start)
 
-	output := stdoutBuf.String()
-	errMsg := stderrBuf.String()
+	output := decodeConsoleOutput(stdoutBuf.Bytes())
+	errMsg := decodeConsoleOutput(stderrBuf.Bytes())
 
 	exitCode := 0
 	if runErr != nil {

@@ -227,8 +227,8 @@ func ExecutePackage(
 	}
 	duration := time.Since(start)
 
-	output := stdoutBuf.String()
-	errMsg := strings.TrimSpace(stderrBuf.String())
+	output := decodeConsoleOutput(stdoutBuf.Bytes())
+	errMsg := strings.TrimSpace(decodeConsoleOutput(stderrBuf.Bytes()))
 
 	exitCode := 0
 	if runErr != nil {
