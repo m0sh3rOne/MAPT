@@ -29,7 +29,8 @@ import {
   StopCircle,
   AlertTriangle,
   Zap,
-  Scale
+  Scale,
+  X
 } from 'lucide-react';
 
 export const Profiles: React.FC = () => {
@@ -52,6 +53,7 @@ export const Profiles: React.FC = () => {
 
   // Backup form state
   const [backupSourceDeviceId, setBackupSourceDeviceId] = useState('');
+  const [backupDeviceSearch, setBackupDeviceSearch] = useState('');
   const [backupProfileName, setBackupProfileName] = useState('');
   const [backupNotes, setBackupNotes] = useState('');
   const [backupCompressionLevel, setBackupCompressionLevel] = useState<'fastest' | 'optimal' | 'maximum'>('optimal');
@@ -59,6 +61,7 @@ export const Profiles: React.FC = () => {
 
   // Restore form state
   const [restoreTargetDeviceId, setRestoreTargetDeviceId] = useState('');
+  const [restoreDeviceSearch, setRestoreDeviceSearch] = useState('');
   const [restoreTargetUsername, setRestoreTargetUsername] = useState('');
   const [restoreCreateAccount, setRestoreCreateAccount] = useState(true);
   const [restoreOverwrite, setRestoreOverwrite] = useState(true);
@@ -108,6 +111,7 @@ export const Profiles: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['profiles-summary'] });
       setShowBackupModal(false);
       setBackupSourceDeviceId('');
+      setBackupDeviceSearch('');
       setBackupProfileName('');
       setBackupNotes('');
       setBackupError(null);
@@ -126,6 +130,7 @@ export const Profiles: React.FC = () => {
       setShowRestoreModal(false);
       setSelectedBackupForRestore(null);
       setRestoreTargetDeviceId('');
+      setRestoreDeviceSearch('');
       setRestoreTargetUsername('');
       setRestoreError(null);
     },
@@ -213,6 +218,37 @@ export const Profiles: React.FC = () => {
     });
   }, [backups, searchTerm, statusFilter, sortKey, sortDirection]);
 
+  // Filtered devices for modals
+  const filteredBackupDevices = useMemo(() => {
+    if (!backupDeviceSearch.trim()) return devices;
+    const q = backupDeviceSearch.toLowerCase().trim();
+    return devices.filter(
+      (d) =>
+        d.hostname?.toLowerCase().includes(q) ||
+        (d.ip_address && d.ip_address.toLowerCase().includes(q))
+    );
+  }, [devices, backupDeviceSearch]);
+
+  const filteredRestoreDevices = useMemo(() => {
+    if (!restoreDeviceSearch.trim()) return devices;
+    const q = restoreDeviceSearch.toLowerCase().trim();
+    return devices.filter(
+      (d) =>
+        d.hostname?.toLowerCase().includes(q) ||
+        (d.ip_address && d.ip_address.toLowerCase().includes(q))
+    );
+  }, [devices, restoreDeviceSearch]);
+
+  const selectedRestoreDevice = useMemo(
+    () => devices.find((d) => d.id === restoreTargetDeviceId),
+    [devices, restoreTargetDeviceId]
+  );
+
+  const selectedBackupDevice = useMemo(
+    () => devices.find((d) => d.id === backupSourceDeviceId),
+    [devices, backupSourceDeviceId]
+  );
+
   // Resizable columns hook
   const defaultColWidths = useMemo(
     () => ({
@@ -234,6 +270,7 @@ export const Profiles: React.FC = () => {
     setSelectedBackupForRestore(backup);
     setRestoreTargetUsername(backup.profile_name);
     setRestoreTargetDeviceId('');
+    setRestoreDeviceSearch('');
     setRestoreCreateAccount(true);
     setRestoreOverwrite(true);
     setRestoreAutoLogon(true);
@@ -770,21 +807,24 @@ export const Profiles: React.FC = () => {
       {/* ========================================================================= */}
       {showBackupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50 flex-shrink-0">
               <div className="flex items-center space-x-2.5">
                 <FolderArchive className="w-5 h-5 text-emerald-400" />
                 <h3 className="font-bold text-slate-100">Sauvegarder un Profil Windows</h3>
               </div>
               <button
-                onClick={() => setShowBackupModal(false)}
-                className="text-slate-400 hover:text-slate-200 text-sm font-semibold"
+                onClick={() => {
+                  setShowBackupModal(false);
+                  setBackupDeviceSearch('');
+                }}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleConfirmBackup} className="p-6 space-y-4">
+            <form onSubmit={handleConfirmBackup} className="p-6 space-y-4 overflow-y-auto flex-1">
               {backupError && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center space-x-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -794,9 +834,39 @@ export const Profiles: React.FC = () => {
 
               {/* Source Device */}
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  1. Poste Windows Source *
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    1. Poste Windows Source *
+                  </label>
+                  {backupDeviceSearch && (
+                    <span className="text-[11px] text-emerald-400 font-medium">
+                      {filteredBackupDevices.length} machine{filteredBackupDevices.length > 1 ? 's' : ''} trouvée{filteredBackupDevices.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Champ de recherche/filtre pour poste source */}
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Filtrer par nom de machine ou IP (ex: PC00, 043C, 192.168...)"
+                    value={backupDeviceSearch}
+                    onChange={(e) => setBackupDeviceSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition shadow-inner"
+                  />
+                  {backupDeviceSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setBackupDeviceSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                      title="Effacer le filtre"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={backupSourceDeviceId}
                   onChange={(e) => setBackupSourceDeviceId(e.target.value)}
@@ -804,20 +874,41 @@ export const Profiles: React.FC = () => {
                   required
                 >
                   <option value="">Sélectionner une machine Windows...</option>
-                  {devices
-                    .filter((d) => d.is_online)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
-                      </option>
-                    ))}
-                  {devices
-                    .filter((d) => !d.is_online)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
-                      </option>
-                    ))}
+                  {selectedBackupDevice && !filteredBackupDevices.some((d) => d.id === selectedBackupDevice.id) && (
+                    <option value={selectedBackupDevice.id}>
+                      {selectedBackupDevice.hostname} ({selectedBackupDevice.ip_address || 'Sans IP'}) [Sélectionnée]
+                    </option>
+                  )}
+                  {filteredBackupDevices.length === 0 ? (
+                    <option value="" disabled>
+                      Aucune machine ne correspond à "{backupDeviceSearch}"
+                    </option>
+                  ) : (
+                    <>
+                      {filteredBackupDevices.filter((d) => d.is_online).length > 0 && (
+                        <optgroup label="🟢 En ligne">
+                          {filteredBackupDevices
+                            .filter((d) => d.is_online)
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {filteredBackupDevices.filter((d) => !d.is_online).length > 0 && (
+                        <optgroup label="⚪ Hors-ligne">
+                          {filteredBackupDevices
+                            .filter((d) => !d.is_online)
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
                 </select>
               </div>
 
@@ -954,10 +1045,13 @@ export const Profiles: React.FC = () => {
                 </p>
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800 flex-shrink-0">
                 <button
                   type="button"
-                  onClick={() => setShowBackupModal(false)}
+                  onClick={() => {
+                    setShowBackupModal(false);
+                    setBackupDeviceSearch('');
+                  }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition"
                 >
                   Annuler
@@ -990,21 +1084,24 @@ export const Profiles: React.FC = () => {
       {/* ========================================================================= */}
       {showRestoreModal && selectedBackupForRestore && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50 flex-shrink-0">
               <div className="flex items-center space-x-2.5">
                 <Share2 className="w-5 h-5 text-blue-400" />
                 <h3 className="font-bold text-slate-100">Migrer / Restaurer le Profil</h3>
               </div>
               <button
-                onClick={() => setShowRestoreModal(false)}
-                className="text-slate-400 hover:text-slate-200 text-sm font-semibold"
+                onClick={() => {
+                  setShowRestoreModal(false);
+                  setRestoreDeviceSearch('');
+                }}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleConfirmRestore} className="p-6 space-y-4">
+            <form onSubmit={handleConfirmRestore} className="p-6 space-y-4 overflow-y-auto flex-1">
               {restoreError && (
                 <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center space-x-2">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -1030,9 +1127,39 @@ export const Profiles: React.FC = () => {
 
               {/* Target Device */}
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  1. Poste Windows Cible *
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    1. Poste Windows Cible *
+                  </label>
+                  {restoreDeviceSearch && (
+                    <span className="text-[11px] text-blue-400 font-medium">
+                      {filteredRestoreDevices.length} machine{filteredRestoreDevices.length > 1 ? 's' : ''} trouvée{filteredRestoreDevices.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {/* Champ de recherche/filtre pour poste cible */}
+                <div className="relative mb-2">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Filtrer par nom de machine ou IP (ex: 043C, PC00, 192.168...)"
+                    value={restoreDeviceSearch}
+                    onChange={(e) => setRestoreDeviceSearch(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition shadow-inner"
+                  />
+                  {restoreDeviceSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setRestoreDeviceSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-1"
+                      title="Effacer le filtre"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
                 <select
                   value={restoreTargetDeviceId}
                   onChange={(e) => setRestoreTargetDeviceId(e.target.value)}
@@ -1040,20 +1167,41 @@ export const Profiles: React.FC = () => {
                   required
                 >
                   <option value="">Sélectionner la machine de destination...</option>
-                  {devices
-                    .filter((d) => d.is_online)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
-                      </option>
-                    ))}
-                  {devices
-                    .filter((d) => !d.is_online)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
-                      </option>
-                    ))}
+                  {selectedRestoreDevice && !filteredRestoreDevices.some((d) => d.id === selectedRestoreDevice.id) && (
+                    <option value={selectedRestoreDevice.id}>
+                      {selectedRestoreDevice.hostname} ({selectedRestoreDevice.ip_address || 'Sans IP'}) [Sélectionnée]
+                    </option>
+                  )}
+                  {filteredRestoreDevices.length === 0 ? (
+                    <option value="" disabled>
+                      Aucune machine ne correspond à "{restoreDeviceSearch}"
+                    </option>
+                  ) : (
+                    <>
+                      {filteredRestoreDevices.filter((d) => d.is_online).length > 0 && (
+                        <optgroup label="🟢 En ligne">
+                          {filteredRestoreDevices
+                            .filter((d) => d.is_online)
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.hostname} ({d.ip_address || 'Sans IP'}) — 🟢 En ligne
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {filteredRestoreDevices.filter((d) => !d.is_online).length > 0 && (
+                        <optgroup label="⚪ Hors-ligne">
+                          {filteredRestoreDevices
+                            .filter((d) => !d.is_online)
+                            .map((d) => (
+                              <option key={d.id} value={d.id}>
+                                {d.hostname} ({d.ip_address || 'Sans IP'}) — ⚪ Hors-ligne
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
                 </select>
               </div>
 
@@ -1183,10 +1331,13 @@ export const Profiles: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800 flex-shrink-0">
                 <button
                   type="button"
-                  onClick={() => setShowRestoreModal(false)}
+                  onClick={() => {
+                    setShowRestoreModal(false);
+                    setRestoreDeviceSearch('');
+                  }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition"
                 >
                   Annuler
