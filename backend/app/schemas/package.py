@@ -87,7 +87,10 @@ class ScriptCreate(BaseModel):
     name: str
     description: Optional[str] = None
     language: str = "powershell"  # powershell, python, cmd
-    initial_content: str = ""
+    initial_content: Optional[str] = ""
+    content: Optional[str] = None
+    script_type: Optional[str] = None
+    category: Optional[str] = None
     timeout_seconds: int = 300
 
 

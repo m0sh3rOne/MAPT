@@ -64,6 +64,7 @@ export const Profiles: React.FC = () => {
   const [restoreOverwrite, setRestoreOverwrite] = useState(true);
   const [restoreAutoLogon, setRestoreAutoLogon] = useState(true);
   const [restoreAutoLogonPassword, setRestoreAutoLogonPassword] = useState('');
+  const [restoreMode, setRestoreMode] = useState<'simple' | 'full_registry'>('simple');
   const [restoreNotes, setRestoreNotes] = useState('');
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
@@ -237,6 +238,7 @@ export const Profiles: React.FC = () => {
     setRestoreOverwrite(true);
     setRestoreAutoLogon(true);
     setRestoreAutoLogonPassword('');
+    setRestoreMode('simple');
     setRestoreNotes('');
     setRestoreError(null);
     setShowRestoreModal(true);
@@ -257,6 +259,7 @@ export const Profiles: React.FC = () => {
         overwrite_existing: restoreOverwrite,
         autologon: restoreAutoLogon,
         autologon_password: restoreAutoLogonPassword || undefined,
+        restore_mode: restoreMode,
         notes: restoreNotes,
       },
     });
@@ -1070,6 +1073,60 @@ export const Profiles: React.FC = () => {
                 <p className="text-[11px] text-slate-500 mt-1">
                   Par défaut identique au profil d'origine. Vous pouvez le renommer lors de la migration.
                 </p>
+              </div>
+
+              {/* Restore Mode Selection */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  3. Stratégie de Restauration
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div
+                    onClick={() => setRestoreMode('simple')}
+                    className={`cursor-pointer p-3 rounded-xl border transition ${
+                      restoreMode === 'simple'
+                        ? 'bg-blue-950/40 border-blue-500/80 ring-1 ring-blue-500/50'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <input
+                        type="radio"
+                        name="restoreMode"
+                        checked={restoreMode === 'simple'}
+                        onChange={() => setRestoreMode('simple')}
+                        className="text-blue-600 focus:ring-0"
+                      />
+                      <span className="text-xs font-bold text-slate-200">Mode Standard (Anti-corruption)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 pl-5 leading-relaxed">
+                      Profil vierge sain + fusion Robocopy des fichiers et <span className="text-blue-300 font-mono">AppData</span>. Sans altération du registre. Recommandé pour éviter tout rejet <span className="text-blue-300 font-mono">gpsvc</span>.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setRestoreMode('full_registry')}
+                    className={`cursor-pointer p-3 rounded-xl border transition ${
+                      restoreMode === 'full_registry'
+                        ? 'bg-indigo-950/40 border-indigo-500/80 ring-1 ring-indigo-500/50'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2 mb-1">
+                      <input
+                        type="radio"
+                        name="restoreMode"
+                        checked={restoreMode === 'full_registry'}
+                        onChange={() => setRestoreMode('full_registry')}
+                        className="text-indigo-600 focus:ring-0"
+                      />
+                      <span className="text-xs font-bold text-slate-200">Mode Complet (Registre Réparé)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 pl-5 leading-relaxed">
+                      Restauration complète incluant <span className="text-indigo-300 font-mono">NTUSER.DAT</span> avec réalignement <em>User Shell Folders</em> sur <span className="text-indigo-300 font-mono">%USERPROFILE%</span>, réattribution des ACLs internes et reset DPAPI.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               {/* Restore Options */}

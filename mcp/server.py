@@ -562,6 +562,7 @@ def tool_restore_user_profile(
     overwrite_existing: bool = True,
     autologon: bool = True,
     autologon_password: Optional[str] = None,
+    restore_mode: Optional[str] = "simple",
     notes: Optional[str] = None
 ) -> Dict[str, Any]:
     """Restaure et migre une archive de profil utilisateur Windows sur un poste cible avec résolution automatique des permissions et AutoLogon."""
@@ -572,6 +573,7 @@ def tool_restore_user_profile(
         "overwrite_existing": overwrite_existing,
         "autologon": autologon,
         "autologon_password": autologon_password,
+        "restore_mode": restore_mode or "simple",
         "notes": notes
     }
     resp = client.request("POST", f"/admin/profiles/{backup_id}/restore", data=payload)
@@ -857,6 +859,7 @@ MCP_TOOLS = {
                 "overwrite_existing": {"type": "boolean", "description": "Écraser les fichiers existants", "default": True},
                 "autologon": {"type": "boolean", "description": "Activer la connexion automatique (AutoLogon) au démarrage", "default": True},
                 "autologon_password": {"type": "string", "description": "Mot de passe pour l'AutoLogon (optionnel)"},
+                "restore_mode": {"type": "string", "enum": ["simple", "full_registry"], "description": "Mode de restauration : 'simple' (standard sans ruche registre) ou 'full_registry' (avec restauration et réparation de NTUSER.DAT)", "default": "simple"},
                 "notes": {"type": "string", "description": "Notes explicatives (optionnel)"}
             },
             "required": ["backup_id", "target_device_id"]

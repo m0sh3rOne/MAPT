@@ -18,6 +18,7 @@ class ProfileRestoreRequest(BaseModel):
     overwrite_existing: bool = True
     autologon: bool = True
     autologon_password: Optional[str] = None
+    restore_mode: Optional[str] = "simple"  # "simple" (profil vierge + fichiers) ou "full_registry" (avec NTUSER.DAT repare)
     notes: Optional[str] = None
 
 

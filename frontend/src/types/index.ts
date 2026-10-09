@@ -348,6 +348,7 @@ export interface ProfileRestoreRequest {
   overwrite_existing?: boolean;
   autologon?: boolean;
   autologon_password?: string;
+  restore_mode?: 'simple' | 'full_registry';
   notes?: string;
 }
 

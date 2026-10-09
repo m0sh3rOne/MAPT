@@ -58,7 +58,7 @@ class ScriptService:
         created = await self.script_repo.create(script)
 
         # Création de la version initiale 1 si du contenu est fourni
-        content = script_in.initial_content or "# Nouveau script\n"
+        content = script_in.initial_content or script_in.content or "# Nouveau script\n"
         sha256_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
         v1 = ScriptVersion(
             script_id=created.id,

@@ -45,7 +45,9 @@ async def lifespan(app: FastAPI):
             await session.commit()
             logger.info(f"Super Admin user created (username: '{settings.INITIAL_ADMIN_USERNAME}')")
 
-    logger.info("MAPT backend startup completed successfully.")
+        # Initialisation des scripts système officiels (ex: Réparation Profil Utilisateur Migré)
+        from app.services.default_scripts import ensure_default_scripts
+        await ensure_default_scripts(session)
     yield
     logger.info("Shutting down MAPT backend...")
 
