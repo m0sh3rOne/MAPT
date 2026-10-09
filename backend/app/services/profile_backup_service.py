@@ -862,25 +862,85 @@ if (Test-Path $DestNtUser) {{
         }}
         $rootKey.Close()
 
-        Write-Output "[*] Reattribution des permissions internes de la ruche NTUSER.DAT pour '$TargetUsername'..."
+        Write-Output "[*] Reattribution et propagation recursive des permissions internes de la ruche NTUSER.DAT pour '$TargetUsername'..."
         try {{
-            $hiveAcl = Get-Acl "HKLM:\\MAPT_RestoreHive"
-            $oldRules = $hiveAcl.Access | Where-Object {{ $_.IdentityReference.Value -like 'S-1-5-21-*' -and $_.IdentityReference.Value -ne $TargetSid }}
-            foreach ($r in $oldRules) {{ $hiveAcl.RemoveAccessRule($r) | Out-Null }}
+            $cSharpRegCode = @'
+using System;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using Microsoft.Win32;
 
-            $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($TargetSid)
-            $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
-            $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+public static class RegAclFixer
+{{
+    public static int FixCount = 0;
 
-            $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
-            $prop = [System.Security.AccessControl.PropagationFlags]::None
-            $allow = [System.Security.AccessControl.AccessControlType]::Allow
+    public static void Propagate(string rootSubKey, string targetSid)
+    {{
+        FixCount = 0;
+        SecurityIdentifier userSid = new SecurityIdentifier(targetSid);
+        SecurityIdentifier sysSid = new SecurityIdentifier("S-1-5-18");
+        SecurityIdentifier admSid = new SecurityIdentifier("S-1-5-32-544");
+        SecurityIdentifier appSid = new SecurityIdentifier("S-1-15-2-1");
 
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            Set-Acl -Path "HKLM:\\MAPT_RestoreHive" -AclObject $hiveAcl
-            Write-Output "[+] Permissions internes NTUSER.DAT attribuees en FullControl a '$TargetUsername'."
+        using (RegistryKey root = Registry.LocalMachine.OpenSubKey(rootSubKey, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.ChangePermissions | RegistryRights.ReadKey | RegistryRights.WriteKey))
+        {{
+            if (root != null)
+            {{
+                Apply(root, userSid, sysSid, admSid, appSid);
+            }}
+        }}
+    }}
+
+    private static void Apply(RegistryKey key, SecurityIdentifier user, SecurityIdentifier sys, SecurityIdentifier adm, SecurityIdentifier app)
+    {{
+        try
+        {{
+            RegistrySecurity sec = key.GetAccessControl();
+            AuthorizationRuleCollection rules = sec.GetAccessRules(true, false, typeof(SecurityIdentifier));
+            foreach (RegistryAccessRule r in rules)
+            {{
+                if (r.IdentityReference.Value.StartsWith("S-1-5-21-") && r.IdentityReference != user)
+                {{
+                    sec.RemoveAccessRule(r);
+                }}
+            }}
+
+            sec.AddAccessRule(new RegistryAccessRule(user, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(sys, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(adm, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(app, RegistryRights.ReadKey, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+
+            key.SetAccessControl(sec);
+            FixCount++;
+        }}
+        catch {{ }}
+
+        try
+        {{
+            foreach (string subName in key.GetSubKeyNames())
+            {{
+                try
+                {{
+                    using (RegistryKey sub = key.OpenSubKey(subName, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.ChangePermissions | RegistryRights.ReadKey | RegistryRights.WriteKey))
+                    {{
+                        if (sub != null)
+                        {{
+                            Apply(sub, user, sys, adm, app);
+                        }}
+                    }}
+                }}
+                catch {{ }}
+            }}
+        }}
+        catch {{ }}
+    }}
+}}
+'@
+            if (-not ([System.Management.Automation.PSTypeName]'RegAclFixer').Type) {{
+                Add-Type -TypeDefinition $cSharpRegCode -ErrorAction Stop
+            }}
+            [RegAclFixer]::Propagate("MAPT_RestoreHive", $TargetSid)
+            Write-Output "[+] Permissions internes NTUSER.DAT propagees recursivement en FullControl a '$TargetUsername' ($([RegAclFixer]::FixCount) cles traitees)."
         }} catch {{
             Write-Output "[!] Note Registry Hive ACL : $($_.Exception.Message)"
         }}

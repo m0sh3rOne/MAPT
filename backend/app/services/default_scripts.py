@@ -5,7 +5,7 @@ from app.core.logging import logger
 from app.models.user import User
 from app.models.script import Script, ScriptVersion
 
-REPAIR_PROFILE_SCRIPT_CONTENT = """<#
+REPAIR_PROFILE_SCRIPT_CONTENT = r"""<#
 .SYNOPSIS
     Script universel de réparation d'un profil utilisateur Windows restauré/migré depuis un autre poste.
     Résout les rejets à la connexion ("Déconnexion immédiate", "Échec de l'ouverture de session", crash de session).
@@ -25,13 +25,26 @@ REPAIR_PROFILE_SCRIPT_CONTENT = """<#
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$false)]
-    [string]$TargetUsername = "proftest"
+    [string]$TargetUsername = ""
 )
 
 # Vérification des privilèges Administrateur
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Error "[-] Ce script doit impérativement être exécuté en tant qu'Administrateur."
     exit 1
+}
+
+# Auto-détection du compte cible si non spécifié
+if (-not $TargetUsername) {
+    $nonSystem = @("Default", "Default User", "All Users", "Public", "Admin", "Administrateur")
+    $candidates = Get-ChildItem "C:\Users" -Directory | Where-Object { $_.Name -notin $nonSystem } | Sort-Object LastWriteTime -Descending
+    if ($candidates) {
+        $TargetUsername = $candidates[0].Name
+        Write-Host "[*] Aucun utilisateur spécifié, détection automatique du profil le plus récent : '$TargetUsername'" -ForegroundColor Yellow
+    } else {
+        Write-Error "[-] Aucun utilisateur cible spécifié et impossible de le déterminer automatiquement."
+        exit 1
+    }
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -142,26 +155,86 @@ if (Test-Path $hiveFile) {
         }
         $rootKey.Close()
 
-        # Réparation des permissions internes de la ruche registre (élimine l'accès refusé GPSVC)
-        Write-Host "  -> Réparation des ACLs internes de la ruche pour $TargetUsername..." -ForegroundColor Yellow
+        # Réparation et propagation récursive des permissions internes de la ruche registre
+        Write-Host "  -> Propagation récursive des ACLs internes NTUSER.DAT pour $TargetUsername..." -ForegroundColor Yellow
         try {
-            $hiveAcl = Get-Acl "HKLM:\\MAPT_FixHive"
-            $oldRules = $hiveAcl.Access | Where-Object { $_.IdentityReference.Value -like 'S-1-5-21-*' -and $_.IdentityReference.Value -ne $userSid }
-            foreach ($r in $oldRules) { $hiveAcl.RemoveAccessRule($r) | Out-Null }
-            
-            $inherit = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit, ObjectInherit"
-            $prop = [System.Security.AccessControl.PropagationFlags]::None
-            $allow = [System.Security.AccessControl.AccessControlType]::Allow
+            $cSharpFixer = @'
+using System;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using Microsoft.Win32;
 
-            $targetSidObj = New-Object System.Security.Principal.SecurityIdentifier($userSid)
-            $systemSidObj = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18")
-            $adminSidObj  = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544")
+public static class RegAclFixerScript
+{
+    public static int FixCount = 0;
 
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($targetSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($systemSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            $hiveAcl.AddAccessRule((New-Object System.Security.AccessControl.RegistryAccessRule($adminSidObj, [System.Security.AccessControl.RegistryRights]::FullControl, $inherit, $prop, $allow)))
-            Set-Acl -Path "HKLM:\\MAPT_FixHive" -AclObject $hiveAcl
-            Write-Host "  -> Permissions registre internes NTUSER.DAT accordées en FullControl à $TargetUsername." -ForegroundColor Green
+    public static void Propagate(string rootSubKey, string targetSid)
+    {
+        FixCount = 0;
+        SecurityIdentifier userSid = new SecurityIdentifier(targetSid);
+        SecurityIdentifier sysSid = new SecurityIdentifier("S-1-5-18");
+        SecurityIdentifier admSid = new SecurityIdentifier("S-1-5-32-544");
+        SecurityIdentifier appSid = new SecurityIdentifier("S-1-15-2-1");
+
+        using (RegistryKey root = Registry.LocalMachine.OpenSubKey(rootSubKey, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.ChangePermissions | RegistryRights.ReadKey | RegistryRights.WriteKey))
+        {
+            if (root != null)
+            {
+                Apply(root, userSid, sysSid, admSid, appSid);
+            }
+        }
+    }
+
+    private static void Apply(RegistryKey key, SecurityIdentifier user, SecurityIdentifier sys, SecurityIdentifier adm, SecurityIdentifier app)
+    {
+        try
+        {
+            RegistrySecurity sec = key.GetAccessControl();
+            AuthorizationRuleCollection rules = sec.GetAccessRules(true, false, typeof(SecurityIdentifier));
+            foreach (RegistryAccessRule r in rules)
+            {
+                if (r.IdentityReference.Value.StartsWith("S-1-5-21-") && r.IdentityReference != user)
+                {
+                    sec.RemoveAccessRule(r);
+                }
+            }
+
+            sec.AddAccessRule(new RegistryAccessRule(user, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(sys, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(adm, RegistryRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            sec.AddAccessRule(new RegistryAccessRule(app, RegistryRights.ReadKey, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+
+            key.SetAccessControl(sec);
+            FixCount++;
+        }
+        catch { }
+
+        try
+        {
+            foreach (string subName in key.GetSubKeyNames())
+            {
+                try
+                {
+                    using (RegistryKey sub = key.OpenSubKey(subName, RegistryKeyPermissionCheck.ReadWriteSubTree, RegistryRights.ChangePermissions | RegistryRights.ReadKey | RegistryRights.WriteKey))
+                    {
+                        if (sub != null)
+                        {
+                            Apply(sub, user, sys, adm, app);
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+}
+'@
+            if (-not ([System.Management.Automation.PSTypeName]'RegAclFixerScript').Type) {
+                Add-Type -TypeDefinition $cSharpFixer -ErrorAction Stop
+            }
+            [RegAclFixerScript]::Propagate("MAPT_FixHive", $userSid)
+            Write-Host "  -> Permissions registre internes NTUSER.DAT propagées récursivement en FullControl à $TargetUsername ($([RegAclFixerScript]::FixCount) clés traitées)." -ForegroundColor Green
         } catch {
             Write-Host "  [!] Note Hive ACL : $($_.Exception.Message)"
         }
