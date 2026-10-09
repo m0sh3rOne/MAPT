@@ -544,20 +544,23 @@ cmd.exe /c "attrib.exe -r -s -h `"$DestProfilePath\\*`" /s /d >nul 2>&1"
 cmd.exe /c "echo Y | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
 cmd.exe /c "echo O | takeown.exe /F `"$DestProfilePath`" /R /A >nul 2>&1"
 
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /inheritance:e /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-18:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *${{TargetSid}}:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *${{TargetUsername}}:(OI)(CI)F /T /C /Q >nul 2>&1"
+$sidAclFull = "*$($TargetSid):(OI)(CI)F"
+$userAclFull = "$($TargetUsername):(OI)(CI)F"
+
+& icacls.exe "$DestProfilePath" /inheritance:e /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-5-18:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-5-32-544:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "$sidAclFull" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "$userAclFull" /T /C /Q 2>&1 | Out-Null
 
 # Permissions requises pour les packages d'applications Windows (AppX / Shell / gpsvc)
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-1:(OI)(CI)RX /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-15-2-2:(OI)(CI)RX /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /grant *S-1-5-32-545:(OI)(CI)RX /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$packagesDir`" /grant *S-1-15-2-1:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$packagesDir`" /grant *S-1-15-2-2:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$packagesDir`" /grant *${{TargetSid}}:(OI)(CI)F /T /C /Q >nul 2>&1"
-cmd.exe /c "icacls.exe `"$DestProfilePath`" /setowner `"$TargetUsername`" /T /C /Q >nul 2>&1"
+& icacls.exe "$DestProfilePath" /grant "*S-1-15-2-1:(OI)(CI)RX" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-15-2-2:(OI)(CI)RX" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /grant "*S-1-5-32-545:(OI)(CI)RX" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$packagesDir" /grant "*S-1-15-2-1:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$packagesDir" /grant "*S-1-15-2-2:(OI)(CI)F" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$packagesDir" /grant "$sidAclFull" /T /C /Q 2>&1 | Out-Null
+& icacls.exe "$DestProfilePath" /setowner "$TargetUsername" /T /C /Q 2>&1 | Out-Null
 
 # S'assurer que NTUSER.DAT local dispose des permissions adequates sans modification interne
 $DestNtUser = Join-Path $DestProfilePath "NTUSER.DAT"
@@ -570,8 +573,8 @@ if (-not (Test-Path $DestNtUser)) {{
 }}
 if (Test-Path $DestNtUser) {{
     cmd.exe /c "attrib.exe -r -s -h `"$DestNtUser`" >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestNtUser`" /grant *S-1-5-18:F /grant *S-1-5-32-544:F /grant *${{TargetSid}}:F /grant *${{TargetUsername}}:F /grant *S-1-15-2-1:RX /Q >nul 2>&1"
-    cmd.exe /c "icacls.exe `"$DestNtUser`" /setowner `"$TargetUsername`" /Q >nul 2>&1"
+    & icacls.exe "$DestNtUser" /grant "*S-1-5-18:F" /grant "*S-1-5-32-544:F" /grant "*$($TargetSid):F" /grant "$($TargetUsername):F" /grant "*S-1-15-2-1:RX" /Q 2>&1 | Out-Null
+    & icacls.exe "$DestNtUser" /setowner "$TargetUsername" /Q 2>&1 | Out-Null
     cmd.exe /c "attrib.exe +h +s `"$DestNtUser`" >nul 2>&1"
 }}
 
