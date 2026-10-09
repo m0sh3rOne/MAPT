@@ -13,6 +13,7 @@ class Device(Base):
     device_uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, index=True)
     hostname = Column(String(255), nullable=False, index=True)
     previous_hostname = Column(String(255), nullable=True)
+    wins_name = Column(String(255), nullable=True)
     os_name = Column(String(100), nullable=False, default="Windows")
     os_version = Column(String(100), nullable=True)
     os_build = Column(String(50), nullable=True)

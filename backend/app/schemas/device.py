@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class DeviceBase(BaseModel):
     hostname: str
     previous_hostname: Optional[str] = None
+    wins_name: Optional[str] = None
     os_name: str = "Windows"
     os_version: Optional[str] = None
     os_build: Optional[str] = None
@@ -18,10 +19,16 @@ class DeviceCreate(DeviceBase):
     device_uuid: UUID
 
 
+class DeviceUpdate(BaseModel):
+    hostname: Optional[str] = None
+    wins_name: Optional[str] = None
+
+
 class DeviceResponse(DeviceBase):
     id: UUID
     device_uuid: UUID
     previous_hostname: Optional[str] = None
+    wins_name: Optional[str] = None
     is_approved: bool = True
     enabled: bool
     is_online: bool = False
@@ -69,6 +76,7 @@ class WolResultResponse(BaseModel):
 
 
 class DeviceInventoryUpdate(BaseModel):
+    wins_name: Optional[str] = None
     os_caption: Optional[str] = None
     os_display_version: Optional[str] = None
     os_build: Optional[str] = None

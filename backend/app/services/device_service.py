@@ -87,13 +87,23 @@ class DeviceService:
                 effective_ip = best_ip
 
         is_appr = getattr(device, "is_approved", True)
-        if is_appr is None:
-            is_appr = True
+        effective_wins = getattr(device, "wins_name", None)
+        if not effective_wins and device.inventory and device.inventory.local_users:
+            for u in device.inventory.local_users:
+                if isinstance(u, dict) and u.get("account_type") == "Local" and u.get("domain"):
+                    d = str(u.get("domain")).strip()
+                    if d and d.upper() not in ["BUILTIN", "AUTORITE NT", "NT AUTHORITY"]:
+                        effective_wins = d
+                        break
+        if not effective_wins:
+            effective_wins = device.hostname
 
         return DeviceResponse(
             id=device.id,
             device_uuid=device.device_uuid,
             hostname=device.hostname,
+            previous_hostname=device.previous_hostname,
+            wins_name=effective_wins,
             os_name=device.os_name,
             os_version=device.os_version,
             os_build=device.os_build,

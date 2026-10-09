@@ -79,10 +79,12 @@ class AgentService:
             if device:
                 device.device_uuid = target_uuid
 
+        wins_reported = enroll_in.wins_name or enroll_in.hostname
         if not device:
             device = Device(
                 device_uuid=target_uuid,
                 hostname=enroll_in.hostname,
+                wins_name=wins_reported,
                 os_name=enroll_in.os_name,
                 os_version=enroll_in.os_version,
                 os_build=enroll_in.os_build,
@@ -95,9 +97,8 @@ class AgentService:
             )
             device = await self.device_repo.create(device)
         else:
-            if device.hostname != enroll_in.hostname:
-                device.previous_hostname = device.hostname
-                device.hostname = enroll_in.hostname
+            if not device.wins_name:
+                device.wins_name = wins_reported
             device.device_uuid = target_uuid
             device.os_name = enroll_in.os_name
             device.os_version = enroll_in.os_version
@@ -145,26 +146,14 @@ class AgentService:
             agent_version=heartbeat_in.agent_version
         )
 
-        # Mise à jour automatique et dynamique du nom d'hôte si la machine a été renommée
+        # Enregistrement du nom WINS / NetBIOS réel de la machine Windows
         updated_device = False
-        if heartbeat_in.hostname and heartbeat_in.hostname.strip():
-            reported_host = heartbeat_in.hostname.strip()
-            current_host = (device.hostname or "").strip()
-            if reported_host and current_host and reported_host.upper() != current_host.upper():
-                device.previous_hostname = current_host
-                device.hostname = reported_host
+        reported_wins = heartbeat_in.wins_name or heartbeat_in.hostname
+        if reported_wins and reported_wins.strip():
+            clean_wins = reported_wins.strip()
+            if getattr(device, "wins_name", None) != clean_wins:
+                device.wins_name = clean_wins
                 updated_device = True
-                await self.audit_repo.create(
-                    action=AuditAction.DEVICE_RENAMED,
-                    entity_type="device",
-                    entity_id=device.id,
-                    details={
-                        "old_hostname": current_host,
-                        "new_hostname": reported_host,
-                        "source": "heartbeat_auto_detect"
-                    },
-                    ip_address=ip_address
-                )
 
         # Mise à jour automatique et dynamique de la version de l'OS si transmise dans le heartbeat
         if heartbeat_in.os_name and heartbeat_in.os_name.strip() and heartbeat_in.os_name.lower() != "windows":
@@ -422,11 +411,18 @@ class AgentService:
             if device.os_build != inventory_in.os_build:
                 device.os_build = inventory_in.os_build
                 updated_os = True
+        # Si l'inventaire contient les informations WINS
+        if inventory_in.wins_name and inventory_in.wins_name.strip():
+            clean_wins = inventory_in.wins_name.strip()
+            if getattr(device, "wins_name", None) != clean_wins:
+                device.wins_name = clean_wins
+                updated_os = True
+
         if updated_os:
             await self.device_repo.update(device)
 
         # Retirer les champs spécifiques à l'OS avant d'upsert dans device_inventory
-        for k in ["os_caption", "os_display_version", "os_build", "os_architecture"]:
+        for k in ["os_caption", "os_display_version", "os_build", "os_architecture", "wins_name"]:
             raw_dict.pop(k, None)
 
         # Garantir que l'utilisateur actif est présent dans local_users et marqué connecté

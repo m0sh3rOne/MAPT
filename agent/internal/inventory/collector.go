@@ -16,6 +16,7 @@ import (
 )
 
 type InventoryData struct {
+	WINSName          string                   `json:"wins_name,omitempty"`
 	OSCaption         string                   `json:"os_caption,omitempty"`
 	OSDisplayVersion  string                   `json:"os_display_version,omitempty"`
 	OSBuild           string                   `json:"os_build,omitempty"`
@@ -53,6 +54,13 @@ func CollectInventory() *InventoryData {
 	} else if uEnv := os.Getenv("USERNAME"); uEnv != "" {
 		data.CurrentUser = uEnv
 	}
+
+	// NetBIOS / WINS computer name
+	wins := os.Getenv("COMPUTERNAME")
+	if wins == "" {
+		wins, _ = os.Hostname()
+	}
+	data.WINSName = strings.ToUpper(strings.TrimSpace(wins))
 
 	// Default fallback for Network interfaces & MACs using Go net package
 	if ifaces, err := net.Interfaces(); err == nil {
@@ -129,6 +137,9 @@ try {
     if ($dispVer) { $res['os_display_version'] = $dispVer }
     if ($fullBuild) { $res['os_build'] = $fullBuild }
     if ($arch) { $res['os_architecture'] = $arch }
+
+    $wins = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).Name }
+    if ($wins) { $res['wins_name'] = $wins.Trim().ToUpper() }
 } catch {}
 
 try {
@@ -339,6 +350,7 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	var parsed struct {
+		WINSName          string                   `json:"wins_name"`
 		OSCaption         string                   `json:"os_caption"`
 		OSDisplayVersion  string                   `json:"os_display_version"`
 		OSBuild           string                   `json:"os_build"`
@@ -355,6 +367,9 @@ $res | ConvertTo-Json -Depth 4 -Compress
 	}
 
 	if err := json.Unmarshal(out.Bytes(), &parsed); err == nil {
+		if parsed.WINSName != "" {
+			data.WINSName = parsed.WINSName
+		}
 		if parsed.OSCaption != "" {
 			data.OSCaption = parsed.OSCaption
 		}

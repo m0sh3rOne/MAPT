@@ -59,7 +59,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  FolderArchive
+  FolderArchive,
+  Edit2
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 import { useResizableColumns } from '../../hooks/useResizableColumns';
@@ -161,6 +162,10 @@ export const DeviceDetail: React.FC = () => {
   // Rename form state
   const [newName, setNewName] = useState('');
   const [renameRestart, setRenameRestart] = useState(true);
+
+  // Edit MAPT name state
+  const [isEditingMaptName, setIsEditingMaptName] = useState(false);
+  const [maptNameInput, setMaptNameInput] = useState('');
 
   // Message form state
   const [msgTarget, setMsgTarget] = useState<'*' | 'user'>('*');
@@ -474,6 +479,35 @@ export const DeviceDetail: React.FC = () => {
     },
     onError: (err: any) => {
       alert("Erreur lors de l'acquittement du renommage : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
+  const syncWinsMutation = useMutation({
+    mutationFn: () => api.syncDeviceWinsName(id!),
+    onSuccess: (updatedDev) => {
+      queryClient.setQueryData(['device', id], updatedDev);
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de la synchronisation avec le nom WINS : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
+  const updateMaptNameMutation = useMutation({
+    mutationFn: (newHostname: string) => api.updateDevice(id!, { hostname: newHostname }),
+    onSuccess: (updatedDev) => {
+      queryClient.setQueryData(['device', id], updatedDev);
+      queryClient.invalidateQueries({ queryKey: ['device', id] });
+      queryClient.invalidateQueries({ queryKey: ['devices'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
+      setIsEditingMaptName(false);
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de la mise à jour du nom MAPT : " + (err.response?.data?.detail || err.message));
     },
   });
 
@@ -1269,6 +1303,16 @@ Write-Output "Operation terminee avec succes pour '$u'."
           <div>
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-black text-slate-100 tracking-tight">{device.hostname}</h1>
+              <button
+                onClick={() => {
+                  setMaptNameInput(device.hostname);
+                  setIsEditingMaptName(true);
+                }}
+                className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition"
+                title="Modifier le nommage dans MAPT"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
               {device.is_approved === false ? (
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
                   <ShieldAlert className="w-3.5 h-3.5" />
@@ -1286,7 +1330,23 @@ Write-Output "Operation terminee avec succes pour '$u'."
                 </span>
               )}
             </div>
-            <p className="text-xs text-slate-500 font-mono mt-1">UUID: {device.device_uuid}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-1 text-xs">
+              <span className="text-slate-500 font-mono">UUID: {device.device_uuid}</span>
+              {device.wins_name && device.wins_name.toUpperCase() !== device.hostname.toUpperCase() && (
+                <span className="inline-flex items-center gap-1.5 font-medium px-2 py-0.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Nom WINS machine : <strong className="font-mono text-amber-200">{device.wins_name}</strong></span>
+                  <button
+                    onClick={() => syncWinsMutation.mutate()}
+                    disabled={syncWinsMutation.isPending}
+                    className="ml-1 text-[11px] underline hover:text-amber-100 font-bold disabled:opacity-50"
+                    title="Synchroniser le nom MAPT avec le nom WINS"
+                  >
+                    {syncWinsMutation.isPending ? 'Sync...' : 'Synchroniser'}
+                  </button>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -2430,33 +2490,143 @@ Write-Output "Operation terminee avec succes pour '$u'."
 
         return (
           <div className="space-y-6">
+            {/* WINS vs MAPT Naming Discrepancy Alert Banner */}
+            {device.wins_name && device.wins_name.toUpperCase() !== device.hostname.toUpperCase() && (
+              <div className="p-4 bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/30 border border-amber-500/50 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-start space-x-3.5">
+                  <div className="p-2.5 bg-amber-500/20 border border-amber-500/30 rounded-xl text-amber-400 shrink-0 mt-0.5">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <h4 className="text-sm font-bold text-slate-100">Divergence de nommage détectée</h4>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">
+                        Nom WINS ≠ Nom MAPT
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Le nom NetBIOS / WINS réel de la machine Windows est{' '}
+                      <span className="font-mono font-bold text-amber-300 bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/30">
+                        {device.wins_name}
+                      </span>
+                      , alors qu'elle est répertoriée dans MAPT sous{' '}
+                      <span className="font-mono font-bold text-blue-300 bg-slate-950 px-1.5 py-0.5 rounded border border-blue-500/30">
+                        {device.hostname}
+                      </span>.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2.5 w-full md:w-auto justify-end shrink-0">
+                  <button
+                    onClick={() => syncWinsMutation.mutate()}
+                    disabled={syncWinsMutation.isPending}
+                    className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-slate-950 text-xs font-bold rounded-xl shadow-lg shadow-amber-950/50 transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {syncWinsMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>Synchroniser le nom MAPT</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* System Details */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
               <h2 className="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-emerald-400" />
                 <span>Détails Système & Enrôlement</span>
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3.5 text-sm">
+                {/* 1. Nom MAPT */}
+                <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800 flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-slate-500 text-xs">Nom dans MAPT</span>
+                    <button
+                      onClick={() => {
+                        setMaptNameInput(device.hostname);
+                        setIsEditingMaptName(true);
+                      }}
+                      className="text-slate-500 hover:text-blue-400 p-0.5 transition"
+                      title="Modifier le nommage dans MAPT"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="font-mono font-bold text-blue-400 truncate" title={device.hostname}>
+                    {device.hostname}
+                  </div>
+                </div>
+
+                {/* 2. Nom WINS */}
+                <div className={`p-3.5 rounded-xl border flex flex-col justify-between ${
+                  device.wins_name && device.wins_name.toUpperCase() !== device.hostname.toUpperCase()
+                    ? 'bg-amber-950/20 border-amber-500/40'
+                    : 'bg-slate-950 border-slate-800'
+                }`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-slate-500 text-xs">Nom WINS (NetBIOS)</span>
+                    {device.wins_name && device.wins_name.toUpperCase() !== device.hostname.toUpperCase() ? (
+                      <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.2 rounded border border-amber-500/30">
+                        Divergence
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                        Conforme
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-mono font-bold text-slate-200 truncate" title={device.wins_name || device.hostname}>
+                      {device.wins_name || device.hostname}
+                    </span>
+                    {device.wins_name && device.wins_name.toUpperCase() !== device.hostname.toUpperCase() && (
+                      <button
+                        onClick={() => syncWinsMutation.mutate()}
+                        disabled={syncWinsMutation.isPending}
+                        className="text-[10px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 transition border border-amber-500/30"
+                        title="Synchroniser le nom MAPT avec ce nom WINS"
+                      >
+                        {syncWinsMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        <span>Sync</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Version de l'Agent */}
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <span className="text-slate-500 text-xs block mb-1">Version de l'Agent</span>
                   <span className="font-mono font-semibold text-slate-200">v{device.agent_version || '1.0.0'}</span>
                 </div>
+
+                {/* 4. Système d'Exploitation */}
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <span className="text-slate-500 text-xs block mb-1">Système d'Exploitation</span>
-                  <span className="font-semibold text-slate-200">
+                  <span className="font-semibold text-slate-200 truncate block" title={`${device.os_name} ${device.os_version || ''}`}>
                     {device.os_name} {device.os_version}
                   </span>
                 </div>
+
+                {/* 5. Date d'Enrôlement Initial */}
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <span className="text-slate-500 text-xs block mb-1">Date d'Enrôlement Initial</span>
-                  <span className="font-semibold text-slate-200">{new Date(device.created_at).toLocaleString()}</span>
+                  <span className="font-semibold text-slate-200 text-xs block truncate" title={new Date(device.created_at).toLocaleString()}>
+                    {new Date(device.created_at).toLocaleString()}
+                  </span>
                 </div>
+
+                {/* 6. Dernière Activité */}
                 <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
                   <span className="text-slate-500 text-xs block mb-1">Dernière Activité (Heartbeat)</span>
-                  <span className="font-semibold text-slate-200">
+                  <span className="font-semibold text-slate-200 text-xs block truncate" title={device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Jamais'}>
                     {device.last_seen_at ? new Date(device.last_seen_at).toLocaleString() : 'Jamais'}
                   </span>
                 </div>
+
+                {/* 7. Utilisateur Connecté */}
                 <div className={`p-3.5 rounded-xl border transition ${
                   inventory?.current_user
                     ? 'bg-emerald-950/30 border-emerald-800/60'
@@ -5232,6 +5402,87 @@ Write-Output "Operation terminee avec succes pour '$u'."
                   {createActionMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <Trash2 className="w-4 h-4" />
                   <span>Confirmer la désinstallation</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL : EDIT MAPT HOSTNAME */}
+      {isEditingMaptName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-blue-400">
+                <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                  <Tag className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Modifier le nom MAPT</h3>
+                  <p className="text-xs text-slate-400">Nom d'inventaire sur la console</p>
+                </div>
+              </div>
+              <button onClick={() => setIsEditingMaptName(false)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (maptNameInput.trim()) {
+                  updateMaptNameMutation.mutate(maptNameInput.trim());
+                }
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  Nommage dans la console MAPT *
+                </label>
+                <input
+                  type="text"
+                  value={maptNameInput}
+                  onChange={(e) => setMaptNameInput(e.target.value)}
+                  placeholder="Ex: 043C-CPE1-PC01"
+                  required
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl font-mono text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Ce nom sera affiché dans le parc MAPT, les déploiements et sauvegardes.
+                </span>
+              </div>
+
+              {device.wins_name && (
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] flex items-center justify-between">
+                  <span className="text-slate-400">
+                    Nom WINS réel : <strong className="font-mono text-slate-200">{device.wins_name}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMaptNameInput(device.wins_name!)}
+                    className="text-blue-400 hover:text-blue-300 underline font-semibold"
+                  >
+                    Utiliser le nom WINS
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingMaptName(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={!maptNameInput.trim() || updateMaptNameMutation.isPending}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-950/50 disabled:opacity-50"
+                >
+                  {updateMaptNameMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Enregistrer le nom</span>
                 </button>
               </div>
             </form>

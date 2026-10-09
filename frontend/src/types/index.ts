@@ -22,6 +22,7 @@ export interface Device {
   is_approved?: boolean;
   is_online: boolean;
   previous_hostname?: string | null;
+  wins_name?: string | null;
   last_seen_at?: string;
   created_at: string;
   updated_at: string;

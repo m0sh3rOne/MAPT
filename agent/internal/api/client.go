@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"mapt-agent/internal/config"
@@ -70,9 +72,14 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 }
 
 func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuild string, ipAddress string) error {
+	wins := os.Getenv("COMPUTERNAME")
+	if wins == "" {
+		wins = hostname
+	}
 	payload := map[string]interface{}{
 		"device_uuid":      c.cfg.DeviceUUID,
 		"hostname":         hostname,
+		"wins_name":        strings.ToUpper(strings.TrimSpace(wins)),
 		"os_name":          osName,
 		"os_version":       osVersion,
 		"os_build":         osBuild,
@@ -106,9 +113,14 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 }
 
 func (c *Client) Heartbeat(hostname string, ipAddress string, osName string, osVersion string, osBuild string) error {
+	wins := os.Getenv("COMPUTERNAME")
+	if wins == "" {
+		wins = hostname
+	}
 	payload := map[string]interface{}{
 		"device_uuid":   c.cfg.DeviceUUID,
 		"hostname":      hostname,
+		"wins_name":     strings.ToUpper(strings.TrimSpace(wins)),
 		"agent_version": c.cfg.AgentVersion,
 		"ip_address":    ipAddress,
 		"os_name":       osName,

@@ -160,6 +160,14 @@ export const api = {
     });
     return res.data;
   },
+  syncDeviceWinsName: async (id: string): Promise<Device> => {
+    const res = await apiClient.post(`/admin/devices/${id}/sync-wins-name`);
+    return res.data;
+  },
+  updateDevice: async (id: string, data: { hostname?: string }): Promise<Device> => {
+    const res = await apiClient.patch(`/admin/devices/${id}`, data);
+    return res.data;
+  },
   wakeDevice: async (id: string, broadcastIp?: string, port?: number): Promise<WolResult> => {
     const res = await apiClient.post(`/admin/devices/${id}/wol`, {
       broadcast_ip: broadcastIp,

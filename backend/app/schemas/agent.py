@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class AgentEnrollRequest(BaseModel):
     device_uuid: UUID
     hostname: str
+    wins_name: Optional[str] = None
     os_name: str = "Windows"
     os_version: Optional[str] = None
     os_build: Optional[str] = None
@@ -28,6 +29,7 @@ class AgentEnrollResponse(BaseModel):
 class AgentHeartbeatRequest(BaseModel):
     device_uuid: UUID
     hostname: Optional[str] = None
+    wins_name: Optional[str] = None
     agent_version: str = "1.0.0"
     ip_address: Optional[str] = None
     os_name: Optional[str] = None

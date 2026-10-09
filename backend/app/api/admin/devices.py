@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.schemas.device import (
     DeviceResponse,
+    DeviceUpdate,
     DeviceInventoryResponse,
     DeviceTargetHistoryResponse,
     DeviceTargetLogItem,
@@ -428,6 +429,94 @@ async def acknowledge_device_rename(
         await db.commit()
 
     return device
+
+
+@router.post("/{device_id}/sync-wins-name", response_model=DeviceResponse)
+async def sync_device_wins_name(
+    device_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Synchronise le nommage dans MAPT (hostname) avec le nom WINS / NetBIOS réel de la machine.
+    """
+    service = DeviceService(db)
+    dev_model = await service.device_repo.get_by_id(device_id)
+    if not dev_model:
+        raise HTTPException(status_code=404, detail="Machine introuvable")
+
+    wins_name = dev_model.wins_name
+    if not wins_name and dev_model.inventory and dev_model.inventory.local_users:
+        for u in dev_model.inventory.local_users:
+            if isinstance(u, dict) and u.get("account_type") == "Local" and u.get("domain"):
+                d = str(u.get("domain")).strip()
+                if d and d.upper() not in ["BUILTIN", "AUTORITE NT", "NT AUTHORITY"]:
+                    wins_name = d
+                    break
+
+    if not wins_name:
+        raise HTTPException(status_code=400, detail="Nom WINS non disponible pour cette machine.")
+
+    old_mapt_name = dev_model.hostname
+    new_mapt_name = wins_name.strip()
+
+    if old_mapt_name != new_mapt_name:
+        dev_model.previous_hostname = old_mapt_name
+        dev_model.hostname = new_mapt_name
+        dev_model.wins_name = new_mapt_name
+        await db.commit()
+        await db.refresh(dev_model)
+
+        await service.audit_repo.create(
+            action=AuditAction.DEVICE_RENAMED,
+            entity_type="device",
+            entity_id=dev_model.id,
+            user_id=current_user.id,
+            details={
+                "old_hostname": old_mapt_name,
+                "new_hostname": new_mapt_name,
+                "source": "sync_wins_name"
+            }
+        )
+
+    return service._map_to_response(dev_model)
+
+
+@router.patch("/{device_id}", response_model=DeviceResponse)
+async def update_device(
+    device_id: UUID,
+    payload: DeviceUpdate,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Met à jour les informations d'une machine (ex: renommage du nommage MAPT).
+    """
+    service = DeviceService(db)
+    dev_model = await service.device_repo.get_by_id(device_id)
+    if not dev_model:
+        raise HTTPException(status_code=404, detail="Machine introuvable")
+
+    if payload.hostname and payload.hostname.strip():
+        new_name = payload.hostname.strip()
+        if new_name != dev_model.hostname:
+            dev_model.previous_hostname = dev_model.hostname
+            dev_model.hostname = new_name
+            await db.commit()
+            await db.refresh(dev_model)
+            await service.audit_repo.create(
+                action=AuditAction.DEVICE_RENAMED,
+                entity_type="device",
+                entity_id=dev_model.id,
+                user_id=current_user.id,
+                details={
+                    "old_hostname": dev_model.previous_hostname,
+                    "new_hostname": new_name,
+                    "source": "manual_admin_update"
+                }
+            )
+
+    return service._map_to_response(dev_model)
 
 
 @router.post("/{device_id}/wol")
