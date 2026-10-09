@@ -408,27 +408,51 @@ async def acknowledge_device_rename(
     Acquitte le renommage d'une machine et supprime si demandé les anciens enregistrements fantômes / inactifs.
     """
     service = DeviceService(db)
-    device = await service.get_device_by_id(device_id)
-    if not device:
+    dev_model = await service.device_repo.get_by_id(device_id)
+    if not dev_model:
         raise HTTPException(status_code=404, detail="Machine introuvable")
 
-    old_name = device.previous_hostname
-    device.previous_hostname = None
+    old_name = dev_model.previous_hostname
+    dev_model.previous_hostname = None
+    dev_model.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(device)
+    await db.refresh(dev_model)
 
     if delete_old_records and old_name:
-        from sqlalchemy import delete
-        from app.models.device import Device
-        await db.execute(
-            delete(Device).where(
-                Device.hostname.ilike(old_name),
-                Device.id != device.id
+        try:
+            from sqlalchemy import select
+            from app.models.device import Device
+            old_devices_res = await db.execute(
+                select(Device).where(
+                    Device.hostname.ilike(old_name),
+                    Device.id != dev_model.id
+                )
             )
-        )
-        await db.commit()
+            old_devices = list(old_devices_res.scalars().all())
+            for old_dev in old_devices:
+                await service.group_repo.remove_device_from_all_groups(old_dev.id)
+                await db.delete(old_dev)
+            if old_devices:
+                await db.commit()
+        except Exception as e:
+            from app.core.logging import logger
+            logger.warning(f"Erreur lors de la purge des anciens enregistrements pour {old_name}: {e}")
 
-    return device
+    await service.audit_repo.create(
+        action=AuditAction.DEVICE_RENAMED,
+        entity_type="device",
+        user_id=current_user.id,
+        entity_id=dev_model.id,
+        details={
+            "action": "acknowledge_rename",
+            "hostname": dev_model.hostname,
+            "previous_hostname": old_name,
+            "purged_old_records": delete_old_records
+        }
+    )
+    await db.commit()
+
+    return service._map_to_response(dev_model)
 
 
 @router.post("/{device_id}/sync-wins-name", response_model=DeviceResponse)
