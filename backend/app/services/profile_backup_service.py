@@ -18,7 +18,7 @@ from app.repositories.profile_backup_repository import ProfileBackupRepository
 from app.repositories.device_repository import DeviceRepository
 from app.repositories.deployment_repository import DeploymentRepository
 from app.repositories.audit_repository import AuditRepository
-from app.storage.minio import upload_file_bytes, get_file_stream, LOCAL_STORAGE_DIR
+from app.storage.minio import upload_file_bytes, upload_file_from_disk, get_file_stream, LOCAL_STORAGE_DIR
 from app.core.config import settings
 
 
@@ -1301,18 +1301,42 @@ exit 0
     ) -> UserProfileBackup:
         backup = await self.get_backup_by_id(backup_id)
 
-        content = await file.read()
-        calculated_sha = hashlib.sha256(content).hexdigest()
-        size_bytes = len(content)
+        # Stream chunk by chunk (1 Mo) vers le disque pour éviter de charger plusieurs Go en mémoire vive
+        storage_key = f"profiles/{backup.id}/{backup.profile_name}.zip"
+        local_path = os.path.join(LOCAL_STORAGE_DIR, storage_key)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        temp_path = f"{local_path}.tmp"
 
-        storage_key, sha256_hash, actual_size = upload_file_bytes(
-            data=content,
-            filename=f"{backup.profile_name}.zip",
+        hasher = hashlib.sha256()
+        total_bytes = 0
+        with open(temp_path, "wb") as f_out:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1 Mo
+                if not chunk:
+                    break
+                hasher.update(chunk)
+                total_bytes += len(chunk)
+                f_out.write(chunk)
+
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass
+        os.rename(temp_path, local_path)
+
+        calculated_sha = hasher.hexdigest()
+        actual_size = total_bytes
+
+        # Sauvegarde MinIO via fput_object sans surconsommer de RAM
+        upload_file_from_disk(
+            local_filepath=local_path,
+            storage_key=storage_key,
             content_type="application/zip"
         )
 
         backup.storage_key = storage_key
-        backup.sha256 = sha256_hash
+        backup.sha256 = reported_sha256 if reported_sha256 else calculated_sha
         backup.size_bytes = actual_size
         if estimated_size:
             backup.estimated_size_bytes = estimated_size

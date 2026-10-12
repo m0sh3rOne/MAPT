@@ -59,6 +59,24 @@ def upload_file_bytes(data: bytes, filename: str, content_type: str = "applicati
     return storage_key, sha256_hash, size_bytes
 
 
+def upload_file_from_disk(local_filepath: str, storage_key: str, content_type: str = "application/octet-stream") -> None:
+    """
+    Téléverse un fichier déjà présent sur le disque vers MinIO de manière sécurisée sans saturer la RAM.
+    """
+    try:
+        ensure_bucket_exists()
+        minio_client.fput_object(
+            bucket_name=settings.MINIO_BUCKET_NAME,
+            object_name=storage_key,
+            file_path=local_filepath,
+            content_type=content_type
+        )
+        logger.info(f"File '{storage_key}' stored in MinIO via fput_object.")
+    except Exception as e:
+        logger.warning(f"MinIO fput_object skipped/failed ({e}), using local file at '{local_filepath}'.")
+
+
+
 def get_file_stream(storage_key: str):
     """
     Récupère un flux de données pour le téléchargement depuis MinIO ou le stockage local
