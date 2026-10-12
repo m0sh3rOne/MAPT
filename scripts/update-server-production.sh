@@ -37,8 +37,9 @@ echo -e "${BLUE}[1/5] 📥 Récupération des dernières mises à jour depuis Gi
 
 # Vérifier si un dépôt Git existe
 if [ -d ".git" ]; then
-    # Sauvegarde des modifications locales éventuelles
-    git stash >/dev/null 2>&1 || true
+    # Sauvegarde des modifications locales éventuelles et nettoyage des assets compilés
+    git stash -u >/dev/null 2>&1 || true
+    git clean -fd frontend/dist >/dev/null 2>&1 || true
     
     # Récupération et bascule automatique sur la branche principale (main)
     echo "    Synchronisation avec le dépôt distant GitHub..."
