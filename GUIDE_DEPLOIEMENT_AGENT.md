@@ -103,7 +103,7 @@ Idéal pour garantir que la dernière version est toujours téléchargée direct
    $wc.Headers.Add("User-Agent", "FOG-Snapin-Installer")
    $wc.DownloadFile($downloadUrl, $agentExe)
 
-   # 4. Identification machine persistante et détection anti-collision clone
+   # 4. Identification machine persistante (Idempotence & Anti-Collision FOG)
    $deviceUuid = ""
    if (Test-Path $configFile) {
        try {
@@ -111,32 +111,10 @@ Idéal pour garantir que la dernière version est toujours téléchargée direct
            if ($existingCfg.device_uuid) { $deviceUuid = $existingCfg.device_uuid }
        } catch {}
    }
-   if (-not $deviceUuid) {
-       try {
-           $deviceUuid = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
-       } catch {}
-   }
-   if (-not $deviceUuid) {
-       try {
-           $deviceUuid = (Get-CimInstance -Class Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
-       } catch {}
-   }
 
-   # Vérification auprès du serveur si cet UUID est déjà pris par un autre hostname (Clone FOG)
-   $isCloneConflict = $false
-   if ($deviceUuid) {
-       try {
-           $check = Invoke-RestMethod -Uri "$serverApi/agent/check-uuid?uuid=$deviceUuid&hostname=$env:COMPUTERNAME" -Method Get -TimeoutSec 4 -ErrorAction SilentlyContinue
-           if ($check -and $check.conflict -eq $true) {
-               $isCloneConflict = $true
-           }
-       } catch {}
-   }
-
-   # Si conflit de clone ou UUID absent, générer un nouvel UUID unique et mettre à jour le Registre Windows
-   if ($isCloneConflict -or -not $deviceUuid) {
+   # Si première installation, générer un UUID unique frais (ne JAMAIS lire MachineGuid cloné par FOG)
+   if (-not $deviceUuid) {
        $deviceUuid = [Guid]::NewGuid().ToString()
-       Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name "MachineGuid" -Value $deviceUuid -Force -ErrorAction SilentlyContinue
    }
 
    $configJson = @"

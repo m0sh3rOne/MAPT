@@ -51,6 +51,7 @@ deploy_secrets.*
 # Test, Scratch & Remote Automation Scripts
 scripts/*.py
 !scripts/deploy_remote.py
+!scripts/setup.py
 scripts/*.ps1
 scripts/*.sh.local
 scripts/*_remote.py

@@ -13,6 +13,7 @@ class DeviceBase(BaseModel):
     os_build: Optional[str] = None
     agent_version: Optional[str] = None
     ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
 
 
 class DeviceCreate(DeviceBase):

@@ -41,7 +41,8 @@ func (r *Runner) Run(ctx context.Context) error {
 	for !r.cfg.IsEnrolled() {
 		r.logger.Info("Agent not enrolled yet. Initiating enrollment with server %s...", r.cfg.ServerURL)
 		osCap, osDispVer, osBld, _ := inventory.GetOSInfo()
-		err := r.client.Enroll(hostname, osCap, osDispVer, osBld, primaryIP)
+		primaryMAC := inventory.GetPrimaryMAC()
+		err := r.client.Enroll(hostname, osCap, osDispVer, osBld, primaryIP, primaryMAC)
 		if err != nil {
 			r.logger.Warn("Enrollment attempt failed: %v. Retrying in 5 seconds...", err)
 			select {
@@ -60,7 +61,8 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	// 2. Premier Heartbeat et envoi initial de l'inventaire
 	osCap, osDispVer, osBld, _ := inventory.GetOSInfo()
-	_ = r.client.Heartbeat(hostname, primaryIP, osCap, osDispVer, osBld)
+	primaryMAC := inventory.GetPrimaryMAC()
+	_ = r.client.Heartbeat(hostname, primaryIP, osCap, osDispVer, osBld, primaryMAC)
 	invData := inventory.CollectInventory()
 	if err := r.client.SendInventory(invData); err != nil {
 		r.logger.Warn("Initial inventory submission failed: %v", err)
@@ -94,8 +96,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			case <-hbTicker.C:
 				currHost, _ := os.Hostname()
 				currIP := inventory.GetPrimaryIP()
+				currMAC := inventory.GetPrimaryMAC()
 				cap, dispVer, bld, _ := inventory.GetOSInfo()
-				if err := r.client.Heartbeat(currHost, currIP, cap, dispVer, bld); err != nil {
+				if err := r.client.Heartbeat(currHost, currIP, cap, dispVer, bld, currMAC); err != nil {
 					r.logger.Warn("Heartbeat failed: %v", err)
 				}
 			}

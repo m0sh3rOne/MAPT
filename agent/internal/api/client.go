@@ -71,7 +71,7 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 	return nil
 }
 
-func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuild string, ipAddress string) error {
+func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuild string, ipAddress string, macAddress string) error {
 	wins := os.Getenv("COMPUTERNAME")
 	if wins == "" {
 		wins = hostname
@@ -80,6 +80,7 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 		"device_uuid":      c.cfg.DeviceUUID,
 		"hostname":         hostname,
 		"wins_name":        strings.ToUpper(strings.TrimSpace(wins)),
+		"mac_address":      macAddress,
 		"os_name":          osName,
 		"os_version":       osVersion,
 		"os_build":         osBuild,
@@ -103,7 +104,8 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 	}
 
 	c.cfg.AgentToken = resp.AgentToken
-	if resp.DeviceUUID != "" {
+	if resp.DeviceUUID != "" && resp.DeviceUUID != c.cfg.DeviceUUID {
+		c.logger.Info("Device UUID allocated by server: %s (replaced local: %s)", resp.DeviceUUID, c.cfg.DeviceUUID)
 		c.cfg.DeviceUUID = resp.DeviceUUID
 	}
 	c.cfg.PollInterval = resp.PollIntervalSeconds
@@ -112,7 +114,7 @@ func (c *Client) Enroll(hostname string, osName string, osVersion string, osBuil
 	return c.cfg.Save()
 }
 
-func (c *Client) Heartbeat(hostname string, ipAddress string, osName string, osVersion string, osBuild string) error {
+func (c *Client) Heartbeat(hostname string, ipAddress string, osName string, osVersion string, osBuild string, macAddress string) error {
 	wins := os.Getenv("COMPUTERNAME")
 	if wins == "" {
 		wins = hostname
@@ -121,6 +123,7 @@ func (c *Client) Heartbeat(hostname string, ipAddress string, osName string, osV
 		"device_uuid":   c.cfg.DeviceUUID,
 		"hostname":      hostname,
 		"wins_name":     strings.ToUpper(strings.TrimSpace(wins)),
+		"mac_address":   macAddress,
 		"agent_version": c.cfg.AgentVersion,
 		"ip_address":    ipAddress,
 		"os_name":       osName,

@@ -81,6 +81,9 @@ class DeviceService:
             if macs:
                 primary_mac = macs[0]
 
+        if not primary_mac and getattr(device, "mac_address", None):
+            primary_mac = device.mac_address
+
         effective_ip = device.ip_address
         if not effective_ip or effective_ip.startswith("172.18.") or effective_ip.startswith("172.17.") or effective_ip.startswith("127."):
             if best_ip:

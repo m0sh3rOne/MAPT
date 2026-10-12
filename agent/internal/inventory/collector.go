@@ -460,3 +460,30 @@ func GetPrimaryIP() string {
 
 	return "127.0.0.1"
 }
+
+func GetPrimaryMAC() string {
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		// 1. Passe : interface active (UP), non loopback, avec adresse MAC valide
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+				continue
+			}
+			mac := strings.ToUpper(strings.TrimSpace(iface.HardwareAddr.String()))
+			if mac != "" && mac != "00:00:00:00:00:00" {
+				return mac
+			}
+		}
+		// 2. Passe : n'importe quelle interface non loopback avec MAC
+		for _, iface := range ifaces {
+			if iface.Flags&net.FlagLoopback != 0 {
+				continue
+			}
+			mac := strings.ToUpper(strings.TrimSpace(iface.HardwareAddr.String()))
+			if mac != "" && mac != "00:00:00:00:00:00" {
+				return mac
+			}
+		}
+	}
+	return ""
+}

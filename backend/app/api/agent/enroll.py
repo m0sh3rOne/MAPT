@@ -244,31 +244,24 @@ if (Test-Path $configFile) {
         if ($existingCfg.device_uuid) { $deviceUuid = $existingCfg.device_uuid }
     } catch {}
 }
-if (-not $deviceUuid) {
-    try {
-        $deviceUuid = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
-    } catch {}
-}
-if (-not $deviceUuid) {
-    try {
-        $deviceUuid = (Get-CimInstance -Class Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
-    } catch {}
-}
 
-# Vérification anti-collision clone FOG
-$isCloneConflict = $false
-if ($deviceUuid) {
-    try {
-        $check = Invoke-RestMethod -Uri "$serverUrl/agent/check-uuid?uuid=$deviceUuid&hostname=$env:COMPUTERNAME" -Method Get -TimeoutSec 4 -ErrorAction SilentlyContinue
-        if ($check -and $check.conflict -eq $true) {
-            $isCloneConflict = $true
-        }
-    } catch {}
-}
-
-if ($isCloneConflict -or -not $deviceUuid) {
+# Si première installation ou configuration absente, on génère un UUID unique frais
+# ⚠️ Ne plus lire HKLM\...\MachineGuid qui est cloné par les masters FOG !
+if (-not $deviceUuid) {
     $deviceUuid = [Guid]::NewGuid().ToString()
-    Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Cryptography" -Name "MachineGuid" -Value $deviceUuid -Force -ErrorAction SilentlyContinue
+}
+
+# Détection de l'adresse MAC physique principale
+$primaryMac = ""
+try {
+    $ad = Get-CimInstance Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.PhysicalAdapter -and $_.MACAddress } | Select-Object -First 1
+    if ($ad) { $primaryMac = $ad.MACAddress }
+} catch {}
+if (-not $primaryMac) {
+    try {
+        $na = Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
+        if ($na) { $primaryMac = $na.MacAddress }
+    } catch {}
 }
 
 # Détection précise et instantanée du système d'exploitation (style winver)
@@ -286,6 +279,8 @@ try {
     $enrollObj = @{
         device_uuid = $deviceUuid
         hostname = $env:COMPUTERNAME
+        wins_name = $env:COMPUTERNAME
+        mac_address = $primaryMac
         os_name = $caption
         os_version = $dispVer
         os_build = $fullBuild
@@ -296,6 +291,9 @@ try {
     $enrollResp = Invoke-RestMethod -Uri "$serverUrl/agent/enroll" -Method Post -Body $enrollJson -ContentType "application/json; charset=utf-8" -TimeoutSec 8 -ErrorAction SilentlyContinue
     if ($enrollResp -and $enrollResp.agent_token) {
         $agentToken = $enrollResp.agent_token
+        if ($enrollResp.device_uuid) {
+            $deviceUuid = $enrollResp.device_uuid
+        }
         Write-Host "[+] Enrôlement réussi : $caption ($dispVer) Build $fullBuild" -ForegroundColor Green
     }
 } catch {}

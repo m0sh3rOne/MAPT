@@ -14,6 +14,7 @@ class Device(Base):
     hostname = Column(String(255), nullable=False, index=True)
     previous_hostname = Column(String(255), nullable=True)
     wins_name = Column(String(255), nullable=True)
+    mac_address = Column(String(50), nullable=True, index=True)
     os_name = Column(String(100), nullable=False, default="Windows")
     os_version = Column(String(100), nullable=True)
     os_build = Column(String(50), nullable=True)

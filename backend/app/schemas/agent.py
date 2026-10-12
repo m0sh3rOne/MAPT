@@ -13,6 +13,7 @@ class AgentEnrollRequest(BaseModel):
     os_build: Optional[str] = None
     agent_version: str = "1.0.0"
     ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
     enrollment_token: str
 
 
@@ -32,6 +33,7 @@ class AgentHeartbeatRequest(BaseModel):
     wins_name: Optional[str] = None
     agent_version: str = "1.0.0"
     ip_address: Optional[str] = None
+    mac_address: Optional[str] = None
     os_name: Optional[str] = None
     os_version: Optional[str] = None
     os_build: Optional[str] = None

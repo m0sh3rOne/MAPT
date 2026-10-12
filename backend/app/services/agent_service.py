@@ -26,6 +26,12 @@ class AgentService:
         self.dep_repo = DeploymentRepository(db)
         self.audit_repo = AuditRepository(db)
 
+    @staticmethod
+    def _normalize_mac(mac: Optional[str]) -> Optional[str]:
+        if not mac or not str(mac).strip():
+            return None
+        return str(mac).strip().replace("-", ":").upper()
+
     async def enroll_agent(self, enroll_in: AgentEnrollRequest, ip_address: Optional[str] = None) -> AgentEnrollResponse:
         # Validation du token d'enrôlement (Secret partagé)
         valid_tokens = {settings.DEFAULT_ENROLLMENT_TOKEN, "mapt-enroll-secret-token-2026", "mapt-enrollment-secret-token-2026"}
@@ -38,83 +44,118 @@ class AgentService:
         agent_token = generate_agent_token()
         now = datetime.now(timezone.utc)
         target_uuid = enroll_in.device_uuid
+        incoming_hostname = (enroll_in.hostname or "").strip()
+        incoming_mac = self._normalize_mac(enroll_in.mac_address)
+        incoming_ip = ip_address or enroll_in.ip_address
 
-        # 1. Recherche si une machine existe déjà avec cet UUID
+        # 1. Recherche si l'UUID est déjà connu
         device = await self.device_repo.get_by_uuid(target_uuid)
 
-        # 2. Protection Anti-Collision Clone vs Renommage
-        # Si une machine existe déjà avec cet UUID mais avec un nom d'hôte différent
-        if device and enroll_in.hostname:
+        if device:
             existing_host = (device.hostname or "").strip().upper()
-            incoming_host = (enroll_in.hostname or "").strip().upper()
-            if existing_host and incoming_host and existing_host != incoming_host:
-                incoming_ip = ip_address or enroll_in.ip_address
-                is_concurrent_different_ip = (
-                    device.ip_address 
-                    and incoming_ip 
-                    and device.ip_address != incoming_ip 
-                    and device.last_seen_at 
-                    and (now - device.last_seen_at).total_seconds() < 60
+            current_host = incoming_hostname.upper()
+            existing_mac = self._normalize_mac(device.mac_address)
+            if not existing_mac and device.inventory and device.inventory.mac_addresses:
+                for m in device.inventory.mac_addresses:
+                    norm = self._normalize_mac(str(m))
+                    if norm:
+                        existing_mac = norm
+                        break
+
+            # CAS A : C'est la même machine physique qui se ré-enrôle (réinstallation, relance manuelle du script)
+            # (Même hostname OU même adresse MAC)
+            is_same_machine = False
+            if existing_host and current_host and existing_host == current_host:
+                is_same_machine = True
+            elif existing_mac and incoming_mac and existing_mac == incoming_mac:
+                is_same_machine = True
+
+            if is_same_machine:
+                # On met simplement à jour le token, l'IP, et les métadonnées (AUCUN doublon créé)
+                device.agent_token = agent_token
+                device.ip_address = incoming_ip
+                if incoming_mac:
+                    device.mac_address = incoming_mac
+                device.last_seen_at = now
+                device.is_archived = False
+                device.agent_version = enroll_in.agent_version
+                device.os_name = enroll_in.os_name
+                device.os_version = enroll_in.os_version
+                device.os_build = enroll_in.os_build
+                if incoming_hostname and existing_host != current_host:
+                    # Même machine renommée (identifiée par sa MAC)
+                    if not device.previous_hostname:
+                        device.previous_hostname = device.hostname
+                    device.hostname = incoming_hostname
+                    device.wins_name = incoming_hostname
+                device = await self.device_repo.update(device)
+            else:
+                # CAS B : C'est un CLONE FOG ! Même UUID d'image, mais nom ET MAC différents (ou inconnus)
+                # On attribue automatiquement un nouvel UUID au clone (SANS condition de délai < 60s)
+                import uuid
+                new_uuid = uuid.uuid4()
+                from app.core.logging import logger
+                logger.warning(
+                    f"⚠️ [FOG Clone Protection] Collision d'UUID détectée ! L'UUID {target_uuid} appartient à '{device.hostname}' (MAC: {existing_mac}). "
+                    f"Attribution d'un nouvel UUID pour le clone '{incoming_hostname}' (MAC: {incoming_mac}) : {new_uuid}"
                 )
-                if is_concurrent_different_ip and not device.is_archived:
-                    import uuid
-                    new_uuid = str(uuid.uuid4())
-                    from app.core.logging import logger
-                    logger.warning(
-                        f"⚠️ [Clone Protection] Collision d'UUID détectée ! L'UUID {target_uuid} est actif sur '{device.hostname}' ({device.ip_address}). "
-                        f"Attribution automatique d'un nouvel UUID pour le clone '{enroll_in.hostname}' ({incoming_ip}) : {new_uuid}"
-                    )
-                    target_uuid = new_uuid
-                    device = await self.device_repo.get_by_hostname(enroll_in.hostname)
-                    if device:
-                        device.device_uuid = target_uuid
-                else:
-                    # Même machine renommée
-                    device.previous_hostname = device.hostname
-                    device.hostname = enroll_in.hostname
+                target_uuid = new_uuid
+                device = None  # On force la recherche / création d'une nouvelle fiche pour ce clone
 
-        # 3. Si non trouvé par UUID, chercher si la machine existait déjà par nom d'hôte
-        if not device and enroll_in.hostname:
-            device = await self.device_repo.get_by_hostname(enroll_in.hostname)
-            if device:
-                device.device_uuid = target_uuid
-
-        wins_reported = enroll_in.wins_name or enroll_in.hostname
+        # 2. Si non trouvé par UUID (ou si identifié comme clone FOG avec nouvel UUID),
+        # chercher si la machine existait déjà par Hostname ou MAC
+        # (Cas où la machine a été réinstallée de zéro ou config supprimée)
         if not device:
+            if incoming_hostname:
+                device = await self.device_repo.get_by_hostname(incoming_hostname)
+            if not device and incoming_mac:
+                device = await self.device_repo.get_by_mac(incoming_mac)
+
+            if device:
+                # Réassociation avec son nouvel UUID, évite l'orphelin
+                device.device_uuid = target_uuid
+                device.agent_token = agent_token
+                device.ip_address = incoming_ip
+                if incoming_mac:
+                    device.mac_address = incoming_mac
+                device.last_seen_at = now
+                device.is_archived = False
+                device.agent_version = enroll_in.agent_version
+                device.os_name = enroll_in.os_name
+                device.os_version = enroll_in.os_version
+                device.os_build = enroll_in.os_build
+                if incoming_hostname and device.hostname != incoming_hostname:
+                    if not device.previous_hostname:
+                        device.previous_hostname = device.hostname
+                    device.hostname = incoming_hostname
+                    device.wins_name = incoming_hostname
+                device = await self.device_repo.update(device)
+
+        # 3. Si toujours aucune machine trouvée, création d'une nouvelle fiche
+        if not device:
+            wins_reported = enroll_in.wins_name or incoming_hostname
             device = Device(
                 device_uuid=target_uuid,
-                hostname=enroll_in.hostname,
+                hostname=incoming_hostname,
                 wins_name=wins_reported,
+                mac_address=incoming_mac,
                 os_name=enroll_in.os_name,
                 os_version=enroll_in.os_version,
                 os_build=enroll_in.os_build,
                 agent_version=enroll_in.agent_version,
-                ip_address=ip_address or enroll_in.ip_address,
+                ip_address=incoming_ip,
                 agent_token=agent_token,
                 is_approved=True,
                 enabled=True,
                 last_seen_at=now
             )
             device = await self.device_repo.create(device)
-        else:
-            if not device.wins_name:
-                device.wins_name = wins_reported
-            device.device_uuid = target_uuid
-            device.os_name = enroll_in.os_name
-            device.os_version = enroll_in.os_version
-            device.os_build = enroll_in.os_build
-            device.agent_version = enroll_in.agent_version
-            device.ip_address = ip_address or enroll_in.ip_address
-            device.agent_token = agent_token
-            device.last_seen_at = now
-            device.is_archived = False
-            device = await self.device_repo.update(device)
 
         await self.audit_repo.create(
             action=AuditAction.DEVICE_ENROLLED,
             entity_type="device",
             entity_id=device.id,
-            details={"hostname": device.hostname, "device_uuid": str(device.device_uuid)},
+            details={"hostname": device.hostname, "device_uuid": str(device.device_uuid), "mac_address": device.mac_address},
             ip_address=ip_address
         )
 
@@ -146,13 +187,27 @@ class AgentService:
             agent_version=heartbeat_in.agent_version
         )
 
-        # Enregistrement du nom WINS / NetBIOS réel de la machine Windows
+        # Synchronisation live des renommages à chaque battement
         updated_device = False
-        reported_wins = heartbeat_in.wins_name or heartbeat_in.hostname
-        if reported_wins and reported_wins.strip():
-            clean_wins = reported_wins.strip()
-            if getattr(device, "wins_name", None) != clean_wins:
-                device.wins_name = clean_wins
+        reported_name = heartbeat_in.wins_name or heartbeat_in.hostname
+        if reported_name and reported_name.strip():
+            clean_name = reported_name.strip()
+            # Si le nom réel Windows diffère du hostname en base :
+            if device.hostname != clean_name:
+                if not device.previous_hostname:
+                    device.previous_hostname = device.hostname
+                device.hostname = clean_name
+                device.wins_name = clean_name
+                updated_device = True
+            elif getattr(device, "wins_name", None) != clean_name:
+                device.wins_name = clean_name
+                updated_device = True
+
+        # Synchronisation de l'adresse MAC si remontée dans le heartbeat
+        if heartbeat_in.mac_address and not getattr(device, "mac_address", None):
+            norm_mac = self._normalize_mac(heartbeat_in.mac_address)
+            if norm_mac:
+                device.mac_address = norm_mac
                 updated_device = True
 
         # Mise à jour automatique et dynamique de la version de l'OS si transmise dans le heartbeat
@@ -411,12 +466,27 @@ class AgentService:
             if device.os_build != inventory_in.os_build:
                 device.os_build = inventory_in.os_build
                 updated_os = True
-        # Si l'inventaire contient les informations WINS
+        # Si l'inventaire contient les informations WINS / renommage
         if inventory_in.wins_name and inventory_in.wins_name.strip():
             clean_wins = inventory_in.wins_name.strip()
-            if getattr(device, "wins_name", None) != clean_wins:
+            if device.hostname != clean_wins:
+                if not device.previous_hostname:
+                    device.previous_hostname = device.hostname
+                device.hostname = clean_wins
                 device.wins_name = clean_wins
                 updated_os = True
+            elif getattr(device, "wins_name", None) != clean_wins:
+                device.wins_name = clean_wins
+                updated_os = True
+
+        # Synchronisation de l'adresse MAC principale sur le device si absente
+        if not getattr(device, "mac_address", None) and raw_dict.get("mac_addresses"):
+            for m in raw_dict["mac_addresses"]:
+                norm_m = self._normalize_mac(str(m))
+                if norm_m:
+                    device.mac_address = norm_m
+                    updated_os = True
+                    break
 
         if updated_os:
             await self.device_repo.update(device)

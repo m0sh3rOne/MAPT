@@ -53,6 +53,40 @@ class DeviceRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_mac(self, mac_address: str) -> Optional[Device]:
+        if not mac_address or not str(mac_address).strip():
+            return None
+        clean_mac = str(mac_address).strip().replace("-", ":").upper()
+        # 1. Recherche directe dans la colonne mac_address de devices
+        result = await self.db.execute(
+            select(Device)
+            .options(
+                selectinload(Device.inventory),
+                selectinload(Device.group_memberships)
+            )
+            .where(func.upper(Device.mac_address) == clean_mac, Device.is_archived == False)
+        )
+        dev = result.scalar_one_or_none()
+        if dev:
+            return dev
+
+        # 2. Recherche rétrocompatible dans l'inventaire matériel
+        from app.models.inventory import DeviceInventory
+        from sqlalchemy import String, cast
+        inv_result = await self.db.execute(
+            select(Device)
+            .join(Device.inventory)
+            .options(
+                selectinload(Device.inventory),
+                selectinload(Device.group_memberships)
+            )
+            .where(
+                Device.is_archived == False,
+                cast(DeviceInventory.mac_addresses, String).ilike(f"%{clean_mac}%")
+            )
+        )
+        return inv_result.scalar_one_or_none()
+
     async def get_all(self, skip: int = 0, limit: int = 500, enabled_only: bool = False) -> List[Device]:
         query = (
             select(Device)

@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS is_approved BOOLEAN NOT NULL DEFAULT TRUE;"))
             await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS previous_hostname VARCHAR(255);"))
             await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS wins_name VARCHAR(255);"))
+            await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS mac_address VARCHAR(50);"))
         except Exception as e:
             logger.warning(f"Note on column check: {e}")
 
