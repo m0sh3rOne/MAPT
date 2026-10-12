@@ -483,12 +483,35 @@ export const api = {
     return res.data;
   },
   getProfileDownloadUrl: (backupId: string): string => {
-    const token = localStorage.getItem('mapt_token');
+    const token = localStorage.getItem('mapt_token') || sessionStorage.getItem('mapt_token');
     return `/api/v1/admin/profiles/${backupId}/download${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   },
   downloadProfileBlob: async (backupId: string): Promise<Blob> => {
     const res = await apiClient.get(`/admin/profiles/${backupId}/download`, {
       responseType: 'blob'
+    });
+    return res.data;
+  },
+  importProfileBackup: async (
+    file: File,
+    profileName?: string,
+    sourceHostname?: string,
+    userSid?: string,
+    notes?: string,
+    onUploadProgress?: (progressEvent: any) => void
+  ): Promise<UserProfileBackup> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (profileName) formData.append('profile_name', profileName);
+    if (sourceHostname) formData.append('source_hostname', sourceHostname);
+    if (userSid) formData.append('user_sid', userSid);
+    if (notes) formData.append('notes', notes);
+
+    const res = await apiClient.post('/admin/profiles/import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress,
     });
     return res.data;
   }

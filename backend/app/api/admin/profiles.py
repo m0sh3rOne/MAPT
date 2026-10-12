@@ -1,9 +1,10 @@
+import os
+import urllib.parse
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, Request, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-import urllib.parse
 
 from app.core.database import get_db
 from app.core.security import UserRole
@@ -17,7 +18,7 @@ from app.schemas.profile_backup import (
 )
 from app.schemas.deployment import DeploymentResponse
 from app.services.profile_backup_service import ProfileBackupService
-from app.storage.minio import get_file_stream
+from app.storage.minio import get_file_stream, LOCAL_STORAGE_DIR
 
 router = APIRouter(prefix="/profiles", tags=["Admin - Profiles Backup & Migration"])
 
@@ -124,21 +125,53 @@ async def download_profile_zip(
     service = ProfileBackupService(db)
     backup = await service.get_backup_by_id(backup_id)
 
+    safe_name = "".join(c for c in backup.profile_name if c.isalnum() or c in ('_', '-')) or "profile"
+    filename_std = f"profile_{safe_name}.zip"
+    local_path = os.path.join(LOCAL_STORAGE_DIR, backup.storage_key)
+
+    if os.path.exists(local_path):
+        return FileResponse(
+            path=local_path,
+            filename=filename_std,
+            media_type="application/zip"
+        )
+
     try:
         stream = get_file_stream(backup.storage_key)
-        safe_name = "".join(c for c in backup.profile_name if c.isalnum() or c in ('_', '-')) or "profile"
-        filename_std = f"profile_{safe_name}.zip"
         encoded_filename = urllib.parse.quote(f"profile_{backup.profile_name}.zip")
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename_std}"; filename*=UTF-8\'\'{encoded_filename}'
+        }
+        if backup.size_bytes:
+            headers["Content-Length"] = str(backup.size_bytes)
         return StreamingResponse(
             stream,
             media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename_std}"; filename*=UTF-8\'\'{encoded_filename}',
-                "Content-Length": str(backup.size_bytes) if backup.size_bytes else ""
-            }
+            headers=headers
         )
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Fichier de profil introuvable sur le stockage: {e}")
+
+
+@router.post("/import", response_model=ProfileBackupResponse)
+async def import_profile_zip(
+    file: UploadFile = File(...),
+    profile_name: Optional[str] = Form(None),
+    source_hostname: Optional[str] = Form(None),
+    user_sid: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProfileBackupService(db)
+    return await service.import_profile_backup(
+        file=file,
+        user=current_user,
+        profile_name=profile_name,
+        source_hostname=source_hostname,
+        user_sid=user_sid,
+        notes=notes
+    )
 
 
 @router.get("/storage-check")

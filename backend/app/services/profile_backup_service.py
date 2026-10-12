@@ -2,6 +2,9 @@ import io
 import os
 import shutil
 import hashlib
+import json
+import zipfile
+import uuid
 from typing import Optional, List, Tuple, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
@@ -1387,3 +1390,140 @@ exit 0
             pass
 
         return await self.repo.delete(backup_id)
+
+    async def import_profile_backup(
+        self,
+        file: UploadFile,
+        user: User,
+        profile_name: Optional[str] = None,
+        source_hostname: Optional[str] = None,
+        user_sid: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> UserProfileBackup:
+        backup_id = uuid.uuid4()
+        temp_dir = os.path.join(LOCAL_STORAGE_DIR, "tmp_imports")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, f"{backup_id}.tmp")
+
+        hasher = hashlib.sha256()
+        total_bytes = 0
+        try:
+            with open(temp_path, "wb") as f_out:
+                while True:
+                    chunk = await file.read(1024 * 1024)  # 1 Mo chunks
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+                    total_bytes += len(chunk)
+                    f_out.write(chunk)
+        except Exception as e:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise HTTPException(status_code=500, detail=f"Erreur lors de la réception de l'archive: {e}")
+
+        if total_bytes == 0:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise HTTPException(status_code=400, detail="Le fichier téléversé est vide.")
+
+        extracted_meta = {}
+        detected_name = None
+        detected_sid = None
+        detected_host = None
+        detected_os = None
+
+        try:
+            with zipfile.ZipFile(temp_path, "r") as zf:
+                # Chercher le fichier de métadonnées généré par MAPT
+                meta_file = None
+                for n in zf.namelist():
+                    if n.endswith("mapt_profile_meta.json"):
+                        meta_file = n
+                        break
+                if meta_file:
+                    with zf.open(meta_file) as mf:
+                        extracted_meta = json.loads(mf.read().decode("utf-8", errors="ignore"))
+                        detected_name = extracted_meta.get("ProfileName")
+                        detected_sid = extracted_meta.get("UserSid")
+                        detected_host = extracted_meta.get("Hostname")
+                        detected_os = extracted_meta.get("OS")
+        except zipfile.BadZipFile:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+            raise HTTPException(status_code=400, detail="Le fichier fourni n'est pas une archive ZIP valide.")
+
+        clean_filename = file.filename or "profile.zip"
+        base_filename = os.path.splitext(os.path.basename(clean_filename))[0]
+        if base_filename.lower().startswith("profile_"):
+            base_filename = base_filename[8:]
+
+        effective_profile_name = (profile_name or detected_name or base_filename or "profil_importe").strip()
+        effective_hostname = (source_hostname or detected_host or "Import-Externe").strip()
+        effective_sid = (user_sid or detected_sid or "").strip() or None
+        effective_os = detected_os or "Windows"
+        effective_notes = notes or f"Profil importé manuellement ({datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M')})"
+
+        storage_key = f"profiles/{backup_id}/{effective_profile_name}.zip"
+        final_path = os.path.join(LOCAL_STORAGE_DIR, storage_key)
+        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+        if os.path.exists(final_path):
+            try:
+                os.remove(final_path)
+            except Exception:
+                pass
+        shutil.move(temp_path, final_path)
+
+        upload_file_from_disk(
+            local_filepath=final_path,
+            storage_key=storage_key,
+            content_type="application/zip"
+        )
+
+        backup = UserProfileBackup(
+            id=backup_id,
+            profile_name=effective_profile_name,
+            user_sid=effective_sid,
+            source_device_id=None,
+            source_hostname=effective_hostname,
+            source_os=effective_os,
+            storage_key=storage_key,
+            size_bytes=total_bytes,
+            estimated_size_bytes=extracted_meta.get("EstimatedSizeBytes") or total_bytes,
+            sha256=hasher.hexdigest(),
+            status=ProfileBackupStatus.READY,
+            error_message=None,
+            notes=effective_notes,
+            metadata_info=extracted_meta or None,
+            created_by_user_id=user.id,
+        )
+
+        created_backup = await self.repo.create(backup)
+
+        try:
+            await self.audit_repo.create(
+                action=AuditAction.DEPLOYMENT_CREATED,
+                entity_type="user_profile_imported",
+                user_id=user.id,
+                entity_id=created_backup.id,
+                details={
+                    "type": "profile_imported",
+                    "backup_id": str(created_backup.id),
+                    "profile_name": created_backup.profile_name,
+                    "source_hostname": created_backup.source_hostname,
+                    "size_bytes": created_backup.size_bytes,
+                }
+            )
+        except Exception:
+            pass
+
+        return created_backup
+

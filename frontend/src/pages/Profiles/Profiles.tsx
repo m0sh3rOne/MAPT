@@ -30,7 +30,10 @@ import {
   AlertTriangle,
   Zap,
   Scale,
-  X
+  X,
+  Upload,
+  UploadCloud,
+  Check
 } from 'lucide-react';
 
 export const Profiles: React.FC = () => {
@@ -70,7 +73,22 @@ export const Profiles: React.FC = () => {
   const [restoreMode, setRestoreMode] = useState<'simple' | 'full_registry'>('simple');
   const [restoreNotes, setRestoreNotes] = useState('');
   const [restoreError, setRestoreError] = useState<string | null>(null);
-  const [downloadingBackupId, setDownloadingBackupId] = useState<string | null>(null);
+
+  // Download feedback state
+  const [downloadFeedbackBackupId, setDownloadFeedbackBackupId] = useState<string | null>(null);
+
+  // Import profile state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importProfileName, setImportProfileName] = useState('');
+  const [importSourceHostname, setImportSourceHostname] = useState('');
+  const [importUserSid, setImportUserSid] = useState('');
+  const [importNotes, setImportNotes] = useState('');
+  const [importProgress, setImportProgress] = useState(0);
+  const [importLoadedBytes, setImportLoadedBytes] = useState(0);
+  const [importTotalBytes, setImportTotalBytes] = useState(0);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // Queries
   const {
@@ -320,23 +338,84 @@ export const Profiles: React.FC = () => {
     });
   };
 
-  const handleDownloadProfile = async (backup: UserProfileBackup) => {
+  const handleDownloadProfile = (backup: UserProfileBackup) => {
     try {
-      setDownloadingBackupId(backup.id);
-      const blob = await api.downloadProfileBlob(backup.id);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
+      setDownloadFeedbackBackupId(backup.id);
+      setTimeout(() => setDownloadFeedbackBackupId(null), 3000);
+      const downloadUrl = api.getProfileDownloadUrl(backup.id);
       const safeName = backup.profile_name.replace(/[^a-zA-Z0-9_-]/g, '_');
-      a.download = `profile_${safeName}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const filename = `profile_${safeName}.zip`;
+
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (err: any) {
-      alert(err.response?.data?.detail || "Erreur lors du téléchargement de l'archive du profil.");
+      alert("Erreur lors de l'initialisation du téléchargement.");
+    }
+  };
+
+  const handleFileSelect = (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setImportError("Seuls les fichiers d'archive ZIP (.zip) sont pris en charge.");
+      return;
+    }
+    setImportError(null);
+    setImportFile(file);
+    // Suggest profile name from filename (e.g. profile_prof.zip -> prof)
+    let clean = file.name.replace(/\.zip$/i, '');
+    if (clean.toLowerCase().startsWith('profile_')) {
+      clean = clean.substring(8);
+    }
+    if (!importProfileName) {
+      setImportProfileName(clean);
+    }
+  };
+
+  const handleConfirmImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importFile) {
+      setImportError("Veuillez sélectionner un fichier ZIP de profil à importer.");
+      return;
+    }
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportLoadedBytes(0);
+    setImportTotalBytes(0);
+    setImportError(null);
+
+    try {
+      await api.importProfileBackup(
+        importFile,
+        importProfileName.trim() || undefined,
+        importSourceHostname.trim() || undefined,
+        importUserSid.trim() || undefined,
+        importNotes.trim() || undefined,
+        (progressEvent) => {
+          if (progressEvent.total) {
+            const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            setImportProgress(percent);
+            setImportLoadedBytes(progressEvent.loaded);
+            setImportTotalBytes(progressEvent.total);
+          }
+        }
+      );
+
+      queryClient.invalidateQueries({ queryKey: ['profiles-backups'] });
+      queryClient.invalidateQueries({ queryKey: ['profiles-summary'] });
+      setShowImportModal(false);
+      setImportFile(null);
+      setImportProfileName('');
+      setImportSourceHostname('');
+      setImportUserSid('');
+      setImportNotes('');
+      setImportProgress(0);
+    } catch (err: any) {
+      setImportError(err.response?.data?.detail || "Erreur lors de l'importation de l'archive de profil.");
     } finally {
-      setDownloadingBackupId(null);
+      setIsImporting(false);
     }
   };
 
@@ -371,6 +450,24 @@ export const Profiles: React.FC = () => {
             title="Rafraîchir les statuts"
           >
             <RefreshCw className={`w-4 h-4 ${fetchingBackups ? 'animate-spin text-emerald-400' : ''}`} />
+          </button>
+
+          <button
+            onClick={() => {
+              setImportError(null);
+              setImportFile(null);
+              setImportProfileName('');
+              setImportSourceHostname('');
+              setImportUserSid('');
+              setImportNotes('');
+              setImportProgress(0);
+              setShowImportModal(true);
+            }}
+            className="flex items-center space-x-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 text-slate-200 hover:text-white text-sm font-semibold rounded-xl shadow-sm transition duration-150"
+            title="Importer une archive ZIP de profil sauvegardé sur un autre serveur MAPT"
+          >
+            <Upload className="w-4 h-4 text-teal-400" />
+            <span>Importer un Profil</span>
           </button>
 
           <button
@@ -768,12 +865,19 @@ export const Profiles: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => handleDownloadProfile(backup)}
-                              disabled={downloadingBackupId === backup.id}
-                              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100 rounded-lg transition disabled:opacity-50"
-                              title="Télécharger l'archive ZIP du profil"
+                              className={`p-1.5 rounded-lg transition ${
+                                downloadFeedbackBackupId === backup.id
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-slate-100'
+                              }`}
+                              title={
+                                downloadFeedbackBackupId === backup.id
+                                  ? 'Téléchargement lancé dans le navigateur !'
+                                  : "Télécharger l'archive ZIP du profil (via le navigateur)"
+                              }
                             >
-                              {downloadingBackupId === backup.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                              {downloadFeedbackBackupId === backup.id ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
                               ) : (
                                 <Download className="w-3.5 h-3.5" />
                               )}
@@ -1356,6 +1460,208 @@ export const Profiles: React.FC = () => {
                     <>
                       <ArrowRight className="w-4 h-4" />
                       <span>Lancer la Migration</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL : IMPORTER UN PROFIL ZIP                                            */}
+      {/* ========================================================================= */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50 flex-shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <UploadCloud className="w-5 h-5 text-teal-400" />
+                <h3 className="font-bold text-slate-100">Importer une Archive de Profil (.zip)</h3>
+              </div>
+              <button
+                onClick={() => {
+                  if (!isImporting) setShowImportModal(false);
+                }}
+                disabled={isImporting}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition disabled:opacity-50"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmImport} className="p-6 space-y-4 overflow-y-auto flex-1">
+              {importError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span>{importError}</span>
+                </div>
+              )}
+
+              {/* Zone Drag & Drop ou Sélection de fichier */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  1. Fichier ZIP du profil à importer *
+                </label>
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      handleFileSelect(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  className={`border-2 border-dashed rounded-xl p-5 text-center transition cursor-pointer ${
+                    importFile
+                      ? 'border-teal-500/50 bg-teal-500/5'
+                      : 'border-slate-700 hover:border-slate-600 bg-slate-950/40 hover:bg-slate-950/60'
+                  }`}
+                  onClick={() => document.getElementById('profile-zip-input')?.click()}
+                >
+                  <input
+                    id="profile-zip-input"
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleFileSelect(e.target.files[0]);
+                      }
+                    }}
+                  />
+                  {importFile ? (
+                    <div className="flex items-center justify-between text-left">
+                      <div className="flex items-center space-x-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 flex-shrink-0">
+                          <FileArchive className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-slate-100 truncate">{importFile.name}</p>
+                          <p className="text-[11px] text-teal-400 mt-0.5">{formatBytes(importFile.size)}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setImportFile(null);
+                        }}
+                        className="text-slate-500 hover:text-slate-300 p-1 ml-2"
+                        title="Changer de fichier"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 py-1">
+                      <UploadCloud className="w-8 h-8 text-slate-500 mx-auto" />
+                      <p className="text-xs font-medium text-slate-200">
+                        Cliquez pour parcourir ou glissez-déposez le fichier <span className="text-teal-400">.zip</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Prend en charge les exports d'autres serveurs MAPT (métadonnées auto-détectées) ou tout profil archivé.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Nom du profil */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  2. Nom du Profil Utilisateur *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="ex: prof, jdupont, documentaliste"
+                  value={importProfileName}
+                  onChange={(e) => setImportProfileName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition shadow-inner"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Nom du compte utilisateur associé à ce profil.
+                </p>
+              </div>
+
+              {/* Machine source d'origine */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  3. Machine Source d'origine (indicatif)
+                </label>
+                <input
+                  type="text"
+                  placeholder="ex: 043C-GYMN-PC1P ou Serveur-Distant"
+                  value={importSourceHostname}
+                  onChange={(e) => setImportSourceHostname(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition shadow-inner"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+                  4. Description / Notes (optionnel)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="ex: Profil importé depuis un autre serveur MAPT..."
+                  value={importNotes}
+                  onChange={(e) => setImportNotes(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-teal-500 transition shadow-inner"
+                />
+              </div>
+
+              {/* Progress bar during upload */}
+              {isImporting && (
+                <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 font-medium flex items-center space-x-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-400" />
+                      <span>Téléversement de l'archive vers MAPT...</span>
+                    </span>
+                    <span className="text-teal-400 font-bold">{importProgress}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 transition-all duration-150"
+                      style={{ width: `${importProgress}%` }}
+                    />
+                  </div>
+                  {importTotalBytes > 0 && (
+                    <div className="text-[11px] text-slate-500 flex justify-between">
+                      <span>{formatBytes(importLoadedBytes)} envoyés</span>
+                      <span>Total : {formatBytes(importTotalBytes)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions buttons */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  disabled={isImporting}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition disabled:opacity-50"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isImporting || !importFile}
+                  className="flex items-center space-x-2 px-5 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-teal-600/25 transition disabled:opacity-50"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Importation en cours...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Importer l'Archive</span>
                     </>
                   )}
                 </button>
