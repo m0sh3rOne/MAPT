@@ -340,6 +340,7 @@ export interface ProfileBackupCreateRequest {
   profile_name: string;
   notes?: string;
   compression_level?: 'fastest' | 'optimal' | 'maximum';
+  included_folders?: string[];
 }
 
 export interface ProfileRestoreRequest {

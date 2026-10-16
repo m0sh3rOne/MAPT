@@ -39,9 +39,14 @@ class ProfileBackupService:
         backup_id: UUID,
         server_api_url: str,
         agent_token: str,
-        compression_level: str = "optimal"
+        compression_level: str = "optimal",
+        included_folders: Optional[List[str]] = None
     ) -> str:
         clean_profile = profile_name.replace('"', '`"')
+        if not included_folders:
+            included_folders = ["documents", "desktop", "pictures", "music_videos", "downloads", "appdata"]
+        categories_ps = ", ".join([f'"{c}"' for c in included_folders])
+
         return f"""$ErrorActionPreference = 'Stop'
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]'Tls12,Tls11,Tls'
 
@@ -50,7 +55,7 @@ $BackupId = "{str(backup_id)}"
 $ServerApiUrl = "{server_api_url}".TrimEnd('/')
 $AgentToken = "{agent_token}"
 
-Write-Output "[*] Initialisation de la sauvegarde du profil '$ProfileName' (Backup ID: $BackupId)..."
+Write-Output "[*] Initialisation de la sauvegarde directe du profil '$ProfileName' (Backup ID: $BackupId)..."
 
 $UserProfilesRoot = "C:\\Users"
 $TargetFolder = Join-Path $UserProfilesRoot $ProfileName
@@ -66,58 +71,19 @@ if (-not (Test-Path $TargetFolder)) {{
     }}
 }}
 
-# 1. Estimation de la taille brute du profil
-Write-Output "[*] Calcul et estimation de la taille du profil..."
-$EstimatedSizeBytes = 0
-try {{
-    $Measure = Get-ChildItem -Path $TargetFolder -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
-    if ($Measure -and $Measure.Sum) {{
-        $EstimatedSizeBytes = [long]$Measure.Sum
-    }}
-}} catch {{
-    $EstimatedSizeBytes = 0
+# 1. Categories de dossiers selectionnees et exclusions
+$SelectedCategories = @({categories_ps})
+Write-Output "[+] Dossiers selectionnes pour la sauvegarde : $($SelectedCategories -join ', ')"
+
+$CategoryMap = @{{
+    "documents"    = @("Documents", "My Documents")
+    "desktop"      = @("Desktop")
+    "pictures"     = @("Pictures", "My Pictures")
+    "music_videos" = @("Music", "My Music", "Videos", "My Videos")
+    "downloads"    = @("Downloads")
+    "appdata"      = @("AppData")
 }}
 
-$EstGB = [math]::Round($EstimatedSizeBytes / 1GB, 2)
-$EstMB = [math]::Round($EstimatedSizeBytes / 1MB, 2)
-Write-Output "[+] Taille brute estimee : $(if ($EstGB -ge 1) {{ "$EstGB Go" }} else {{ "$EstMB Mo" }}) ($EstimatedSizeBytes octets)"
-
-# 2. Verification de l'espace de stockage disponible sur le serveur MAPT
-Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT..."
-try {{
-    $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes"
-    $checkHeaders = @{{ "Authorization" = "Bearer $AgentToken" }}
-    $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 15
-    $ServerFreeGB = [math]::Round($checkResp.server_free_bytes / 1GB, 2)
-    Write-Output "[+] Serveur MAPT pret : $($checkResp.message) ($ServerFreeGB Go disponibles sur le serveur)"
-}} catch {{
-    Write-Output "[!] Note verification espace serveur : $($_.Exception.Message). Poursuite du processus..."
-}}
-
-# 3. Preparation de l'espace de travail temporaire local
-$WorkDir = Join-Path $env:TEMP "MAPT_ProfileBackup_$BackupId"
-if (Test-Path $WorkDir) {{ Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }}
-$PackageDir = Join-Path $WorkDir "profile_data"
-New-Item -Path $PackageDir -ItemType Directory -Force | Out-Null
-
-# 4. Identification du SID Windows dans la Registry
-$UserSid = $null
-try {{
-    $ProfileList = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList"
-    Get-ChildItem -Path $ProfileList -ErrorAction SilentlyContinue | ForEach-Object {{
-        $prop = Get-ItemProperty -Path $_.PSPath
-        if ($prop.ProfileImagePath -and ($prop.ProfileImagePath -eq $TargetFolder -or (Split-Path $prop.ProfileImagePath -Leaf) -eq (Split-Path $TargetFolder -Leaf))) {{
-            $UserSid = $_.PSChildName
-        }}
-    }}
-}} catch {{
-    Write-Output "[!] Note detection SID : $($_.Exception.Message)"
-}}
-
-Write-Output "[+] SID utilisateur detecte : $(if ($UserSid) {{ $UserSid }} else {{ 'Non-specifie' }})"
-
-# 5. Copie Robocopy avec exclusions de caches volumineux et temporaires
-Write-Output "[*] Copie des fichiers et dossiers utilisateurs (Documents, Bureau, Images, AppData, etc.)..."
 $ExcludeDirs = @(
     "Packages",
     "WindowsApps",
@@ -140,45 +106,98 @@ $ExcludeDirs = @(
 )
 
 $ExcludeFiles = @(
-    "NTUSER.DAT.LOG*",
-    "NTUSER.DAT{{*}}*",
+    "NTUSER.DAT*",
+    "UsrClass.dat.LOG*",
     "*.tmp"
 )
 
-$RoboLog = Join-Path $WorkDir "robocopy.log"
-$RoboArgs = @(
-    $TargetFolder,
-    $PackageDir,
-    "/E",
-    "/R:1",
-    "/W:1",
-    "/NP",
-    "/NFL",
-    "/NDL",
-    "/XJ",
-    "/LOG:$RoboLog",
-    "/XD"
-) + $ExcludeDirs + @("/XF") + $ExcludeFiles
-
-& robocopy.exe @RoboArgs
-$RoboExit = $LASTEXITCODE
-if ($RoboExit -ge 16) {{
-    Write-Output "[!] Attention : Robocopy a signale une anomalie fatale (Code $RoboExit)."
-}} else {{
-    Write-Output "[+] Copie des fichiers utilisateurs terminee avec succes (Code Robocopy : $RoboExit)"
+# 2. Estimation de la taille brute des elements selectionnes
+Write-Output "[*] Calcul et estimation de la taille des elements selectionnes..."
+$EstimatedSizeBytes = 0
+try {{
+    $targetDirInfo = New-Object System.IO.DirectoryInfo($TargetFolder)
+    foreach ($rf in $targetDirInfo.GetFiles()) {{
+        $skip = $false
+        foreach ($pat in $ExcludeFiles) {{
+            if ($rf.Name -like $pat) {{ $skip = $true; break }}
+        }}
+        if (-not $skip) {{ $EstimatedSizeBytes += $rf.Length }}
+    }}
+    foreach ($td in $targetDirInfo.GetDirectories()) {{
+        if ($td.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {{ continue }}
+        $catMatched = $null
+        foreach ($catKey in $CategoryMap.Keys) {{
+            if ($CategoryMap[$catKey] -contains $td.Name) {{
+                $catMatched = $catKey
+                break
+            }}
+        }}
+        $shouldInclude = $false
+        if ($catMatched) {{
+            if ($SelectedCategories -contains $catMatched) {{ $shouldInclude = $true }}
+        }} else {{
+            if ($SelectedCategories -contains "documents") {{ $shouldInclude = $true }}
+        }}
+        if ($shouldInclude) {{
+            $subMeasure = Get-ChildItem -Path $td.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum
+            if ($subMeasure -and $subMeasure.Sum) {{
+                $EstimatedSizeBytes += [long]$subMeasure.Sum
+            }}
+        }}
+    }}
+}} catch {{
+    $EstimatedSizeBytes = 0
 }}
 
-# 6. Sauvegarde propre et complete du registre utilisateur (NTUSER.DAT)
-Write-Output "[*] Sauvegarde de la ruche de Registre (NTUSER.DAT)..."
-$DestNtUser = Join-Path $PackageDir "NTUSER.DAT"
+$EstGB = [math]::Round($EstimatedSizeBytes / 1GB, 2)
+$EstMB = [math]::Round($EstimatedSizeBytes / 1MB, 2)
+Write-Output "[+] Taille brute estimee : $(if ($EstGB -ge 1) {{ "$EstGB Go" }} else {{ "$EstMB Mo" }}) ($EstimatedSizeBytes octets)"
+
+# 3. Verification de l'espace disponible sur le serveur MAPT
+Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT..."
+try {{
+    $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes"
+    $checkHeaders = @{{ "Authorization" = "Bearer $AgentToken" }}
+    $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 15
+    $ServerFreeGB = [math]::Round($checkResp.server_free_bytes / 1GB, 2)
+    Write-Output "[+] Serveur MAPT pret : $($checkResp.message) ($ServerFreeGB Go disponibles sur le serveur)"
+}} catch {{
+    Write-Output "[!] Note verification espace serveur : $($_.Exception.Message). Poursuite du processus..."
+}}
+
+# 4. Preparation du repertoire temporaire (exclusivement pour le fichier ZIP final et ruche temporaire)
+$WorkDir = Join-Path $env:TEMP "MAPT_ProfileBackup_$BackupId"
+if (Test-Path $WorkDir) {{ Remove-Item -Path $WorkDir -Recurse -Force -ErrorAction SilentlyContinue }}
+New-Item -Path $WorkDir -ItemType Directory -Force | Out-Null
+
+$ZipPath = Join-Path $WorkDir "$ProfileName.zip"
+
+# 5. Identification du SID Windows dans la Registry
+$UserSid = $null
+try {{
+    $ProfileList = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList"
+    Get-ChildItem -Path $ProfileList -ErrorAction SilentlyContinue | ForEach-Object {{
+        $prop = Get-ItemProperty -Path $_.PSPath
+        if ($prop.ProfileImagePath -and ($prop.ProfileImagePath -eq $TargetFolder -or (Split-Path $prop.ProfileImagePath -Leaf) -eq (Split-Path $TargetFolder -Leaf))) {{
+            $UserSid = $_.PSChildName
+        }}
+    }}
+}} catch {{
+    Write-Output "[!] Note detection SID : $($_.Exception.Message)"
+}}
+
+Write-Output "[+] SID utilisateur detecte : $(if ($UserSid) {{ $UserSid }} else {{ 'Non-specifie' }})"
+
+# Export temporaire de la ruche NTUSER.DAT (sauvegarde legere du registre uniquement)
+$TempNtUser = Join-Path $WorkDir "NTUSER.DAT"
 $ExportedRegistry = $false
 
 if ($UserSid) {{
     try {{
         if (Test-Path "Registry::HKEY_USERS\\$UserSid") {{
             Write-Output "[+] Profil actif en memoire, export direct depuis HKU\\$UserSid..."
-            & reg.exe save "HKU\\$UserSid" "$DestNtUser" /y 2>&1 | Out-Null
-            if (Test-Path $DestNtUser) {{ $ExportedRegistry = $true }}
+            & reg.exe save "HKU\\$UserSid" "$TempNtUser" /y 2>&1 | Out-Null
+            if (Test-Path $TempNtUser) {{ $ExportedRegistry = $true }}
         }}
     }} catch {{}}
 }}
@@ -187,37 +206,17 @@ if (-not $ExportedRegistry) {{
     $SourceNtUser = Join-Path $TargetFolder "NTUSER.DAT"
     if (Test-Path $SourceNtUser) {{
         try {{
-            Copy-Item -Path $SourceNtUser -Destination $DestNtUser -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path $SourceNtUser -Destination $TempNtUser -Force -ErrorAction SilentlyContinue
             $ExportedRegistry = $true
         }} catch {{}}
     }}
 }}
 
-# Nettoyer les fichiers de transactions de registre résiduels pour éviter les locks corrompus
-Get-ChildItem -Path $PackageDir -Filter "NTUSER.DAT.LOG*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $PackageDir -Filter "NTUSER.DAT{{*}}*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-
-# 7. Creation du fichier de métadonnées
-$Meta = @{{
-    ProfileName = $ProfileName
-    OriginalPath = $TargetFolder
-    UserSid = $UserSid
-    Hostname = $env:COMPUTERNAME
-    OS = (Get-CimInstance Win32_OperatingSystem).Caption
-    EstimatedSizeBytes = $EstimatedSizeBytes
-    BackupDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    Version = "2.0"
-}}
-$MetaJson = $Meta | ConvertTo-Json
-Set-Content -Path (Join-Path $PackageDir "mapt_profile_meta.json") -Value $MetaJson -Encoding UTF8
-
-# 8. Compression de l'archive ZIP
-$ZipPath = Join-Path $WorkDir "$ProfileName.zip"
-Write-Output "[*] Compression de l'archive ZIP..."
+# 6. Compression a la volee en streaming direct vers l'archive ZIP
+Write-Output "[*] Compression a la volee directement vers l'archive ZIP (sans copie intermediaire dans TEMP)..."
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-# Configuration du niveau de compression (.NET)
 $CompLevel = [System.IO.Compression.CompressionLevel]::Optimal
 if ("{compression_level}".ToLower() -in @("fastest", "faible", "fast")) {{
     $CompLevel = [System.IO.Compression.CompressionLevel]::Fastest
@@ -237,21 +236,129 @@ if ("{compression_level}".ToLower() -in @("fastest", "faible", "fast")) {{
 $ZipStream = [System.IO.File]::Open($ZipPath, [System.IO.FileMode]::Create)
 $ZipArchive = New-Object System.IO.Compression.ZipArchive($ZipStream, [System.IO.Compression.ZipArchiveMode]::Create)
 
-$FilesToZip = Get-ChildItem -Path $PackageDir -Recurse -File -Force -ErrorAction SilentlyContinue
-foreach ($f in $FilesToZip) {{
-    $relPath = $f.FullName.Substring($PackageDir.Length + 1).Replace([char]92, [char]47)
+# A. Metadonnees de sauvegarde mapt_profile_meta.json ecrites directement dans l'archive
+$Meta = @{{
+    ProfileName = $ProfileName
+    OriginalPath = $TargetFolder
+    UserSid = $UserSid
+    Hostname = $env:COMPUTERNAME
+    OS = (Get-CimInstance Win32_OperatingSystem).Caption
+    EstimatedSizeBytes = $EstimatedSizeBytes
+    IncludedFolders = $SelectedCategories
+    BackupDate = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    Version = "2.1"
+}}
+$MetaJson = $Meta | ConvertTo-Json
+$metaEntry = $ZipArchive.CreateEntry("mapt_profile_meta.json", [System.IO.Compression.CompressionLevel]::Optimal)
+$metaStream = $metaEntry.Open()
+$metaWriter = New-Object System.IO.StreamWriter($metaStream, [System.Text.Encoding]::UTF8)
+$metaWriter.Write($MetaJson)
+$metaWriter.Flush()
+$metaWriter.Dispose()
+$metaStream.Dispose()
+
+# B. Integration de NTUSER.DAT dans l'archive
+if ($ExportedRegistry -and (Test-Path $TempNtUser)) {{
+    try {{
+        $regEntry = $ZipArchive.CreateEntry("NTUSER.DAT", $CompLevel)
+        $regStream = $regEntry.Open()
+        $regFs = [System.IO.File]::OpenRead($TempNtUser)
+        $regFs.CopyTo($regStream)
+        $regFs.Dispose()
+        $regStream.Dispose()
+        Write-Output "[+] Ruche de registre NTUSER.DAT integree a l'archive ZIP."
+    }} catch {{
+        Write-Output "[!] Note integration NTUSER.DAT : $($_.Exception.Message)"
+    }}
+    Remove-Item -Path $TempNtUser -Force -ErrorAction SilentlyContinue
+}}
+
+# C. Compression a la volee des fichiers a la racine du profil
+$targetDirInfo = New-Object System.IO.DirectoryInfo($TargetFolder)
+$rootFiles = $targetDirInfo.GetFiles()
+foreach ($rf in $rootFiles) {{
+    $skip = $false
+    foreach ($pat in $ExcludeFiles) {{
+        if ($rf.Name -like $pat) {{ $skip = $true; break }}
+    }}
+    if ($skip) {{ continue }}
+
+    $relPath = $rf.FullName.Substring($TargetFolder.Length).TrimStart('\', '/').Replace('\', '/')
     try {{
         $entry = $ZipArchive.CreateEntry($relPath, $CompLevel)
         $entryStream = $entry.Open()
-        $fileStream = [System.IO.File]::Open($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $fileStream = [System.IO.File]::Open($rf.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $fileStream.CopyTo($entryStream)
-        $fileStream.Close()
         $fileStream.Dispose()
-        $entryStream.Close()
         $entryStream.Dispose()
-    }} catch {{
-        # Ignorer en toute securite les fichiers transitoires verrouilles par le systeme
+    }} catch {{}}
+}}
+
+# D. Parcours direct par file d'attente (Queue) des dossiers selectionnes vers le ZIP
+$dirQueue = New-Object System.Collections.Generic.Queue[System.IO.DirectoryInfo]
+$topDirs = $targetDirInfo.GetDirectories()
+
+foreach ($td in $topDirs) {{
+    if ($td.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {{ continue }}
+    $catMatched = $null
+    foreach ($catKey in $CategoryMap.Keys) {{
+        if ($CategoryMap[$catKey] -contains $td.Name) {{
+            $catMatched = $catKey
+            break
+        }}
     }}
+
+    $shouldInclude = $false
+    if ($catMatched) {{
+        if ($SelectedCategories -contains $catMatched) {{ $shouldInclude = $true }}
+    }} else {{
+        if ($SelectedCategories -contains "documents") {{ $shouldInclude = $true }}
+    }}
+
+    if ($shouldInclude) {{
+        $dirQueue.Enqueue($td)
+    }}
+}}
+
+$processedFiles = 0
+$processedBytes = 0
+
+while ($dirQueue.Count -gt 0) {{
+    $currDir = $dirQueue.Dequeue()
+    if ($currDir.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {{ continue }}
+    if ($ExcludeDirs -contains $currDir.Name) {{ continue }}
+
+    try {{
+        foreach ($sd in $currDir.GetDirectories()) {{
+            if (-not ($sd.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -and -not ($ExcludeDirs -contains $sd.Name)) {{
+                $dirQueue.Enqueue($sd)
+            }}
+        }}
+    }} catch {{}}
+
+    try {{
+        foreach ($f in $currDir.GetFiles()) {{
+            $skip = $false
+            foreach ($pat in $ExcludeFiles) {{
+                if ($f.Name -like $pat) {{ $skip = $true; break }}
+            }}
+            if ($skip) {{ continue }}
+
+            $relPath = $f.FullName.Substring($TargetFolder.Length).TrimStart('\', '/').Replace('\', '/')
+            try {{
+                $entry = $ZipArchive.CreateEntry($relPath, $CompLevel)
+                $entryStream = $entry.Open()
+                $fileStream = [System.IO.File]::Open($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                $fileStream.CopyTo($entryStream)
+                $fileStream.Dispose()
+                $entryStream.Dispose()
+                $processedFiles++
+                $processedBytes += $f.Length
+            }} catch {{
+                # Fichier temporairement verrouille ou inaccessible ignore proprement
+            }}
+        }}
+    }} catch {{}}
 }}
 
 $ZipArchive.Dispose()
@@ -259,7 +366,7 @@ $ZipStream.Dispose()
 
 $ZipSize = (Get-Item $ZipPath).Length
 $ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
-Write-Output "[+] Archive compresse avec succes : $([math]::Round($ZipSize / 1MB, 2)) Mo (SHA256: $ZipHash)"
+Write-Output "[+] Compression terminee : $processedFiles fichiers traites ($([math]::Round($processedBytes / 1MB, 2)) Mo bruts -> archive de $([math]::Round($ZipSize / 1MB, 2)) Mo, SHA256: $ZipHash)"
 
 # 9. Televersement de l'archive vers le serveur MAPT (Support des fichiers > 2 Go par flux)
 Write-Output "[*] Televersement de l'archive vers le serveur MAPT ($([math]::Round($ZipSize / 1MB, 2)) Mo)..."
@@ -1114,7 +1221,8 @@ exit 0
         user: User,
         notes: Optional[str] = None,
         base_api_url: Optional[str] = None,
-        compression_level: str = "optimal"
+        compression_level: str = "optimal",
+        included_folders: Optional[List[str]] = None
     ) -> UserProfileBackup:
         device = await self.device_repo.get_by_id(device_id)
         if not device:
@@ -1146,7 +1254,8 @@ exit 0
             backup_id=backup_id,
             server_api_url=api_url,
             agent_token=agent_token,
-            compression_level=compression_level
+            compression_level=compression_level,
+            included_folders=included_folders
         )
 
         deployment = Deployment(

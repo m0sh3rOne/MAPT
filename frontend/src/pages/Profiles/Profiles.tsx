@@ -33,8 +33,66 @@ import {
   X,
   Upload,
   UploadCloud,
-  Check
+  Check,
+  FileText,
+  Layout,
+  Image,
+  Music,
+  Settings
 } from 'lucide-react';
+
+const DEFAULT_BACKUP_FOLDERS = ['documents', 'desktop', 'pictures', 'music_videos', 'downloads', 'appdata'];
+
+const BACKUP_FOLDER_OPTIONS = [
+  {
+    id: 'documents',
+    name: 'Documents',
+    desc: 'Fichiers personnels, documents bureautiques, tableurs et textes',
+    icon: FileText,
+    color: 'text-blue-400',
+    badge: 'Bureautique'
+  },
+  {
+    id: 'desktop',
+    name: 'Bureau (Desktop)',
+    desc: 'Fichiers, raccourcis et dossiers situés sur l’écran de bureau',
+    icon: Layout,
+    color: 'text-amber-400',
+    badge: 'Bureau'
+  },
+  {
+    id: 'pictures',
+    name: 'Images (Pictures)',
+    desc: 'Photographies, captures d’écran et bibliothèques d’images',
+    icon: Image,
+    color: 'text-purple-400',
+    badge: 'Photos'
+  },
+  {
+    id: 'music_videos',
+    name: 'Musique & Vidéos',
+    desc: 'Bibliothèques multimédias (musique, vidéos, enregistrements)',
+    icon: Music,
+    color: 'text-pink-400',
+    badge: 'Médias'
+  },
+  {
+    id: 'downloads',
+    name: 'Téléchargements (Downloads)',
+    desc: 'Fichiers téléchargés depuis les navigateurs web ou applications',
+    icon: Download,
+    color: 'text-emerald-400',
+    badge: 'Fichiers'
+  },
+  {
+    id: 'appdata',
+    name: 'AppData (Paramètres & Navigateurs)',
+    desc: 'Dossier système C:\\Users\\...\\AppData (profils Chrome/Firefox/Edge, réglages d’apps)',
+    icon: Settings,
+    color: 'text-indigo-400',
+    badge: 'Système'
+  },
+];
 
 export const Profiles: React.FC = () => {
   const queryClient = useQueryClient();
@@ -60,6 +118,7 @@ export const Profiles: React.FC = () => {
   const [backupProfileName, setBackupProfileName] = useState('');
   const [backupNotes, setBackupNotes] = useState('');
   const [backupCompressionLevel, setBackupCompressionLevel] = useState<'fastest' | 'optimal' | 'maximum'>('optimal');
+  const [backupIncludedFolders, setBackupIncludedFolders] = useState<string[]>(DEFAULT_BACKUP_FOLDERS);
   const [backupError, setBackupError] = useState<string | null>(null);
 
   // Restore form state
@@ -132,6 +191,7 @@ export const Profiles: React.FC = () => {
       setBackupDeviceSearch('');
       setBackupProfileName('');
       setBackupNotes('');
+      setBackupIncludedFolders(DEFAULT_BACKUP_FOLDERS);
       setBackupError(null);
     },
     onError: (err: any) => {
@@ -330,11 +390,16 @@ export const Profiles: React.FC = () => {
       setBackupError('Veuillez renseigner le nom du profil à sauvegarder.');
       return;
     }
+    if (backupIncludedFolders.length === 0) {
+      setBackupError('Veuillez sélectionner au moins un dossier à sauvegarder.');
+      return;
+    }
     backupMutation.mutate({
       device_id: backupSourceDeviceId,
       profile_name: backupProfileName.trim(),
       notes: backupNotes,
       compression_level: backupCompressionLevel,
+      included_folders: backupIncludedFolders,
     });
   };
 
@@ -911,7 +976,7 @@ export const Profiles: React.FC = () => {
       {/* ========================================================================= */}
       {showBackupModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/50 flex-shrink-0">
               <div className="flex items-center space-x-2.5">
                 <FolderArchive className="w-5 h-5 text-emerald-400" />
@@ -1061,10 +1126,93 @@ export const Profiles: React.FC = () => {
                 )}
               </div>
 
+              {/* Dossiers a sauvegarder du profil */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    3. Dossiers du Profil à Sauvegarder *
+                  </label>
+                  <div className="flex items-center space-x-1.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setBackupIncludedFolders(DEFAULT_BACKUP_FOLDERS)}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition"
+                    >
+                      Tous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBackupIncludedFolders(['documents', 'desktop', 'pictures', 'appdata'])}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition"
+                      title="Exclut les Téléchargements et Multimédia volumineux"
+                    >
+                      Essentiels
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBackupIncludedFolders([])}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 font-medium transition"
+                    >
+                      Aucun
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {BACKUP_FOLDER_OPTIONS.map((opt) => {
+                    const isChecked = backupIncludedFolders.includes(opt.id);
+                    const IconComp = opt.icon;
+                    return (
+                      <div
+                        key={opt.id}
+                        onClick={() => {
+                          if (isChecked) {
+                            setBackupIncludedFolders(backupIncludedFolders.filter((id) => id !== opt.id));
+                          } else {
+                            setBackupIncludedFolders([...backupIncludedFolders, opt.id]);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition select-none flex items-start space-x-2.5 ${
+                          isChecked
+                            ? 'bg-slate-950/80 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700 opacity-60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="mt-0.5 rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0 focus:ring-offset-0 cursor-pointer pointer-events-none"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-1.5 font-semibold text-xs text-slate-200">
+                              <IconComp className={`w-3.5 h-3.5 ${opt.color} flex-shrink-0`} />
+                              <span className="truncate">{opt.name}</span>
+                            </div>
+                            <span className="text-[9px] px-1.5 py-0.5 bg-slate-800/80 text-slate-400 rounded">
+                              {opt.badge}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 leading-snug line-clamp-2">
+                            {opt.desc}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {backupIncludedFolders.length === 0 && (
+                  <p className="text-[11px] text-amber-400 mt-1.5">
+                    ⚠️ Veuillez cocher au moins un dossier à sauvegarder.
+                  </p>
+                )}
+              </div>
+
               {/* Compression Level Selector */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  3. Taux de Compression de l'Archive
+                  4. Taux de Compression de l'Archive
                 </label>
                 <div className="grid grid-cols-3 gap-2.5">
                   <button
@@ -1127,7 +1275,7 @@ export const Profiles: React.FC = () => {
               {/* Optional Notes */}
               <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  4. Notes / Description (Optionnel)
+                  5. Notes / Description (Optionnel)
                 </label>
                 <textarea
                   rows={2}
@@ -1139,13 +1287,13 @@ export const Profiles: React.FC = () => {
               </div>
 
               {/* Storage Info Banner */}
-              <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-1 text-xs text-slate-400">
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-1.5 text-xs text-slate-400">
                 <div className="flex items-center space-x-2 text-slate-300 font-semibold">
-                  <Info className="w-4 h-4 text-cyan-400" />
-                  <span>Vérification d'espace & Sécurité automatique :</span>
+                  <Info className="w-4 h-4 text-emerald-400" />
+                  <span>Compression directe à la volée (espace client divisé par 2) :</span>
                 </div>
                 <p className="text-[11px] leading-relaxed">
-                  L'agent MAPT effectue une estimation de la taille brute, vérifie l'espace libre sur le serveur ({formatBytes(summary?.server_free_space_bytes || 0)} disponibles) et exclut intelligemment les caches (Chrome/Edge/Temp).
+                  L'agent MAPT compresse directement par flux depuis <code className="text-emerald-300 font-mono text-[10px]">C:\Users</code> vers le fichier ZIP sans copie intermédiaire dans TEMP. La ruche de Registre (<code className="text-emerald-300 font-mono text-[10px]">NTUSER.DAT</code>) et les fichiers racine sont automatiquement préservés.
                 </p>
               </div>
 

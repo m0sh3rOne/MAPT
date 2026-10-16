@@ -77,7 +77,8 @@ async def trigger_profile_backup(
         user=current_user,
         notes=req_in.notes,
         base_api_url=base_api_url,
-        compression_level=req_in.compression_level or "optimal"
+        compression_level=req_in.compression_level or "optimal",
+        included_folders=req_in.included_folders
     )
 
 

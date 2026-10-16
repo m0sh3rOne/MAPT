@@ -9,6 +9,8 @@ class ProfileBackupCreateRequest(BaseModel):
     profile_name: str  # ex: "jdupont" ou "ECOLE\prof01"
     notes: Optional[str] = None
     compression_level: Optional[str] = "optimal"  # "fastest", "optimal", "maximum"
+    included_folders: Optional[List[str]] = None  # e.g. ["documents", "desktop", "pictures", "music_videos", "downloads", "appdata"]
+
 
 
 class ProfileRestoreRequest(BaseModel):
