@@ -90,6 +90,19 @@ class ProfileBackupRepository:
         await self.db.commit()
         return await self.get_by_id(backup_id)
 
+    async def update_estimated_size(
+        self,
+        backup_id: UUID,
+        estimated_size_bytes: int
+    ) -> Optional[UserProfileBackup]:
+        await self.db.execute(
+            update(UserProfileBackup)
+            .where(UserProfileBackup.id == backup_id)
+            .values(estimated_size_bytes=estimated_size_bytes)
+        )
+        await self.db.commit()
+        return await self.get_by_id(backup_id)
+
     async def delete(self, backup_id: UUID) -> bool:
         result = await self.db.execute(
             delete(UserProfileBackup).where(UserProfileBackup.id == backup_id)

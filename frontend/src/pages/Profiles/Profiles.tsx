@@ -609,6 +609,49 @@ export const Profiles: React.FC = () => {
       </div>
 
       {/* ========================================================================= */}
+      {/* BANNIÈRE DE SAUVEGARDE ACTIVE AVEC TAILLE ESTIMÉE PROVISOIRE              */}
+      {/* ========================================================================= */}
+      {backups.some((b) => b.status === 'BACKING_UP') && (
+        <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-amber-950/20 animate-in fade-in">
+          <div className="flex items-center space-x-3">
+            <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex-shrink-0">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-amber-300 flex items-center space-x-2">
+                <span>Sauvegarde de profil en cours d'exécution</span>
+              </div>
+              <div className="text-xs text-slate-300 mt-1 flex flex-wrap items-center gap-2">
+                {backups
+                  .filter((b) => b.status === 'BACKING_UP')
+                  .map((b) => (
+                    <div key={b.id} className="inline-flex items-center gap-2 bg-slate-950/60 px-2.5 py-1 rounded-lg border border-slate-800">
+                      <span className="font-semibold text-slate-100">{b.profile_name}</span>
+                      <span className="text-slate-500 text-[11px]">sur</span>
+                      <span className="font-mono text-slate-300 text-[11px]">{b.source_hostname}</span>
+                      {b.estimated_size_bytes && b.estimated_size_bytes > 0 ? (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-mono font-bold text-[11px] border border-amber-500/30">
+                          Taille estimée provisoire : ~{formatBytes(b.estimated_size_bytes)}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 text-[11px]">
+                          Estimation en cours...
+                        </span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2 text-[11px] text-amber-400/80 self-end sm:self-center font-medium bg-amber-500/10 px-3 py-1.5 rounded-xl border border-amber-500/20">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            <span>Suivi direct (3s)</span>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* FILTER & SEARCH BAR                                                       */}
       {/* ========================================================================= */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
@@ -826,16 +869,41 @@ export const Profiles: React.FC = () => {
 
                       {/* Size */}
                       <td className="px-5 py-4">
-                        <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-300">
-                          <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-                          <span>
-                            {backup.size_bytes > 0
-                              ? formatBytes(backup.size_bytes)
-                              : backup.estimated_size_bytes && backup.estimated_size_bytes > 0
-                              ? `~${formatBytes(backup.estimated_size_bytes)} (est.)`
-                              : '0 Mo'}
-                          </span>
-                        </div>
+                        {backup.status === 'BACKING_UP' ? (
+                          <div className="flex flex-col space-y-1">
+                            <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono text-amber-300 animate-pulse">
+                              <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="font-bold">
+                                {backup.estimated_size_bytes && backup.estimated_size_bytes > 0
+                                  ? `~${formatBytes(backup.estimated_size_bytes)}`
+                                  : 'Calcul en cours...'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-amber-400/90 font-medium tracking-tight">
+                              {backup.estimated_size_bytes && backup.estimated_size_bytes > 0
+                                ? 'Taille estimée provisoire'
+                                : 'Estimation en cours...'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col space-y-0.5">
+                            <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-300">
+                              <HardDrive className="w-3.5 h-3.5 text-slate-400" />
+                              <span className="font-semibold">
+                                {backup.size_bytes > 0
+                                  ? formatBytes(backup.size_bytes)
+                                  : backup.estimated_size_bytes && backup.estimated_size_bytes > 0
+                                  ? `~${formatBytes(backup.estimated_size_bytes)}`
+                                  : '0 Mo'}
+                              </span>
+                            </div>
+                            {backup.size_bytes > 0 && backup.estimated_size_bytes && backup.estimated_size_bytes > 0 && (
+                              <span className="text-[10px] text-slate-500 truncate" title={`Taille brute avant compression : ${formatBytes(backup.estimated_size_bytes)}`}>
+                                Brut : ~{formatBytes(backup.estimated_size_bytes)}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Date */}
@@ -864,9 +932,9 @@ export const Profiles: React.FC = () => {
                           </span>
                         )}
                         {isInProgress && (
-                          <div className="flex items-center space-x-2">
-                            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <div className="flex flex-col space-y-1">
+                            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse w-fit">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
                               <span>
                                 {backup.status === 'BACKING_UP'
                                   ? 'Sauvegarde...'
@@ -875,6 +943,11 @@ export const Profiles: React.FC = () => {
                                   : 'En attente...'}
                               </span>
                             </span>
+                            {backup.status === 'BACKING_UP' && backup.estimated_size_bytes && backup.estimated_size_bytes > 0 && (
+                              <span className="text-[10px] text-amber-300 font-mono">
+                                Volume : ~{formatBytes(backup.estimated_size_bytes)}
+                              </span>
+                            )}
                           </div>
                         )}
                         {isFailed && (

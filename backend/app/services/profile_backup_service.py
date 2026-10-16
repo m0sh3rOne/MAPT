@@ -153,10 +153,10 @@ $EstGB = [math]::Round($EstimatedSizeBytes / 1GB, 2)
 $EstMB = [math]::Round($EstimatedSizeBytes / 1MB, 2)
 Write-Output "[+] Taille brute estimee : $(if ($EstGB -ge 1) {{ "$EstGB Go" }} else {{ "$EstMB Mo" }}) ($EstimatedSizeBytes octets)"
 
-# 3. Verification de l'espace disponible sur le serveur MAPT
-Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT..."
+# 3. Verification de l'espace disponible sur le serveur MAPT et transmission de la taille estimee
+Write-Output "[*] Verification de l'espace disponible sur le serveur MAPT ($([math]::Round($EstimatedSizeBytes / 1MB, 2)) Mo)..."
 try {{
-    $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes"
+    $CheckUrl = "$ServerApiUrl/agent/profiles/storage-check?estimated_size=$EstimatedSizeBytes&backup_id=$BackupId"
     $checkHeaders = @{{ "Authorization" = "Bearer $AgentToken" }}
     $checkResp = Invoke-RestMethod -Uri $CheckUrl -Method Get -Headers $checkHeaders -TimeoutSec 15
     $ServerFreeGB = [math]::Round($checkResp.server_free_bytes / 1GB, 2)
@@ -1190,6 +1190,9 @@ exit 0
             "server_used_bytes": used,
             "message": f"Espace disque disponible : {round(free / (1024**3), 2)} Go libres sur {round(total / (1024**3), 2)} Go."
         }
+
+    async def update_estimated_size(self, backup_id: UUID, estimated_size_bytes: int) -> Optional[UserProfileBackup]:
+        return await self.repo.update_estimated_size(backup_id, estimated_size_bytes)
 
     async def get_all_backups(
         self,

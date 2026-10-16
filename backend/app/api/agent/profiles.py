@@ -17,11 +17,27 @@ router = APIRouter(prefix="/profiles", tags=["Agent - Profils Windows"])
 @router.get("/storage-check")
 async def agent_check_storage(
     estimated_size: int = 0,
+    backup_id: Optional[UUID] = None,
     device: Device = Depends(get_current_agent),
     db: AsyncSession = Depends(get_db)
 ):
     service = ProfileBackupService(db)
+    if backup_id and estimated_size > 0:
+        await service.update_estimated_size(backup_id=backup_id, estimated_size_bytes=estimated_size)
     return service.check_storage(estimated_size_bytes=estimated_size)
+
+
+@router.post("/{backup_id}/progress")
+async def agent_report_progress(
+    backup_id: UUID,
+    estimated_size: Optional[int] = None,
+    device: Device = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_db)
+):
+    service = ProfileBackupService(db)
+    if estimated_size is not None and estimated_size > 0:
+        await service.update_estimated_size(backup_id=backup_id, estimated_size_bytes=estimated_size)
+    return {"status": "ok"}
 
 
 @router.post("/{backup_id}/upload")
