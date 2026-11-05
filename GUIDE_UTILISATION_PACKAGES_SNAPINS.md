@@ -1,6 +1,6 @@
 # 📦 Guide Complet : Gestion et Déploiement des Packages & Snapins (MAPT)
 
-Ce guide détaille le fonctionnement, la configuration et les meilleures pratiques pour créer, stocker et déployer des logiciels (**MSI**, **EXE**, **VBScript**, **Batch**) sur votre parc informatique Windows via la plateforme **MAPT**.
+Ce guide détaille le fonctionnement, la configuration et les meilleures pratiques pour créer, stocker et déployer des logiciels et archives (**MSI**, **EXE**, **VBScript**, **PowerShell**, **Batch**, **ZIP**) sur votre parc informatique Windows via la plateforme **MAPT**.
 
 ---
 
@@ -55,11 +55,11 @@ $$\text{\textbf{[Run With]}} \quad \text{\textbf{[Run With Args]}} \quad \text{"
 
 | Champ | Description | Quand le renseigner ? | Exemple |
 | :--- | :--- | :--- | :--- |
-| **Snapin Run With** | Le programme hôte / interpréteur qui ouvre le fichier. | **Requis pour `.msi`, `.vbs`, `.ps1`.**<br>Laisser **VIDE** pour un `.exe` direct. | `c:\windows\system32\msiexec.exe`<br>`c:\windows\system32\cscript.exe` |
-| **Snapin Run With Args** | Les paramètres passés à l'interpréteur **avant** le fichier. | Utilisé pour indiquer l'action à l'interpréteur (ex: installer pour msiexec). | `/i` (pour MSI)<br>`//nologo` (pour VBS) |
-| **Snapin Arguments** | Les options passées à votre propre installeur (mode silencieux). | Utilisé pour rendre l'installation silencieuse sans intervention utilisateur. | `/S`, `/qn /norestart`, `/SILENT` |
-| **Exécuter en tant qu'administrateur** | Exécute la commande avec les privilèges système les plus élevés. | **Recommandé activé (coché)** pour la plupart des installations logicielles. | Activé (`true`) |
-| **Dossier de destination locale** | Répertoire client où l'exécutable est téléchargé avant d'être exécuté. | Par défaut `%APPDATA%\MAPT\packages`. Les variables `%APPDATA%`, `%TEMP%`, `%PROGRAMDATA%` sont résolues automatiquement. | `%APPDATA%\MAPT\packages` |
+| **Snapin Run With** | Le programme hôte / interpréteur qui ouvre le fichier. | **Requis pour `.msi`, `.vbs`, `.ps1`, `.zip`.**<br>Laisser **VIDE** pour un `.exe` direct. | `c:\windows\system32\msiexec.exe`<br>`c:\windows\system32\cscript.exe`<br>`c:\windows\system32\tar.exe` |
+| **Snapin Run With Args** | Les paramètres passés à l'interpréteur **avant** le fichier. | Utilisé pour indiquer l'action à l'interpréteur (ex: installer pour msiexec, extraire pour tar). | `/i` (pour MSI)<br>`//nologo` (pour VBS)<br>`-xf` (pour ZIP) |
+| **Snapin Arguments** | Les options passées à votre propre installeur ou interpréteur après le fichier. | Utilisé pour rendre l'installation silencieuse ou spécifier le dossier d'extraction. | `/S`, `/qn /norestart`, `-C C:\DossierCible` |
+| **Exécuter en tant qu'administrateur** | Exécute la commande avec les privilèges système les plus élevés. | **Recommandé activé (coché)** pour la plupart des installations logicielles et copies à la racine `C:\`. | Activé (`true`) |
+| **Dossier de destination locale** | Répertoire client où le fichier est téléchargé avant exécution (créé automatiquement s'il n'existe pas). | Par défaut `%ProgramData%\MAPT\packages`. Peut être personnalisé (ex: `C:\Drivers`) via le bouton **Personnaliser**. | `%ProgramData%\MAPT\packages`<br>`C:\Drivers` |
 
 ---
 
@@ -105,6 +105,27 @@ $$\text{\textbf{[Run With]}} \quad \text{\textbf{[Run With Args]}} \quad \text{"
   powershell.exe -ExecutionPolicy Bypass -File "C:\Users\Admin\AppData\Roaming\MAPT\packages\deploy.ps1" -Verbose
   ```
 
+### E. Archive compressée (`.zip`) — Déploiement et décompression vers un dossier cible
+*Exemple : Déploiement de pilotes d'impression (`Driver_Imprimante.zip`), d'applications portables, de certificats ou de dossiers de ressources directement sur le disque dur d'une machine (ex: `C:\Drivers`, `C:\Outils`).*
+
+Pour décompresser automatiquement un fichier `.zip` sur le poste client (même lorsque le nom de l'archive comporte des espaces), utilisez l'outil natif **`tar.exe`** intégré à Windows 10 et Windows 11 :
+
+1. **Sélectionner le fichier** : Choisissez votre archive `.zip` (le préréglage **Archive (.zip)** s'active automatiquement).
+2. **Créer automatiquement le dossier cible (`Personnaliser ⌄`)** :
+   - Cliquez sur **`Personnaliser ⌄`** en haut à droite du bloc **Configuration d'Exécution & Snapin (FOG)**.
+   - Dans **Dossier de destination locale**, indiquez le répertoire cible sur la machine (ex: `C:\Drivers` ou `C:\Drivers\MonPilote`).
+   - *Important : l'agent MAPT crée automatiquement ce dossier sur le disque dur du poste client s'il n'existe pas encore avant de télécharger et d'extraire l'archive.*
+3. **Paramètres de décompression Snapin** :
+   - **Snapin Run With** : `c:\windows\system32\tar.exe`
+   - **Snapin Run With Args** : `-xf`
+   - **Snapin Arguments** : `-C C:\Drivers` *(remplacez `C:\Drivers` par le chemin exact défini à l'étape 2 ; évitez les espaces dans le chemin du dossier cible)*
+   - **Mode d'exécution** : `Silencieux (Arrière-plan)`
+   - **Exécuter en tant qu'administrateur** : `Coché` *(requis pour créer et écrire dans un dossier à la racine de `C:\`)*
+- **Résultat exécuté sur le client** :
+  ```cmd
+  c:\windows\system32\tar.exe -xf "C:\Drivers\Mon Archive Avec Espaces.zip" -C C:\Drivers
+  ```
+
 ---
 
 ## 4. Tableau des Logiciels Courants et Arguments Silencieux
@@ -125,6 +146,7 @@ Voici une référence rapide des arguments silencieux pour les logiciels les plu
 | **Python 3.x** | `.exe` | *(vide)* | *(vide)* | `/quiet InstallAllUsers=1 PrependPath=1` |
 | **Visual Studio Code** | `.exe` | *(vide)* | *(vide)* | `/VERYSILENT /NORESTART /MERGETASKS=!runcode,addtopath` |
 | **AnyDesk** | `.exe` | *(vide)* | *(vide)* | `--install "C:\Program Files (x86)\AnyDesk" --silent` |
+| **Archive ZIP (Drivers / Fichiers)** | `.zip` | `c:\windows\system32\tar.exe` | `-xf` | `-C C:\Drivers` *(+ Dossier de destination locale : `C:\Drivers`)* |
 
 ---
 
