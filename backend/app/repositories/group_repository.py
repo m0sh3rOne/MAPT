@@ -105,6 +105,12 @@ class GroupRepository:
         )
         return list(result.scalars().all())
 
+    async def get_device_group_ids(self, device_id: UUID) -> Set[UUID]:
+        result = await self.db.execute(
+            select(DeviceGroupMember.group_id).where(DeviceGroupMember.device_id == device_id)
+        )
+        return set(result.scalars().all())
+
     async def set_group_operators(self, group_id: UUID, operator_ids: List[UUID]):
         await self.db.execute(
             delete(DeviceGroupOperator).where(DeviceGroupOperator.group_id == group_id)

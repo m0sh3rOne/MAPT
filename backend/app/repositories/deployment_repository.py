@@ -63,7 +63,7 @@ class DeploymentRepository:
     async def get_pending_targets_for_device(self, device_id: UUID) -> List[DeploymentTarget]:
         """
         Récupère les jobs en attente (PENDING ou OFFERED) pour un agent spécifique
-        en tenant compte de l'heure programmée (scheduled_at).
+        uniquement lorsque le déploiement parent est actif (RUNNING) et que l'heure programmée est atteinte.
         """
         now = datetime.now(timezone.utc)
         result = await self.db.execute(
@@ -77,10 +77,26 @@ class DeploymentRepository:
             .where(
                 DeploymentTarget.device_id == device_id,
                 DeploymentTarget.status.in_([TargetStatus.PENDING, TargetStatus.OFFERED]),
-                Deployment.status != DeploymentStatus.CANCELLED,
+                Deployment.status == DeploymentStatus.RUNNING,
                 or_(Deployment.scheduled_at == None, Deployment.scheduled_at <= now)
             )
             .order_by(DeploymentTarget.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def get_due_scheduled_deployments(self) -> List[Deployment]:
+        """
+        Récupère les déploiements programmés ou récurrents dont l'échéance (next_run_at) est atteinte.
+        """
+        now = datetime.now(timezone.utc)
+        result = await self.db.execute(
+            select(Deployment)
+            .options(selectinload(Deployment.targets))
+            .where(
+                Deployment.status.in_([DeploymentStatus.PENDING, DeploymentStatus.RUNNING]),
+                Deployment.next_run_at != None,
+                Deployment.next_run_at <= now
+            )
         )
         return list(result.scalars().all())
 

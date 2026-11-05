@@ -292,6 +292,13 @@ class AgentService:
         return created_count
 
     async def get_jobs_for_agent(self, device: Device, trigger: Optional[str] = None) -> List[AgentJobPayload]:
+        # Déclencher à la volée les tâches programmées ou récurrentes dont l'heure est atteinte
+        try:
+            from app.services.deployment_service import DeploymentService
+            await DeploymentService(self.db).process_due_deployments()
+        except Exception:
+            pass
+
         # Si un événement de connexion est transmis, déclencher les tâches récurrentes on_login
         if trigger in ["login", "logon"]:
             await self.trigger_on_login_deployments(device)

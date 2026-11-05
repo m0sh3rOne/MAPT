@@ -39,7 +39,9 @@ async def check_job_timeouts():
         now = datetime.now(timezone.utc)
         result = await session.execute(
             select(DeploymentTarget)
-            .options(selectinload(DeploymentTarget.deployment))
+            .options(
+                selectinload(DeploymentTarget.deployment).selectinload(Deployment.script_version)
+            )
             .where(DeploymentTarget.status == TargetStatus.RUNNING)
         )
         running_targets = result.scalars().all()
@@ -98,10 +100,14 @@ async def check_scheduled_and_recurring_deployments():
     """
     Vérifie et déclenche les déploiements programmés ou récurrents échus (next_run_at <= now).
     """
+    from sqlalchemy.orm import selectinload
+
     async with AsyncSessionLocal() as session:
         now = datetime.now(timezone.utc)
         result = await session.execute(
-            select(Deployment).where(
+            select(Deployment)
+            .options(selectinload(Deployment.targets))
+            .where(
                 Deployment.status.in_([DeploymentStatus.PENDING, DeploymentStatus.RUNNING]),
                 Deployment.next_run_at != None,
                 Deployment.next_run_at <= now
@@ -123,10 +129,19 @@ async def run_worker_loop():
     while True:
         try:
             await check_device_heartbeats()
+        except Exception as e:
+            logger.error(f"Error in check_device_heartbeats: {e}")
+
+        try:
             await check_job_timeouts()
+        except Exception as e:
+            logger.error(f"Error in check_job_timeouts: {e}")
+
+        try:
             await check_scheduled_and_recurring_deployments()
         except Exception as e:
-            logger.error(f"Error in background worker loop: {e}")
+            logger.error(f"Error in check_scheduled_and_recurring_deployments: {e}")
+
         await asyncio.sleep(10)
 
 

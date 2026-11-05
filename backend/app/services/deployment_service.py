@@ -95,20 +95,92 @@ class DeploymentService:
             error_message=target.error_message
         )
 
+    async def _resolve_deployment_target_ids(self, deployment: Deployment) -> Set[UUID]:
+        target_device_ids: Set[UUID] = set()
+        if deployment.target_all_devices:
+            all_devs = await self.device_repo.get_all()
+            target_device_ids.update(d.id for d in all_devs)
+        if deployment.target_group_ids:
+            for g_id in deployment.target_group_ids:
+                try:
+                    g_devs = await self.group_repo.get_group_device_ids(UUID(str(g_id)))
+                    target_device_ids.update(g_devs)
+                except Exception:
+                    pass
+        if deployment.target_device_ids:
+            for d_id in deployment.target_device_ids:
+                try:
+                    target_device_ids.add(UUID(str(d_id)))
+                except Exception:
+                    pass
+        return target_device_ids
+
+    async def _ensure_deployment_targets(self, dep: Deployment) -> bool:
+        """
+        Garantit qu'un déploiement programmé ou actif possède bien ses lignes DeploymentTarget
+        (y compris pour les tâches créées avant ce correctif où les cibles restaient vides).
+        """
+        if dep.schedule_type == "on_login" or dep.status not in [DeploymentStatus.PENDING, DeploymentStatus.RUNNING]:
+            return False
+        existing_targets = dep.targets if "targets" in dep.__dict__ and dep.targets is not None else []
+        if len(existing_targets) > 0:
+            return False
+
+        target_device_ids = await self._resolve_deployment_target_ids(dep)
+        if not target_device_ids:
+            return False
+
+        for dev_id in target_device_ids:
+            self.db.add(DeploymentTarget(
+                deployment_id=dep.id,
+                device_id=dev_id,
+                status=TargetStatus.PENDING
+            ))
+        await self.db.commit()
+        return True
+
+    async def process_due_deployments(self) -> int:
+        """
+        Vérifie et déclenche tous les déploiements programmés ou récurrents dont l'heure est atteinte.
+        """
+        due_deployments = await self.dep_repo.get_due_scheduled_deployments()
+        triggered = 0
+        for dep in due_deployments:
+            try:
+                await self.trigger_scheduled_run(dep)
+                triggered += 1
+            except Exception as e:
+                from app.core.logging import logger
+                logger.error(f"Erreur lors du déclenchement du déploiement programmé {dep.id}: {e}")
+        return triggered
+
     async def get_all_deployments(self) -> List[DeploymentResponse]:
+        await self.process_due_deployments()
         deployments = await self.dep_repo.get_all()
+        reloaded = False
+        for d in deployments:
+            if await self._ensure_deployment_targets(d):
+                reloaded = True
+        if reloaded:
+            deployments = await self.dep_repo.get_all()
         return [self._map_to_response(d) for d in deployments]
 
     async def get_deployment_by_id(self, deployment_id: UUID) -> DeploymentResponse:
+        await self.process_due_deployments()
         dep = await self.dep_repo.get_by_id(deployment_id)
         if not dep:
             raise HTTPException(status_code=404, detail="Déploiement introuvable.")
+        if await self._ensure_deployment_targets(dep):
+            dep = await self.dep_repo.get_by_id(deployment_id)
         return self._map_to_response(dep)
 
     async def get_deployment_targets(self, deployment_id: UUID) -> List[DeploymentTargetResponse]:
+        await self.process_due_deployments()
         dep = await self.dep_repo.get_by_id(deployment_id)
         if not dep:
             raise HTTPException(status_code=404, detail="Déploiement introuvable.")
+        if await self._ensure_deployment_targets(dep):
+            dep = await self.dep_repo.get_by_id(deployment_id)
         return [self._map_target_to_response(t) for t in dep.targets]
 
     async def create_deployment(
@@ -246,12 +318,13 @@ class DeploymentService:
             max_concurrency=dep_in.max_concurrency if dep_in.max_concurrency is not None else 8,
             target_all_devices=dep_in.target_all_devices,
             target_group_ids=[str(g) for g in dep_in.target_group_ids],
-            target_device_ids=[str(d) for d in dep_in.target_device_ids],
+            target_device_ids=[str(d) for d in target_device_ids],
         )
         created = await self.dep_repo.create(deployment)
 
-        # Si exécution immédiate, créer les cibles initiales
-        if is_immediate:
+        # Créer immédiatement les cibles pour tous les déploiements (immédiats, programmés et récurrents hors on_login)
+        # afin que les machines du groupe ou sélectionnées soient visibles dès la création de la tâche.
+        if not isOnLogin:
             for dev_id in target_device_ids:
                 target = DeploymentTarget(
                     deployment_id=created.id,
@@ -261,15 +334,15 @@ class DeploymentService:
                 self.db.add(target)
             await self.db.flush()
 
-            # Si Wake-on-LAN activé, envoyer un paquet magique à toutes les machines cibles
-            if dep_in.wake_on_lan:
-                try:
-                    from app.services.wol_service import WolService
-                    wol_svc = WolService(self.db)
-                    await wol_svc.wake_devices(list(target_device_ids), user_id=user_id, ip_address=ip_address)
-                except Exception as e:
-                    from app.core.logging import logger
-                    logger.warning(f"Échec envoi Wake-on-LAN pour le déploiement {created.id}: {e}")
+        # Si exécution immédiate et Wake-on-LAN activé, envoyer un paquet magique tout de suite
+        if is_immediate and dep_in.wake_on_lan:
+            try:
+                from app.services.wol_service import WolService
+                wol_svc = WolService(self.db)
+                await wol_svc.wake_devices(list(target_device_ids), user_id=user_id, ip_address=ip_address)
+            except Exception as e:
+                from app.core.logging import logger
+                logger.warning(f"Échec envoi Wake-on-LAN pour le déploiement {created.id}: {e}")
 
         await self.audit_repo.create(
             action=AuditAction.DEPLOYMENT_CREATED,
@@ -295,27 +368,18 @@ class DeploymentService:
         Déclenche une itération de déploiement planifié ou récurrent
         """
         now = datetime.now(timezone.utc)
-        target_device_ids: Set[UUID] = set()
+        if "targets" not in deployment.__dict__ or deployment.targets is None:
+            reloaded = await self.dep_repo.get_by_id(deployment.id)
+            if reloaded:
+                deployment = reloaded
 
-        if deployment.target_all_devices:
-            all_devs = await self.device_repo.get_all()
-            target_device_ids.update(d.id for d in all_devs)
-        if deployment.target_group_ids:
-            for g_id in deployment.target_group_ids:
-                try:
-                    g_devs = await self.group_repo.get_group_device_ids(UUID(g_id))
-                    target_device_ids.update(g_devs)
-                except Exception:
-                    pass
-        if deployment.target_device_ids:
-            for d_id in deployment.target_device_ids:
-                try:
-                    target_device_ids.add(UUID(d_id))
-                except Exception:
-                    pass
+        target_device_ids = await self._resolve_deployment_target_ids(deployment)
+        existing_targets = deployment.targets if "targets" in deployment.__dict__ and deployment.targets is not None else []
+        for t in existing_targets:
+            target_device_ids.add(t.device_id)
 
         # Si Wake-on-LAN activé, envoyer un paquet magique à toutes les machines cibles
-        if getattr(deployment, "wake_on_lan", False):
+        if getattr(deployment, "wake_on_lan", False) and target_device_ids:
             try:
                 from app.services.wol_service import WolService
                 wol_svc = WolService(self.db)
@@ -324,15 +388,20 @@ class DeploymentService:
                 from app.core.logging import logger
                 logger.warning(f"Échec envoi Wake-on-LAN planifié pour le déploiement {deployment.id}: {e}")
 
-        # Créer les cibles pour cette itération en évitant les cibles actives en double
+        # Activer ou réinitialiser les cibles pour cette itération sans créer de doublons
+        existing_by_device = {t.device_id: t for t in existing_targets}
         for dev_id in target_device_ids:
-            has_active_target = False
-            if deployment.targets:
-                for t in deployment.targets:
-                    if t.device_id == dev_id and t.status in [TargetStatus.PENDING, TargetStatus.OFFERED, TargetStatus.RUNNING]:
-                        has_active_target = True
-                        break
-            if not has_active_target:
+            existing_t = existing_by_device.get(dev_id)
+            if existing_t:
+                if existing_t.status in TargetStatus.TERMINAL_STATUSES:
+                    existing_t.status = TargetStatus.PENDING
+                    existing_t.offered_at = None
+                    existing_t.acknowledged_at = None
+                    existing_t.started_at = None
+                    existing_t.completed_at = None
+                    existing_t.exit_code = None
+                    existing_t.error_message = None
+            else:
                 target = DeploymentTarget(
                     deployment_id=deployment.id,
                     device_id=dev_id,
@@ -341,6 +410,8 @@ class DeploymentService:
                 self.db.add(target)
 
         deployment.last_run_at = now
+        if not deployment.started_at:
+            deployment.started_at = now
         deployment.status = DeploymentStatus.RUNNING
 
         if deployment.is_recurring:
