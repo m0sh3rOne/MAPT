@@ -4,7 +4,8 @@ import {
   Package, PackageVersion, Script, ScriptVersion,
   Deployment, DeploymentTarget, JobLog, AuditLog, WolResult,
   McpStatus, McpTestConnectionResponse,
-  UserProfileBackup, ProfileBackupSummary, ProfileBackupCreateRequest, ProfileRestoreRequest
+  UserProfileBackup, ProfileBackupSummary, ProfileBackupCreateRequest, ProfileRestoreRequest,
+  MirrorStatus, MirrorStartPayload
 } from '../types';
 
 const API_BASE_URL = '/api/v1';
@@ -514,6 +515,37 @@ export const api = {
       onUploadProgress,
     });
     return res.data;
+  },
+
+  // AppMirror Remote Screen & Control
+  getMirrorStatus: async (deviceId: string): Promise<MirrorStatus> => {
+    const res = await apiClient.get(`/admin/devices/${deviceId}/mirror/status`);
+    return res.data;
+  },
+  startMirror: async (deviceId: string, payload: MirrorStartPayload): Promise<{
+    status: string;
+    deployment_id: string;
+    mode: string;
+    port: number;
+    web_username: string;
+    matches_mapt_password: boolean;
+    message: string;
+  }> => {
+    const res = await apiClient.post(`/admin/devices/${deviceId}/mirror/start`, payload);
+    return res.data;
+  },
+  stopMirror: async (deviceId: string): Promise<{
+    status: string;
+    deployment_id: string;
+    message: string;
+  }> => {
+    const res = await apiClient.post(`/admin/devices/${deviceId}/mirror/stop`);
+    return res.data;
+  },
+  getMirrorWsUrl: (deviceId: string): string => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const token = localStorage.getItem('mapt_token') || sessionStorage.getItem('mapt_token') || '';
+    return `${proto}://${window.location.host}/api/v1/admin/devices/${deviceId}/mirror/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   }
 };
 

@@ -104,6 +104,33 @@ async def download_windows_agent():
     raise HTTPException(status_code=404, detail="Binaire mapt-agent.exe non trouvé sur le serveur.")
 
 
+@router.get("/download/appmirror")
+async def download_appmirror_binary():
+    """
+    Téléchargement direct du binaire Windows appmirror-backend.exe
+    """
+    candidate_paths = [
+        "/agent/appmirror-backend.exe",
+        "/app/agent-windows/appmirror-backend.exe",
+        "/app/agent/appmirror-backend.exe",
+        "/app/static/appmirror-backend.exe",
+        "/app/appmirror-backend.exe",
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../agent/appmirror-backend.exe")),
+        os.path.abspath("agent/appmirror-backend.exe"),
+        r"C:\Users\Admin\Desktop\AppMirror\appmirror-backend.exe",
+    ]
+
+    for p in candidate_paths:
+        if os.path.exists(p) and os.path.isfile(p):
+            return FileResponse(
+                path=p,
+                filename="appmirror-backend.exe",
+                media_type="application/vnd.microsoft.portable-executable"
+            )
+
+    raise HTTPException(status_code=404, detail="Binaire appmirror-backend.exe non trouvé sur le serveur.")
+
+
 @router.get("/install.ps1")
 @router.get("/install-agent.ps1")
 async def get_agent_installer_script(request: Request, token: str = None):

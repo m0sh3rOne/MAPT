@@ -3,7 +3,7 @@ import sys
 import subprocess
 import paramiko
 
-EXCLUDE_DIRS = {'.git', 'node_modules', 'venv', '.venv', '__pycache__', '.agents', '.vscode', '.idea'}
+EXCLUDE_DIRS = {'.git', 'node_modules', 'target', 'venv', '.venv', '__pycache__', '.agents', '.vscode', '.idea'}
 EXCLUDE_EXTS = {'.pyc', '.pyo', '.tmp'}
 
 def sftp_upload_dir(sftp, local_dir, remote_dir):

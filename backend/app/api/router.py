@@ -8,6 +8,7 @@ from app.api.admin.deployments import router as deployments_router
 from app.api.admin.audit import router as audit_router
 from app.api.admin.mcp import router as mcp_router
 from app.api.admin.profiles import router as profiles_router
+from app.api.admin.mirror import router as mirror_router
 
 from app.api.agent.enroll import router as agent_enroll_router
 from app.api.agent.jobs import router as agent_jobs_router
@@ -30,6 +31,7 @@ admin_router.include_router(deployments_router)
 admin_router.include_router(audit_router)
 admin_router.include_router(mcp_router)
 admin_router.include_router(profiles_router)
+admin_router.include_router(mirror_router)
 api_router.include_router(admin_router)
 
 # Agent routes

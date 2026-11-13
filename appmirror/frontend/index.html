@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>appMirror — remote window mirroring</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #14161a;
+        color: #e6e6e6;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 0.55rem;
+        align-items: center;
+        padding: 0.55rem 1rem;
+        background: #1d2026;
+        border-bottom: 1px solid #2a2e36;
+      }
+      /* Groupes logiques de contrôles, séparés par des filets verticaux. */
+      header .grp { display: flex; align-items: center; gap: 0.4rem; }
+      header .sep { width: 1px; align-self: center; height: 1.7rem; background: #33383f; margin: 0 0.1rem; }
+
+      select {
+        padding: 0.4rem 0.5rem; background:#0f1114; color:#e6e6e6;
+        border:1px solid #333; border-radius:6px; cursor: pointer; font-size: 0.85rem;
+      }
+      select:hover { border-color:#4a505c; }
+      /* Largeurs prévisibles (pas d'expansion gloutonne) : les contrôles restent
+         groupés à gauche et le statut garde sa place à droite tant qu'il y a de la
+         place ; tout rétrécit puis passe à la ligne sur écran étroit. */
+      #windowSelect { flex: 0 1 260px; min-width: 180px; }
+
+      input[type="text"] {
+        padding: 0.4rem 0.55rem; background:#0f1114; color:#e6e6e6;
+        border:1px solid #333; border-radius:6px; font-size: 0.85rem;
+      }
+      #saveDir { flex: 0 1 190px; min-width: 120px; }
+
+      /* Un display explicite sur les boutons ne doit pas neutraliser l'attribut hidden. */
+      [hidden] { display: none !important; }
+
+      /* ── Fenêtre modale de configuration ─────────────────────────────── */
+      .modal-overlay {
+        position: fixed; inset: 0; z-index: 1000;
+        background: rgba(0, 0, 0, 0.7);
+        align-items: center; justify-content: center;
+      }
+      .modal-card {
+        background: #1d2026; border: 1px solid #3a3f49; border-radius: 10px;
+        width: 420px; max-width: calc(100vw - 2rem); max-height: 85vh; overflow: auto;
+        padding: 1.4rem; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        display: flex; flex-direction: column; gap: 1.1rem;
+      }
+      .modal-h { margin: 0; color: #fff; display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; }
+      .settings-section { display: flex; flex-direction: column; gap: 0.55rem; padding-bottom: 1rem; border-bottom: 1px solid #2a2e36; }
+      .settings-section:last-of-type { border-bottom: none; padding-bottom: 0; }
+      .settings-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.6px; opacity: 0.55; }
+      .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; font-size: 0.88rem; }
+      .settings-row-btns { display: flex; gap: 0.5rem; }
+      .settings-slider { display: flex; align-items: center; gap: 0.6rem; font-size: 0.88rem; }
+      .settings-slider > span:first-child { flex: 0 0 90px; }
+      .settings-slider input[type="range"] { flex: 1; min-width: 0; }
+      .settings-slider .slider-val { flex: 0 0 44px; text-align: right; font-variant-numeric: tabular-nums; opacity: 0.85; }
+      #settingsModal .opt { display: flex; align-items: center; gap: 0.45rem; font-size: 0.86rem; cursor: pointer; user-select: none; }
+      #settingsModal .opt input { margin: 0; cursor: pointer; }
+      #settingsModal input[type="text"] { width: 100%; box-sizing: border-box; flex: none; min-width: 0; }
+      #settingsModal .settings-row select { flex: none; }
+      .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+      /* Bouton toggle actif (toolbar visible). */
+      #toggleToolbar.active { background: #2f6fb3; border-color: #4a8fd6; color: #fff; }
+      #toggleMacros.active { background: #2f6fb3; border-color: #4a8fd6; color: #fff; }
+      #toggleLayout.active { background: #b8791e; border-color: #e0a13d; color: #fff; }
+      #toggleWorkflow.active { background: #7556c9; border-color: #9678e8; color: #fff; }
+      button {
+        display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+        min-height: 2rem; padding: 0.35rem 0.7rem;
+        cursor: pointer; border-radius: 6px;
+        border: 1px solid #3a3f49; background: #2a2f38; color: #e6e6e6;
+        font-size: 0.85rem; line-height: 1; white-space: nowrap;
+        transition: background 0.12s ease, border-color 0.12s ease;
+      }
+      button:hover { background:#343a45; border-color:#4a505c; }
+      button:active { transform: translateY(1px); }
+      button:focus-visible { outline: 2px solid #4a8fd6; outline-offset: 1px; }
+      /* Action principale mise en avant. */
+      .btn-primary { background:#2f6fb3; border-color:#4a8fd6; color:#fff; font-weight: 600; }
+      .btn-primary:hover { background:#3a80c9; border-color:#5a9de0; }
+      button.recording { background:#7a2626; border-color:#a33; color:#fff; }
+      button.recording:hover { background:#8d2e2e; }
+
+      #status {
+        margin-left: auto; font-size: 0.8rem; opacity: 0.9;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px;
+        padding: 0.3rem 0.65rem; background:#14161a; border:1px solid #2a2e36;
+        border-radius: 999px; font-variant-numeric: tabular-nums;
+      }
+      header label.opt {
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        font-size: 0.82rem; opacity: 0.92; white-space: nowrap;
+        cursor: pointer; user-select: none;
+        padding: 0.25rem 0.45rem; border-radius: 6px; border: 1px solid transparent;
+      }
+      header label.opt:hover { background:#23272e; border-color:#2f343c; }
+      header label.opt input { cursor: pointer; margin: 0; }
+
+      /* ── Barre d'outils d'annotation ─────────────────────────────────── */
+      #toolbar {
+        display: flex;
+        gap: 0.35rem;
+        align-items: center;
+        padding: 0.4rem 1rem;
+        background: #191c21;
+        border-bottom: 1px solid #2a2e36;
+        flex-wrap: wrap;
+      }
+      #toolbar .tool {
+        min-width: 2.2rem;
+        padding: 0.3rem 0.5rem;
+        font-size: 0.95rem;
+        line-height: 1;
+        gap: 0.28rem;
+      }
+      /* Libellé texte visible à côté de l'icône : lisible dans une capture par un
+         agent (les tooltips `title=` ne le sont pas). */
+      #toolbar .tool .lbl { font-size: 0.72rem; font-weight: 500; letter-spacing: 0.2px; }
+      #toolbar .tool.active { background: #2f6fb3; border-color: #4a8fd6; }
+      #toolbar .sep { width: 1px; align-self: stretch; margin: 0 0.3rem; background: #2a2e36; }
+      #toolbar label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; opacity: 0.9; }
+      #toolbar input[type="color"] {
+        width: 2rem; height: 1.7rem; padding: 0;
+        border: 1px solid #3a3f49; border-radius: 4px; background: #2a2f38; cursor: pointer;
+      }
+      #toolbar input[type="range"] { width: 90px; }
+
+      /* ── Scène : canvas vidéo + overlay d'annotation + règles ────────── */
+      /* place-items: safe center => en modes "Fill width"/"Actual size" où le
+         #stage peut dépasser, l'alignement retombe sur "start" et le contenu
+         reste atteignable au scroll (overflow: auto). En mode "Fit", le stage
+         ne dépasse jamais : aucune barre de défilement. */
+      #workspace { flex: 1; display: flex; min-height: 0; min-width: 0; }
+      main { flex: 1; display: grid; place-items: safe center; overflow: auto; padding: 0.75rem; min-height: 0; min-width: 0; }
+      #macroPanel {
+        flex: 0 0 410px; min-width: 330px; max-width: 42vw; min-height: 0;
+        display: flex; flex-direction: column; background: #191c22;
+        border-left: 1px solid #343944; box-shadow: -8px 0 24px rgba(0,0,0,.22);
+      }
+      #macroPanel[hidden] { display: none; }
+      #layoutPanel {
+        flex: 0 0 410px; min-width: 350px; max-width: 44vw; min-height: 0;
+        display: flex; flex-direction: column; background: #191c22;
+        border-left: 1px solid #4d3c22; box-shadow: -8px 0 24px rgba(0,0,0,.22);
+      }
+      #layoutPanel[hidden] { display:none; }
+      .layout-actions { display:grid; grid-template-columns:repeat(2,1fr); gap:.4rem; padding:.75rem; }
+      .layout-library { display:flex; gap:.4rem; padding:0 .75rem .6rem; }
+      .layout-library select { flex:1; min-width:0; }
+      #layoutDraw { margin:0 .75rem .65rem; background:#8f5e18; border-color:#b8791e; color:#fff; }
+      #layoutDraw.active { background:#b8791e; border-color:#e0a13d; }
+      #layoutZones { flex:1; min-height:100px; overflow:auto; padding:.1rem .7rem .7rem; }
+      .layout-empty { opacity:.55; text-align:center; line-height:1.5; margin:1.5rem .5rem; font-size:.82rem; }
+      .layout-zone { display:flex; flex-direction:column; gap:.4rem; margin:.5rem 0; padding:.65rem; background:#252a33; border:1px solid #444b57; border-left:4px solid #b8791e; border-radius:7px; }
+      .layout-zone-head { display:flex; align-items:center; gap:.4rem; }
+      .layout-zone-head select { flex:1; min-width:0; }
+      .layout-zone-head button { min-height:1.8rem; padding:.15rem .5rem; color:#ff9898; }
+      .layout-zone input { width:100%; box-sizing:border-box; }
+      .layout-zone small { opacity:.55; font-variant-numeric:tabular-nums; }
+      .zone-activation { display:flex; flex-direction:column; gap:.35rem; padding:.4rem; background:#20242c; border:1px solid #3a404c; border-radius:6px; }
+      .zone-activation-steps { display:flex; flex-wrap:wrap; gap:.3rem; }
+      .zone-activation-step { display:inline-flex; align-items:center; gap:.3rem; padding:.1rem .4rem; background:#2d3644; border:1px solid #46536a; border-radius:5px; font-size:.78rem; }
+      .zone-activation-step button { min-height:1.3rem; padding:0 .3rem; color:#ff9898; background:none; border:none; cursor:pointer; }
+      .zone-activation-add { display:flex; gap:.35rem; }
+      .zone-activation-add select { flex:1; min-width:0; }
+      .zone-activation-add input { flex:1; min-width:0; }
+      .zone-activation-add button { white-space:nowrap; }
+      .layout-states { display:flex; flex-direction:column; gap:.45rem; padding:.6rem .75rem; border-top:1px solid #343944; }
+      .layout-states label { font-size:.72rem; font-weight:700; letter-spacing:.4px; }
+      .layout-states-list { display:flex; flex-direction:column; gap:.3rem; max-height:7.5rem; overflow:auto; }
+      .layout-state { display:flex; align-items:center; gap:.4rem; padding:.3rem .5rem; background:#252a33; border:1px solid #444b57; border-left:4px solid #2f6fb3; border-radius:6px; font-size:.8rem; }
+      .layout-state .state-name { font-weight:700; }
+      .layout-state small { opacity:.6; flex:1; }
+      .layout-state button { min-height:1.5rem; padding:.05rem .4rem; color:#ff9898; }
+      .layout-states-add { display:flex; gap:.4rem; }
+      .layout-states-add input { flex:1; min-width:0; box-sizing:border-box; }
+      #stateCapture { background:#2f6fb3; border-color:#4a8fd6; color:#fff; white-space:nowrap; }
+      .layout-footer { display:flex; flex-direction:column; gap:.5rem; padding:.75rem; border-top:1px solid #343944; }
+      .layout-footer label { font-size:.72rem; font-weight:700; letter-spacing:.4px; }
+      #layoutName { width:100%; box-sizing:border-box; }
+      .layout-footer-actions { display:grid; grid-template-columns:1fr 1.5fr; gap:.45rem; }
+      #layoutSave { background:#269b4c; border-color:#35b85f; color:#fff; }
+      .macro-head { display:flex; align-items:center; justify-content:space-between; padding:.8rem; border-bottom:1px solid #343944; }
+      .macro-head h2 { margin:0; font-size:1rem; letter-spacing:.3px; }
+      #macroRecord { margin:.9rem; padding:.75rem; color:#fff; background:#c83d43; border-color:#e45459; }
+      #macroRecord.recording { background:#7a2626; }
+      .macro-library { display:flex; gap:.45rem; padding:0 .9rem .7rem; }
+      .macro-library select { flex:1; min-width:0; }
+      #macroTest { margin:0 .9rem .8rem; padding:.65rem; background:#2f6fb3; border-color:#4a8fd6; color:#fff; }
+      .macro-add-step { padding:0 .9rem .6rem; }
+      .macro-add-step select { width:100%; box-sizing:border-box; }
+      #macroSteps { flex:1; min-height:120px; overflow:auto; padding:0 .7rem .7rem; }
+      .macro-step { display:flex; align-items:flex-start; justify-content:space-between; gap:.5rem; margin:.5rem 0; padding:.75rem; background:#262a33; border:1px solid #3a404c; border-left:4px solid #626a78; border-radius:7px; font-size:.84rem; }
+      .macro-step[draggable="true"] { cursor: grab; }
+      .macro-step[draggable="true"]:active { cursor: grabbing; }
+      .macro-step.dragging { opacity:.4; }
+      .macro-step.drag-over { border-top:3px solid #4a8fd6; transform:translateY(2px); }
+      .macro-step-label { flex:1; min-width:0; line-height:1.45; }
+      .macro-step-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.25rem; }
+      .macro-step-actions button { min-height:1.6rem; padding:.2rem .35rem; font-size:.72rem; }
+      .macro-empty { opacity:.55; text-align:center; margin-top:2rem; }
+      .macro-json-editor { width:100%; min-height:130px; box-sizing:border-box; color:#e6e6e6; background:#0f1114; border:1px solid #4a505c; border-radius:4px; }
+      .macro-edit-error { color:#ff8585; }
+      .macro-footer { padding:.9rem; border-top:1px solid #343944; display:flex; flex-direction:column; gap:.55rem; }
+      .macro-footer label { font-size:.72rem; font-weight:700; letter-spacing:.4px; }
+      #macroName { width:100%; box-sizing:border-box; }
+      #macroSave { padding:.7rem; background:#269b4c; border-color:#35b85f; color:#fff; }
+      @media (max-width: 850px) { #macroPanel, #layoutPanel { position:fixed; z-index:20; right:0; top:0; bottom:0; max-width:100vw; width:min(410px,100vw); } }
+
+      /* ── Éditeur visuel de workflows ───────────────────────────────── */
+      #workflowEditor { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; background:#101217; }
+      #workflowEditor[hidden] { display:none; }
+      .wf-topbar { display:flex; align-items:center; gap:.45rem; padding:.5rem .65rem; background:#1b1f27; border-bottom:1px solid #343a46; }
+      .wf-topbar input { width:190px; }
+      .wf-topbar select { max-width:220px; }
+      .wf-spacer { flex:1; }
+      #workflowRun { background:#269b4c; border-color:#35b85f; color:#fff; }
+      .wf-layout { flex:1; min-height:0; display:flex; }
+      #workflowViewport { position:relative; flex:1; min-width:0; overflow:hidden; touch-action:none; cursor:grab; background-color:#11141a; background-image:radial-gradient(#343b48 1px,transparent 1px); background-size:24px 24px; }
+      #workflowViewport:active { cursor:grabbing; }
+      #workflowWorld { position:absolute; left:0; top:0; width:4000px; height:3000px; transform-origin:0 0; }
+      #workflowEdges { position:absolute; inset:0; width:4000px; height:3000px; overflow:visible; pointer-events:none; }
+      .wf-edge { fill:none; stroke:#8792a8; stroke-width:3; stroke-linejoin:round; stroke-linecap:round; pointer-events:stroke; cursor:pointer; }
+      .wf-edge:hover { stroke-width:5; filter:brightness(1.45); }
+      .wf-edge-start { stroke:#2f9a68; } .wf-arrow-start { fill:#2f9a68; }
+      .wf-edge-macro { stroke:#4a82c8; } .wf-arrow-macro { fill:#4a82c8; }
+      .wf-edge-loop { stroke:#b27b30; } .wf-arrow-loop { fill:#b27b30; }
+      .wf-edge-condition { stroke:#a75dba; } .wf-arrow-condition { fill:#a75dba; }
+      .wf-edge-wait { stroke:#78869d; } .wf-arrow-wait { fill:#78869d; }
+      #workflowNodes { position:absolute; inset:0; }
+      .wf-node { position:absolute; width:230px; min-height:130px; border:2px solid #4a5262; border-radius:10px; background:#20242d; box-shadow:0 8px 22px rgba(0,0,0,.4); cursor:default; }
+      .wf-node.selected { border-color:#8e72e8; box-shadow:0 0 0 2px rgba(142,114,232,.25),0 8px 22px rgba(0,0,0,.4); }
+      .wf-node.dragging { opacity:.92; box-shadow:0 14px 34px rgba(0,0,0,.62); }
+      .wf-node.running { border-color:#4ee67a; box-shadow:0 0 18px rgba(78,230,122,.8); }
+      .wf-node-head { display:flex; align-items:center; justify-content:space-between; padding:.55rem .65rem; border-radius:8px 8px 0 0; background:#303641; cursor:move; user-select:none; }
+      .wf-node-head button { min-height:1.35rem; padding:.05rem .35rem; }
+      .wf-start .wf-node-head { background:#246b4c; } .wf-macro .wf-node-head { background:#315f9c; } .wf-loop .wf-node-head { background:#765423; } .wf-condition .wf-node-head { background:#743f83; } .wf-wait .wf-node-head { background:#4e596c; }
+      .wf-node-body { position:relative; padding:.55rem .7rem; display:flex; flex-direction:column; gap:.45rem; }
+      .wf-node-body p { margin:.25rem 0; opacity:.65; font-size:.78rem; }
+      .wf-field { display:flex; flex-direction:column; gap:.25rem; font-size:.68rem; text-transform:uppercase; opacity:.9; }
+      .wf-field input,.wf-field select { width:100%; box-sizing:border-box; min-width:0; padding:.32rem; font-size:.74rem; }
+      .wf-check { display:flex; align-items:center; gap:.4rem; font-size:.72rem; text-transform:none; }
+      .wf-check input { width:auto; }
+      .wf-outputs { display:flex; flex-direction:column; align-items:flex-end; gap:.2rem; padding:.2rem .45rem .55rem; }
+      .wf-handle { min-height:1.35rem; padding:.1rem .3rem; border:0; background:transparent; font-size:.7rem; }
+      .wf-handle.input { position:absolute; left:-17px; top:8px; color:#9eabc2; }
+      .wf-handle.output { color:#c5cede; }
+      .wf-handle:hover,.wf-handle.pending { color:#68a7ff; background:rgba(74,143,214,.15); }
+      .wf-palette { flex:0 0 230px; display:flex; flex-direction:column; gap:.55rem; padding:.7rem; background:#191d24; border-left:1px solid #343a46; }
+      .wf-palette h3 { margin:.1rem 0; font-size:.86rem; text-transform:uppercase; }
+      .wf-palette input { width:100%; box-sizing:border-box; }
+      .wf-palette button { justify-content:flex-start; }
+      .wf-palette small { opacity:.55; line-height:1.4; }
+      #workflowMinimap { position:absolute; right:245px; bottom:18px; width:180px; height:115px; background:rgba(18,21,27,.9); border:1px solid #596170; border-radius:6px; pointer-events:none; }
+      #workflowMinimap rect { stroke:#d3d8e2; stroke-width:1; fill:#4e596c; } #workflowMinimap .mini-start{fill:#246b4c} #workflowMinimap .mini-macro{fill:#315f9c} #workflowMinimap .mini-loop{fill:#765423} #workflowMinimap .mini-condition{fill:#743f83}
+      #workflowMinimap .mini-viewport { fill:rgba(74,143,214,.12); stroke:#65a8ef; stroke-width:2; }
+      .wf-zoom { position:absolute; left:14px; bottom:14px; display:flex; gap:.4rem; align-items:center; padding:.35rem .55rem; background:rgba(20,23,29,.88); border:1px solid #3d4451; border-radius:6px; font-size:.75rem; }
+      /* #stage est dimensionné en px par main.ts (ajustement letterbox) ;
+         canvas et SVG le remplissent exactement, donc l'overlay est toujours
+         aligné pixel à pixel sur la vidéo. */
+      #stage {
+        position: relative;
+        background: #000;
+        border: 1px solid #2a2e36;
+        user-select: none;
+      }
+      #screen, #overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #screen { outline: none; }
+      #overlay { pointer-events: none; } /* activé par l'Annotator hors mode contrôle */
+
+      /* Curseur selon l'outil actif (posé par main.ts sur data-tool). */
+      #stage[data-tool="cursor"] { cursor: none; }
+      #stage[data-tool="select"] { cursor: default; }
+      #stage[data-tool="text"] { cursor: text; }
+      #stage[data-tool="rect"], #stage[data-tool="ellipse"], #stage[data-tool="line"],
+      #stage[data-tool="arrow"], #stage[data-tool="pen"], #stage[data-tool="marker"],
+      #stage[data-tool="ruler"], #stage[data-tool="slice"] { cursor: crosshair; }
+
+      .ruler {
+        position: absolute;
+        display: none;
+        z-index: 3;
+        touch-action: none;
+      }
+      /* Les règles vivent dans une gouttière EXTÉRIEURE : quand l'outil règle est
+         actif, #stage porte une marge de 22px (haut + gauche) et les règles s'y
+         logent (offset négatif), sans jamais recouvrir la vidéo. Les 22px doivent
+         rester synchronisés avec RULER_THICKNESS (rulers.ts) et le calcul de
+         gouttière dans main.ts. */
+      #stage[data-tool="ruler"] { margin-top: 22px; margin-left: 22px; }
+      #rulerTop { top: -22px; left: 0; width: 100%; height: 22px; cursor: s-resize; }
+      #rulerLeft { top: 0; left: -22px; width: 22px; height: 100%; cursor: e-resize; }
+      #coordChip {
+        position: absolute;
+        top: 26px;
+        left: 26px;
+        display: none;
+        z-index: 4;
+        padding: 2px 6px;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: #4dd2ff;
+        background: rgba(17, 19, 24, 0.85);
+        border: 1px solid #2a2e36;
+        border-radius: 3px;
+        pointer-events: none;
+      }
+
+      /* Éditeur de texte flottant de l'outil Texte. */
+      .text-editor {
+        position: absolute;
+        z-index: 5;
+        min-width: 40px;
+        padding: 1px 2px;
+        margin: 0;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px dashed #888;
+        outline: none;
+        resize: none;
+        overflow: hidden;
+        font-family: system-ui, sans-serif;
+        line-height: 1.25;
+        white-space: pre;
+      }
+      /* Champ de renommage d'une zone (double-clic sur une slice). */
+      .slice-name-editor {
+        position: absolute;
+        z-index: 6;
+        min-width: 90px;
+        padding: 1px 5px;
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        color: #141414;
+        background: #ffb020;
+        border: 1px solid #141414;
+        border-radius: 3px;
+        outline: none;
+      }
+      .slice-name-editor::placeholder { color: rgba(20, 20, 20, 0.55); }
+      #virtualCursor {
+        position: absolute;
+        width: 12px;
+        height: 19px;
+        pointer-events: none;
+        z-index: 10;
+        display: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='19' viewBox='0 0 12 19'%3E%3Cpath fill='white' stroke='black' stroke-width='1' d='M0,0 L0,18 L5,13 L11,13 Z'/%3E%3C/svg%3E");
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="grp" role="group" aria-label="Source window">
+        <select id="windowSelect" title="Native window to stream">
+          <option value="">— select a window —</option>
+        </select>
+        <button id="refresh" title="Refresh the window list">⟳ Refresh</button>
+      </div>
+
+      <span class="sep"></span>
+
+      <div class="grp" role="group" aria-label="Stream">
+        <select id="fitMode" title="Display mode: how the mirror fits the window">
+          <option value="fit" selected>Fit to window</option>
+          <option value="fill">Fill width</option>
+          <option value="actual">Actual size (1:1)</option>
+        </select>
+        <button id="connect" class="btn-primary" title="Start streaming the selected window">▶ Stream</button>
+        <button id="focusWindow" title="Bring the streamed window to the foreground">🗖 Focus</button>
+      </div>
+
+      <span class="sep"></span>
+
+      <div class="grp" role="group" aria-label="Panels">
+        <button id="toggleToolbar" title="Show / hide the annotation toolbar">🎨 Annotate</button>
+        <button id="openSettings" title="Stream, capture &amp; input settings">⚙ Settings</button>
+        <button id="shot" title="Save the current frame as JPEG">📷 Capture</button>
+        <button id="rec" title="Record a sequence of images (JPEG)">⏺ REC</button>
+        <button id="toggleMacros" title="Show / hide macro workflows">⚙⚙ Macro</button>
+        <button id="toggleLayout" title="Define UI zones exposed to MCP agents">▦ Layout</button>
+        <button id="toggleWorkflow" title="Open visual workflow editor">⌘ Workflow</button>
+      </div>
+
+      <span id="status">disconnected</span>
+    </header>
+
+    <div id="toolbar">
+      <button class="tool active" data-tool="cursor" title="Remote control (mouse/keyboard injected)">🖱️<span class="lbl">Control</span></button>
+      <button class="tool" data-tool="select" title="Select / move (Del = delete)">⭡<span class="lbl">Select</span></button>
+      <span class="sep"></span>
+      <button class="tool" data-tool="text" title="Text">T<span class="lbl">Text</span></button>
+      <button class="tool" data-tool="rect" title="Rectangle">▭<span class="lbl">Rect</span></button>
+      <button class="tool" data-tool="ellipse" title="Ellipse">◯<span class="lbl">Ellipse</span></button>
+      <button class="tool" data-tool="line" title="Line">╱<span class="lbl">Line</span></button>
+      <button class="tool" data-tool="arrow" title="Arrow">→<span class="lbl">Arrow</span></button>
+      <button class="tool" data-tool="pen" title="Freehand pen">✎<span class="lbl">Pen</span></button>
+      <button class="tool" data-tool="marker" title="Marker (highlighter)">🖍️<span class="lbl">Marker</span></button>
+      <span class="sep"></span>
+      <button class="tool" data-tool="ruler" title="Rulers &amp; measure: drag to measure, drag from a ruler for a guide">📏<span class="lbl">Ruler</span></button>
+      <input type="color" id="annColor" value="#ff3355" title="Color" />
+      <label title="Stroke width"><input type="range" id="annWidth" min="1" max="16" step="1" value="4" /><span id="annWidthVal">4</span></label>
+      <label title="Fill shapes"><input type="checkbox" id="annFill" /> Fill</label>
+      <label title="Fill opacity"><input type="range" id="annFillOpacity" min="0" max="100" step="5" value="30" /><span id="annFillOpacityVal">30%</span></label>
+      <span class="sep"></span>
+      <button id="undoBtn" title="Undo (Ctrl+Z)">↶</button>
+      <button id="redoBtn" title="Redo (Ctrl+Y)">↷</button>
+      <button id="clearBtn" title="Clear all">🗑</button>
+      <button id="exportBtn" title="Download frame + annotations as PNG">💾 PNG</button>
+    </div>
+
+    <div id="workspace">
+    <section id="workflowEditor" hidden aria-label="Visual workflow editor">
+      <div class="wf-topbar">
+        <button id="workflowNew">＋ New</button>
+        <input id="workflowName" type="text" value="workflow_1" placeholder="Workflow name" />
+        <button id="workflowSave">💾 Save</button>
+        <button id="workflowLoad">📂 Load</button>
+        <select id="workflowLibrary"><option value="">— workflows —</option></select>
+        <button id="workflowRun">▶ Test workflow</button>
+        <span class="wf-spacer"></span>
+        <button id="workflowFit">⊙ Fit</button>
+        <button id="workflowClose">Close [X]</button>
+      </div>
+      <div class="wf-layout">
+        <div id="workflowViewport">
+          <div id="workflowWorld">
+            <svg id="workflowEdges" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div id="workflowNodes"></div>
+          </div>
+          <svg id="workflowMinimap" viewBox="0 0 180 115"></svg>
+          <div class="wf-zoom"><span id="workflowZoom">100%</span><span>Wheel: zoom · Drag background: pan · Click edge: delete</span></div>
+        </div>
+        <aside class="wf-palette">
+          <h3>Node palette</h3>
+          <input id="workflowSearch" type="text" placeholder="Search nodes…" />
+          <button data-add-node="start">▶ START</button>
+          <button data-add-node="activate">🎯 ACTIVATE</button>
+          <button data-add-node="wait_for_state">⏳ WAIT STATE</button>
+          <button data-add-node="macro">⌨ MACRO</button>
+          <button data-add-node="loop">↻ LOOP</button>
+          <button data-add-node="condition">◇ IF CONDITION</button>
+          <button data-add-node="wait">◷ WAIT</button>
+          <small>Ajoutez un nœud, puis cliquez sur une sortie et sur l’entrée du nœud cible pour créer une connexion.</small>
+        </aside>
+      </div>
+    </section>
+    <main>
+      <div id="stage" data-tool="cursor">
+        <canvas id="screen" width="1280" height="720" tabindex="0"></canvas>
+        <svg id="overlay" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" preserveAspectRatio="none"></svg>
+        <div id="virtualCursor"></div>
+        <canvas id="rulerTop" class="ruler"></canvas>
+        <canvas id="rulerLeft" class="ruler"></canvas>
+        <div id="coordChip"></div>
+      </div>
+    </main>
+    <aside id="macroPanel" hidden aria-label="Macro configuration">
+      <div class="macro-head">
+        <h2>MACROS CONFIG — [<span id="macroContext">aucune fenêtre</span>]</h2>
+        <button id="macroClose" title="Fermer le panneau">Close [X]</button>
+      </div>
+      <button id="macroRecord">⏺ Enregistrer une nouvelle action</button>
+      <div class="macro-library">
+        <button id="macroLoad">📂 Load Macro</button>
+        <select id="macroLibrary" hidden aria-label="Macros sauvegardées"></select>
+      </div>
+      <button id="macroTest">▶ Test Macro</button>
+      <div class="macro-add-step">
+        <select id="macroAddStep" aria-label="Insert a semantic step">
+          <option value="">＋ Add semantic step…</option>
+        </select>
+      </div>
+      <section id="macroSteps" aria-live="polite"></section>
+      <div class="macro-footer">
+        <label for="macroName">NOM DE LA MACRO :</label>
+        <input id="macroName" type="text" value="bypass_login_v1" maxlength="120" />
+        <button id="macroSave">💾 Sauvegarder la Macro Workflow</button>
+      </div>
+    </aside>
+    <aside id="layoutPanel" hidden aria-label="Application UI layout editor">
+      <div class="macro-head">
+        <h2>LAYOUT — [<span id="layoutContext">aucune application</span>]</h2>
+        <button id="layoutClose" title="Fermer le module Layout">Close [X]</button>
+      </div>
+      <div class="layout-actions">
+        <button id="layoutNew">＋ New</button>
+        <button id="layoutLoad">📂 Load</button>
+      </div>
+      <div class="layout-library">
+        <select id="layoutLibrary" aria-label="Layouts de l'application"><option value="">— aucun layout —</option></select>
+      </div>
+      <button id="layoutDraw">✂ Draw UI zone</button>
+      <section id="layoutZones" aria-live="polite"></section>
+      <div class="layout-states">
+        <label for="stateName">STATES (visual signatures):</label>
+        <div id="stateList" class="layout-states-list"></div>
+        <div class="layout-states-add">
+          <input id="stateName" type="text" placeholder="State name (e.g. main_menu)" maxlength="120" />
+          <button id="stateCapture" title="Hash every zone of this layout on the current frame and save it as a recognizable state">📸 Capture state</button>
+        </div>
+      </div>
+      <div class="layout-footer">
+        <label for="layoutName">NOM DU LAYOUT :</label>
+        <input id="layoutName" type="text" value="layout_1" maxlength="120" />
+        <div class="layout-footer-actions">
+          <button id="layoutJson">{ } Edit JSON</button>
+          <button id="layoutSave">💾 Save Layout for MCP</button>
+        </div>
+      </div>
+    </aside>
+    </div>
+    <!-- Confirm Close Modal -->
+    <div id="confirmCloseModal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 1100; align-items: center; justify-content: center;">
+      <div style="background: #1d2026; padding: 2rem; border-radius: 8px; border: 1px solid #3a3f49; width: 380px; text-align: center; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); font-family: system-ui, sans-serif;">
+        <h3 style="margin-top: 0; color: #fff; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+          <span>⚠️</span> Confirmation
+        </h3>
+        <p id="confirmCloseText" style="font-size: 0.95rem; opacity: 0.9; margin-bottom: 1.5rem; color: #e6e6e6; line-height: 1.4; word-break: break-all;">
+          Voulez-vous vraiment fermer cette application ?
+        </p>
+        <div style="display: flex; gap: 0.75rem; justify-content: center;">
+          <button id="confirmCloseCancel" style="flex: 1; padding: 0.5rem; background: #2a2f38; border: 1px solid #3a3f49; border-radius: 4px; color: #e6e6e6; cursor: pointer;">Annuler</button>
+          <button id="confirmCloseSubmit" style="flex: 1; padding: 0.5rem; background: #7a2626; border: 1px solid #a33; border-radius: 4px; color: #fff; cursor: pointer; font-weight: bold;">Fermer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PIN Unlock Modal -->
+    <div id="pinModal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center;">
+      <div style="background: #1d2026; padding: 2rem; border-radius: 8px; border: 1px solid #3a3f49; width: 320px; text-align: center; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); font-family: system-ui, sans-serif;">
+        <h3 style="margin-top: 0; color: #fff; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+          <span>🔒</span> Application Locked
+        </h3>
+        <p style="font-size: 0.9rem; opacity: 0.8; margin-bottom: 1.5rem; color: #e6e6e6;">
+          Enter the security PIN code to access this application.
+        </p>
+        <input
+          type="password"
+          id="pinInput"
+          maxlength="10"
+          placeholder="PIN Code"
+          style="width: 100%; box-sizing: border-box; padding: 0.6rem; margin-bottom: 1.2rem; text-align: center; font-size: 1.3rem; background: #0f1114; color: #fff; border: 1px solid #3a3f49; border-radius: 4px; letter-spacing: 0.4rem; outline: none;"
+          autofocus
+        />
+        <div id="pinError" style="color: #ff3355; font-size: 0.85rem; margin-bottom: 1.2rem; min-height: 1.2rem; text-align: center;"></div>
+        <div style="display: flex; gap: 0.75rem; justify-content: center;">
+          <button id="pinCancel" style="flex: 1; padding: 0.5rem; background: #2a2f38; border: 1px solid #3a3f49; border-radius: 4px; color: #e6e6e6; cursor: pointer;">Cancel</button>
+          <button id="pinSubmit" style="flex: 1; padding: 0.5rem; background: #2f6fb3; border: 1px solid #4a8fd6; border-radius: 4px; color: #e6e6e6; cursor: pointer;">Unlock</button>
+        </div>
+      </div>
+    </div>
+    <!-- Layout JSON Modal -->
+    <div id="zonesModal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 1000; align-items: center; justify-content: center;">
+      <div style="background: #1d2026; padding: 1.5rem; border-radius: 8px; border: 1px solid #3a3f49; width: 480px; text-align: left; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); font-family: system-ui, sans-serif; display: flex; flex-direction: column; gap: 1rem;">
+        <h3 style="margin: 0; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+          <span>▦</span> Application Layout JSON
+        </h3>
+        <p style="font-size: 0.85rem; opacity: 0.8; margin: 0; color: #e6e6e6;">
+          Edit the complete UI plan exposed to MCP agents. Legacy Slice arrays can still be imported.
+        </p>
+        <textarea
+          id="zonesJsonArea"
+          style="width: 100%; height: 250px; box-sizing: border-box; padding: 0.6rem; font-family: monospace; font-size: 0.85rem; background: #0f1114; color: #fff; border: 1px solid #3a3f49; border-radius: 4px; outline: none; resize: vertical;"
+          spellcheck="false"
+        ></textarea>
+        <div id="zonesError" style="color: #ff3355; font-size: 0.85rem; min-height: 1.2rem; margin: 0;"></div>
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+          <button id="zonesClose" style="padding: 0.5rem 1rem; background: #2a2f38; border: 1px solid #3a3f49; border-radius: 4px; color: #e6e6e6; cursor: pointer;">Close</button>
+          <button id="zonesCopy" style="padding: 0.5rem 1rem; background: #2a2f38; border: 1px solid #3a3f49; border-radius: 4px; color: #e6e6e6; cursor: pointer;">📋 Copy to Clipboard</button>
+          <button id="zonesImport" style="padding: 0.5rem 1rem; background: #2f6fb3; border: 1px solid #4a8fd6; border-radius: 4px; color: #e6e6e6; cursor: pointer;">📥 Import JSON</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal (config moved out of the header to keep it light) -->
+    <div id="settingsModal" class="modal-overlay" style="display: none;">
+      <div class="modal-card">
+        <h3 class="modal-h"><span>⚙</span> Settings</h3>
+
+        <div class="settings-section">
+          <div class="settings-title">Stream</div>
+          <label class="settings-row"><span>Preset</span>
+            <select id="qualitySelect" title="Quality/resolution presets — pick one or fine-tune with the sliders below">
+              <option value="high" selected>HD · 100% / 75%</option>
+              <option value="medium">Medium · 70% / 60%</option>
+              <option value="low">Eco · 50% / 45%</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label class="settings-slider" title="JPEG compression quality (higher = sharper, more bandwidth)">
+            <span>JPEG quality</span>
+            <input type="range" id="qualitySlider" min="10" max="100" step="5" value="75" />
+            <span id="qualitySliderVal" class="slider-val">75%</span>
+          </label>
+          <label class="settings-slider" title="Resolution scale (lower = smaller frames, less bandwidth/latency)">
+            <span>Resolution</span>
+            <input type="range" id="scaleSlider" min="25" max="100" step="5" value="100" />
+            <span id="scaleSliderVal" class="slider-val">100%</span>
+          </label>
+          <label class="opt" title="Include the remote window's cursor in the video stream">
+            <input type="checkbox" id="showCursor" checked /> Show the remote window's cursor
+          </label>
+          <label class="opt" title="Inject input via PostMessage without stealing the host user's focus">
+            <input type="checkbox" id="bgInput" checked /> Background input (don't steal host focus)
+          </label>
+          <label class="opt" title="Use WebRTC/H.264 streaming instead of WebSocket/JPEG">
+            <input type="checkbox" id="webrtcToggle" checked /> WebRTC / H.264 streaming
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Keyboard Input</div>
+          <label class="settings-row"><span>Layout</span>
+            <select id="keyboardLayout" title="Keyboard layout used by the browser controlling the remote target">
+              <option value="azerty_fr">Azerty (FR)</option>
+              <option value="qwerty_us">Qwerty (US)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Active Windows</div>
+          <div id="desktopWindowsList" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.5;">Main Desktop</div>
+            <div id="mainWindowsContainer" style="display: flex; flex-direction: column; gap: 0.35rem; max-height: 120px; overflow-y: auto; padding-right: 0.25rem; border: 1px solid #2a2e36; border-radius: 4px; padding: 0.35rem; background: #0f1114;"></div>
+            
+            <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.5; margin-top: 0.3rem;">Virtual Desktop</div>
+            <div id="virtualWindowsContainer" style="display: flex; flex-direction: column; gap: 0.35rem; max-height: 120px; overflow-y: auto; padding-right: 0.25rem; border: 1px solid #2a2e36; border-radius: 4px; padding: 0.35rem; background: #0f1114;"></div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Capture</div>
+          <input id="saveDir" type="text" placeholder="capture folder… (default: Pictures/appMirror)"
+                 title="Local path where captures are written (on the backend machine)" />
+          <label class="settings-row"><span>Frames per second (REC)</span>
+            <input id="recFps" type="number" min="1" max="60" value="10" title="Frames per second for image sequence recording" style="width: 70px; padding: 0.4rem; background: #0f1114; color: #fff; border: 1px solid #3a3f49; border-radius: 4px; text-align: center;" />
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Virtual desktop</div>
+          <input id="launchCmd" type="text" placeholder="app path (e.g. notepad.exe)…"
+                 title="Launch application on the virtual desktop" />
+          <div class="settings-row-btns">
+            <button id="btnLaunchVirtual" title="Launch application on the virtual desktop">🚀 Launch Virtual</button>
+            <button id="btnSendActiveToVirtual" title="Relaunch the currently streamed application on the virtual desktop">➡️ Send Current App</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">App Capabilities Profile</div>
+          <div style="font-size: 0.8rem; color: #aaa;">Target Context: <strong id="profileContextLabel">none</strong></div>
+          <label class="opt" title="Force SendInput foreground focus for this application">
+            <input type="checkbox" id="profileForegroundRequired" /> Foreground focus required
+          </label>
+          <label class="settings-row"><span>Preferred Activation</span>
+            <select id="profilePreferredActivation">
+              <option value="auto">Auto (Click -> Click+Enter)</option>
+              <option value="click">Click</option>
+              <option value="keyboard">Keyboard (Click+Enter sequence)</option>
+            </select>
+          </label>
+          <label class="settings-row"><span>Background Mouse</span>
+            <select id="profileBackgroundMouse">
+              <option value="supported">Supported</option>
+              <option value="partial">Partial</option>
+              <option value="unsupported">Unsupported</option>
+            </select>
+          </label>
+          <label class="settings-row"><span>Background Keyboard</span>
+            <select id="profileBackgroundKeyboard">
+              <option value="supported">Supported</option>
+              <option value="partial">Partial</option>
+              <option value="unsupported">Unsupported</option>
+            </select>
+          </label>
+          <div class="settings-row-btns" style="margin-top: 0.4rem;">
+            <button id="profileSaveBtn">💾 Save App Profile</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="settingsClose">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

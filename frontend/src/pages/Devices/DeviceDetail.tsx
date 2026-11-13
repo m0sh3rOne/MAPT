@@ -60,15 +60,19 @@ import {
   ArrowUp,
   ArrowDown,
   FolderArchive,
-  Edit2
+  Edit2,
+  Square
 } from 'lucide-react';
 import { DeviceActionHistory, Package, Script, JobLog, LocalUser, InstalledSoftware, NetworkInterface } from '../../types';
 import { useResizableColumns } from '../../hooks/useResizableColumns';
+import { AppMirrorTab } from '../../components/AppMirrorTab';
+import { useAuth } from '../../context/AuthContext';
 
 export const DeviceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'inventory' | 'software' | 'network' | 'general' | 'actions' | 'logs'>('inventory');
+  const { user: currentUser } = useAuth();
+  const [activeTab, setActiveTab] = useState<'inventory' | 'software' | 'network' | 'general' | 'actions' | 'mirror' | 'logs'>('inventory');
 
   // Execution Logs tab search & filter state
   const [logsSearchTerm, setLogsSearchTerm] = useState('');
@@ -144,8 +148,15 @@ export const DeviceDetail: React.FC = () => {
 
   // Action Modals state
   const [activeModal, setActiveModal] = useState<
-    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | 'uninstall_software' | 'create_user' | 'delete_user' | null
+    'restart' | 'shutdown' | 'rename' | 'message' | 'script' | 'package' | 'logon' | 'uninstall_software' | 'create_user' | 'delete_user' | 'appmirror' | null
   >(null);
+
+  // AppMirror Quick Action modal state
+  const [mirrorMode, setMirrorMode] = useState<'headless' | 'gui'>('headless');
+  const [mirrorWebPassword, setMirrorWebPassword] = useState<string>('');
+  const [mirrorPin, setMirrorPin] = useState<string>('1234');
+  const [mirrorAllowFullDesktop, setMirrorAllowFullDesktop] = useState<boolean>(true);
+  const [mirrorExposeAllApps, setMirrorExposeAllApps] = useState<boolean>(true);
 
   // Software uninstallation state
   const [softwareToUninstall, setSoftwareToUninstall] = useState<InstalledSoftware | null>(null);
@@ -235,6 +246,50 @@ export const DeviceDetail: React.FC = () => {
     queryFn: () => api.getDeviceActions(id!),
     enabled: !!id,
     refetchInterval: 5000,
+  });
+
+  const {
+    data: mirrorStatus,
+    isLoading: loadingMirrorStatus,
+    refetch: refetchMirrorStatus,
+  } = useQuery({
+    queryKey: ['device-mirror-status', id],
+    queryFn: () => api.getMirrorStatus(id!),
+    enabled: !!id,
+    refetchInterval: activeTab === 'mirror' || activeTab === 'actions' ? 3500 : 12000,
+  });
+
+  const startMirrorMutation = useMutation({
+    mutationFn: (payload: {
+      mode: 'headless' | 'gui';
+      web_username?: string;
+      web_password?: string;
+      pin?: string;
+      allow_full_desktop?: boolean;
+      expose_all_apps?: boolean;
+    }) => api.startMirror(id!, payload),
+    onSuccess: () => {
+      setActiveModal(null);
+      setActiveTab('mirror');
+      queryClient.invalidateQueries({ queryKey: ['device-mirror-status', id] });
+      queryClient.invalidateQueries({ queryKey: ['device-actions', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors du démarrage d'AppMirror : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
+  const stopMirrorMutation = useMutation({
+    mutationFn: () => api.stopMirror(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device-mirror-status', id] });
+      queryClient.invalidateQueries({ queryKey: ['device-actions', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de l'arrêt d'AppMirror : " + (err.response?.data?.detail || err.message));
+    },
   });
 
   const { data: packages = [] } = useQuery({
@@ -1534,6 +1589,28 @@ Write-Output "Operation terminee avec succes pour '$u'."
               {actions.length}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('mirror')}
+          className={`pb-3 border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+            activeTab === 'mirror'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+          }`}
+        >
+          <Monitor className="w-4 h-4" />
+          <span>Contrôle AppMirror</span>
+          <span
+            className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full border flex items-center gap-1 ${
+              mirrorStatus?.running
+                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            {mirrorStatus?.running && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            {mirrorStatus?.running ? 'ACTIF' : 'ARRÊTÉ'}
+          </span>
         </button>
 
         <button
@@ -3282,6 +3359,39 @@ Write-Output "Operation terminee avec succes pour '$u'."
                   Purge le profil Windows (fichiers C:\Users\..., ruche WMI) et supprime le compte utilisateur local.
                 </p>
               </div>
+
+              {/* Card 10: Exécuter AppMirror (Headless ou GUI) */}
+              <div
+                onClick={() => {
+                  setMirrorMode(mirrorStatus?.mode === 'gui' ? 'gui' : 'headless');
+                  setActiveModal('appmirror');
+                }}
+                className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-cyan-950/20"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-110 transition">
+                    <Monitor className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                        mirrorStatus?.running
+                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/50'
+                          : 'bg-slate-950 text-slate-400 border-slate-800'
+                      }`}
+                    >
+                      {mirrorStatus?.running ? 'En cours' : 'Arrêté'}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500 group-hover:text-cyan-400 transition flex items-center gap-1">
+                      Exécuter <Play className="w-3 h-3 fill-current" />
+                    </span>
+                  </div>
+                </div>
+                <h3 className="text-sm font-bold text-slate-100 mb-1">Exécuter AppMirror (Headless / GUI)</h3>
+                <p className="text-xs text-slate-400">
+                  Lance appMirror à la demande sur ce poste en mode silencieux (Headless) ou GUI pour visualiser et contrôler l'écran.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -3432,6 +3542,33 @@ Write-Output "Operation terminee avec succes pour '$u'."
             </div>
           </div>
         </div>
+      )}
+
+      {/* Tab: Contrôle & Supervision AppMirror */}
+      {activeTab === 'mirror' && (
+        <AppMirrorTab
+          deviceId={device.id}
+          hostname={device.hostname}
+          isOnline={device.is_online}
+          mirrorStatus={mirrorStatus}
+          loadingStatus={loadingMirrorStatus}
+          onRefetchStatus={() => refetchMirrorStatus()}
+          onOpenStartModal={(defaultMode) => {
+            setMirrorMode(defaultMode || 'headless');
+            setActiveModal('appmirror');
+          }}
+          onQuickStart={(mode) => {
+            startMirrorMutation.mutate({
+              mode,
+              web_username: currentUser?.username || 'admin',
+              allow_full_desktop: true,
+              expose_all_apps: true,
+            });
+          }}
+          onStopService={() => stopMirrorMutation.mutate()}
+          isStarting={startMirrorMutation.isPending}
+          isStopping={stopMirrorMutation.isPending}
+        />
       )}
 
       {/* Tab 5: Execution Logs (NEW!) */}
@@ -5408,6 +5545,188 @@ Write-Output "Operation terminee avec succes pour '$u'."
           </div>
         </div>
       )}
+      {/* ========================================================================= */}
+      {/* MODAL 11: EXÉCUTER APPMIRROR (HEADLESS OU GUI)                            */}
+      {/* ========================================================================= */}
+      {activeModal === 'appmirror' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3 text-cyan-400">
+                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl">
+                  <Monitor className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">Exécuter AppMirror (Prise en main écran)</h3>
+                  <p className="text-xs text-slate-400">
+                    Cible : <strong className="text-slate-200">{device.hostname}</strong> ({device.ip_address || 'IP inconnue'})
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setActiveModal(null)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                startMirrorMutation.mutate({
+                  mode: mirrorMode,
+                  web_username: currentUser?.username || 'admin',
+                  web_password: mirrorWebPassword.trim() || undefined,
+                  pin: mirrorPin.trim() || '1234',
+                  allow_full_desktop: mirrorAllowFullDesktop,
+                  expose_all_apps: mirrorExposeAllApps,
+                });
+              }}
+              className="space-y-4 text-xs"
+            >
+              {/* Choix du mode : Headless vs GUI */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-2">Mode d'exécution sur le poste cible</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setMirrorMode('headless')}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      mirrorMode === 'headless'
+                        ? 'bg-emerald-500/15 border-emerald-500/60 text-emerald-200 shadow'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-100 mb-0.5">Headless (--headless)</div>
+                    <div className="text-[11px] text-slate-400">
+                      Silencieux en arrière-plan, sans fenêtre GUI sur l'écran de l'utilisateur.
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMirrorMode('gui')}
+                    className={`p-3 rounded-xl border text-left transition ${
+                      mirrorMode === 'gui'
+                        ? 'bg-cyan-500/15 border-cyan-500/60 text-cyan-200 shadow'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-slate-100 mb-0.5">Interface GUI</div>
+                    <div className="text-[11px] text-slate-400">
+                      Ouvre la fenêtre <span className="font-mono">appMirror Controller</span> sur le bureau cible.
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Identifiants de contrôle Admin */}
+              <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-200">Identifiants de contrôle Web AppMirror</span>
+                  <span className="text-[11px] font-mono text-emerald-400">
+                    Compte : {currentUser?.username || 'admin'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Mot de passe Admin (MAPT)</label>
+                    <input
+                      type="password"
+                      value={mirrorWebPassword}
+                      onChange={(e) => setMirrorWebPassword(e.target.value)}
+                      placeholder="Laisser vide = auto via proxy MAPT"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Code PIN sécurité (applications verrouillées)</label>
+                    <input
+                      type="text"
+                      value={mirrorPin}
+                      onChange={(e) => setMirrorPin(e.target.value)}
+                      placeholder="1234"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl font-mono text-slate-200 focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Renseignez votre mot de passe MAPT si vous souhaitez aussi vous connecter directement sur{' '}
+                  <span className="font-mono text-slate-300">http://{device.ip_address || '<IP>'}:8080</span>. Dans tous les cas, l'onglet <strong>Contrôle AppMirror</strong> de MAPT s'authentifie automatiquement.
+                </p>
+              </div>
+
+              {/* Options d'exposition */}
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2.5 p-2.5 bg-slate-950 border border-slate-800 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mirrorAllowFullDesktop}
+                    onChange={(e) => setMirrorAllowFullDesktop(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-cyan-500"
+                  />
+                  <span className="text-slate-200 font-medium">Autoriser le contrôle du Bureau Complet (Full Desktop)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 p-2.5 bg-slate-950 border border-slate-800 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mirrorExposeAllApps}
+                    onChange={(e) => setMirrorExposeAllApps(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-cyan-500"
+                  />
+                  <span className="text-slate-200 font-medium">Exposer toutes les applications ouvertes (Mode permissif)</span>
+                </label>
+              </div>
+
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-300 flex items-start space-x-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <span>
+                  Aucune tâche persistante ou clé de démarrage n'est ajoutée : AppMirror tourne uniquement jusqu'à son arrêt depuis l'onglet <strong>Contrôle AppMirror</strong>.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                {mirrorStatus?.running ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopMirrorMutation.mutate();
+                      setActiveModal(null);
+                      setActiveTab('mirror');
+                    }}
+                    disabled={stopMirrorMutation.isPending}
+                    className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 font-semibold rounded-xl transition"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Arrêter le service</span>
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center space-x-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal(null)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={startMirrorMutation.isPending}
+                    className="flex items-center space-x-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-950/50 disabled:opacity-50"
+                  >
+                    {startMirrorMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                    <span>Lancer AppMirror & Superviser</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MODAL : EDIT MAPT HOSTNAME */}
       {isEditingMaptName && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">

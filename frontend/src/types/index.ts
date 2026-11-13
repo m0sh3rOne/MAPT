@@ -354,3 +354,36 @@ export interface ProfileRestoreRequest {
   notes?: string;
 }
 
+export interface MirrorStatus {
+  device_id: string;
+  hostname: string;
+  ip_address?: string | null;
+  port: number;
+  running: boolean;
+  mode?: 'headless' | 'gui' | string | null;
+  web_username?: string | null;
+  has_password: boolean;
+  allow_full_desktop: boolean;
+  allow_virtual_desktop: boolean;
+  expose_all_apps: boolean;
+  started_at?: string | null;
+  last_action_id?: string | null;
+  last_action_name?: string | null;
+  last_action_status?: string | null;
+  last_action_error?: string | null;
+  last_action_created_at?: string | null;
+  direct_url?: string | null;
+}
+
+export interface MirrorStartPayload {
+  mode: 'headless' | 'gui';
+  port?: number;
+  web_username?: string;
+  web_password?: string;
+  pin?: string;
+  allow_full_desktop?: boolean;
+  allow_virtual_desktop?: boolean;
+  expose_all_apps?: boolean;
+}
+
+
