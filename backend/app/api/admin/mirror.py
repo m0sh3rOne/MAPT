@@ -408,7 +408,8 @@ async def start_mirror_on_device(
 
     if body.web_password and body.web_password.strip():
         web_password = body.web_password.strip()
-        matches_mapt_password = verify_password(web_password, current_user.hashed_password)
+        user_hash = getattr(current_user, "password_hash", None) or ""
+        matches_mapt_password = verify_password(web_password, user_hash) if user_hash else False
     elif existing_cfg.get("web_password"):
         web_password = existing_cfg["web_password"]
         matches_mapt_password = bool(existing_cfg.get("matches_mapt_password", False))
@@ -578,6 +579,8 @@ async def mirror_websocket_proxy(
             open_timeout=5,
         ) as upstream:
 
+            manual_auth: dict = {}
+
             async def client_to_upstream():
                 try:
                     while True:
@@ -585,7 +588,16 @@ async def mirror_websocket_proxy(
                         if msg.get("type") == "websocket.disconnect":
                             break
                         if msg.get("text") is not None:
-                            await upstream.send(msg["text"])
+                            txt = msg["text"]
+                            if '"authenticate"' in txt:
+                                try:
+                                    parsed = json.loads(txt)
+                                    if parsed.get("type") == "authenticate" and parsed.get("password"):
+                                        manual_auth["username"] = parsed.get("username") or stored_username
+                                        manual_auth["password"] = parsed.get("password")
+                                except Exception:
+                                    pass
+                            await upstream.send(txt)
                         elif msg.get("bytes") is not None:
                             await upstream.send(msg["bytes"])
                 except WebSocketDisconnect:
@@ -622,6 +634,12 @@ async def mirror_websocket_proxy(
                                 try:
                                     parsed = json.loads(msg)
                                     if parsed.get("type") == "auth_result" and parsed.get("success"):
+                                        if manual_auth.get("password"):
+                                            updated_cfg = await _load_mirror_config(device_id)
+                                            updated_cfg["web_username"] = manual_auth.get("username") or stored_username
+                                            updated_cfg["web_password"] = manual_auth["password"]
+                                            await _save_mirror_config(device_id, updated_cfg)
+                                            manual_auth.clear()
                                         await upstream.send(json.dumps({"type": "list_windows"}))
                                 except Exception:
                                     pass
