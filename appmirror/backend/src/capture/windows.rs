@@ -16,6 +16,7 @@ use windows_capture::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
     },
+    monitor::Monitor,
     window::Window,
 };
 
@@ -339,17 +340,38 @@ pub fn start(
     let tx = std::sync::Arc::new(tx);
     let tx_clone = tx.clone();
 
-    if crate::input::desktop::is_desktop_window(hwnd) {
-        let desktop = crate::input::desktop::virtual_desktop_for_window(hwnd);
-        let session = start_gdi_capture(hwnd, quality, scale, tx_clone, desktop)?;
-        return Ok((CaptureSession::Gdi(session), rx));
-    }
-
     let cursor = if show_cursor {
         CursorCaptureSettings::WithCursor
     } else {
         CursorCaptureSettings::WithoutCursor
     };
+
+    if crate::input::desktop::is_desktop_window(hwnd) {
+        let desktop = crate::input::desktop::virtual_desktop_for_window(hwnd);
+        if desktop.is_none() {
+            // Bureau principal : capture WGC plein écran sur le moniteur principal
+            if let Ok(monitor) = Monitor::primary() {
+                let settings = Settings::new(
+                    monitor,
+                    cursor,
+                    DrawBorderSettings::WithoutBorder,
+                    SecondaryWindowSettings::Default,
+                    MinimumUpdateIntervalSettings::Default,
+                    DirtyRegionSettings::Default,
+                    ColorFormat::Rgba8,
+                    FrameSink { tx: tx.clone(), quality, scale, hwnd },
+                );
+                match CaptureHandler::start_free_threaded(settings) {
+                    Ok(control) => return Ok((CaptureSession::Wgc(control), rx)),
+                    Err(e) => {
+                        tracing::warn!("WGC monitor capture failed: {:?}. Falling back to GDI capture.", e);
+                    }
+                }
+            }
+        }
+        let session = start_gdi_capture(hwnd, quality, scale, tx_clone, desktop)?;
+        return Ok((CaptureSession::Gdi(session), rx));
+    }
 
     let settings = Settings::new(
         window,
@@ -459,13 +481,17 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // Buffer RGBA sans padding de ligne.
         let rgba = buffer.as_nopadding_buffer()?;
 
-        // Recadre à la zone client (WGC capture la fenêtre entière). En cas
-        // d'échec (fenêtre disparue…), on retombe sur la frame complète.
-        let (cropped, width, height) = match client_crop(self.sink.hwnd, frame_w, frame_h) {
-            Some((dx, dy, cw, ch)) if dx != 0 || dy != 0 || cw != frame_w || ch != frame_h => {
-                (crop_rgba(rgba, frame_w, dx, dy, cw, ch), cw, ch)
+        // Recadre à la zone client (WGC capture la fenêtre entière). Pour le bureau
+        // principal (Monitor::primary), on garde la frame complète sans recadrage.
+        let (cropped, width, height) = if crate::input::desktop::is_desktop_window(self.sink.hwnd) {
+            (rgba.to_vec(), frame_w, frame_h)
+        } else {
+            match client_crop(self.sink.hwnd, frame_w, frame_h) {
+                Some((dx, dy, cw, ch)) if dx != 0 || dy != 0 || cw != frame_w || ch != frame_h => {
+                    (crop_rgba(rgba, frame_w, dx, dy, cw, ch), cw, ch)
+                }
+                _ => (rgba.to_vec(), frame_w, frame_h),
             }
-            _ => (rgba.to_vec(), frame_w, frame_h),
         };
         let rgba: &[u8] = &cropped;
 

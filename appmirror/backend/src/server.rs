@@ -34,6 +34,8 @@ struct Session {
     /// Session WebRTC active pour cette connexion.
     #[cfg(feature = "webrtc")]
     webrtc: Option<crate::webrtc::WebRtcSession>,
+    /// Authentification WebSocket validée (ou non requise).
+    authenticated: bool,
 }
 
 impl Session {
@@ -68,10 +70,21 @@ async fn handle_socket(socket: WebSocket, state: AppState, addr: SocketAddr) {
     tracing::info!("WebSocket client connected: {addr}");
     let (sink, mut stream) = socket.split();
     let sender: Sender = Arc::new(Mutex::new(sink));
+    let auth_required = {
+        let cfg_opt = state.config.lock().unwrap();
+        cfg_opt
+            .as_ref()
+            .map(|c| c.lock().unwrap().web_auth_enabled)
+            .unwrap_or(false)
+    };
     let mut session = Session {
         input_bg: true,
+        authenticated: !auth_required,
         ..Default::default()
     };
+    if auth_required {
+        send_json(&sender, &ServerMessage::AuthRequired { required: true }).await;
+    }
     // Reçoit les évènements poussés par le serveur MCP (ex. prise de contrôle).
     let mut notices = state.notices.subscribe();
 
@@ -132,7 +145,40 @@ fn spawn_workflow(file: WorkflowFile, hwnd: Option<isize>, sender: Sender) {
 }
 
 async fn handle_message(msg: ClientMessage, session: &mut Session, sender: &Sender, state: &AppState) {
+    if let ClientMessage::Authenticate { username, password } = msg {
+        let ok = {
+            let cfg_opt = state.config.lock().unwrap();
+            if let Some(cfg_mutex) = &*cfg_opt {
+                let cfg = cfg_mutex.lock().unwrap();
+                !cfg.web_auth_enabled
+                    || (username == cfg.web_username && password == cfg.web_password)
+            } else {
+                true
+            }
+        };
+        session.authenticated = ok;
+        send_json(
+            sender,
+            &ServerMessage::AuthResult {
+                success: ok,
+                message: if ok {
+                    "Authentification réussie.".to_string()
+                } else {
+                    "Identifiants invalides.".to_string()
+                },
+            },
+        )
+        .await;
+        return;
+    }
+
+    if !session.authenticated {
+        send_json(sender, &ServerMessage::AuthRequired { required: true }).await;
+        return;
+    }
+
     match msg {
+        ClientMessage::Authenticate { .. } => unreachable!(),
         ClientMessage::ListWindows => {
             let (locked_apps, allow_virtual_desktop) = {
                 let cfg_opt = state.config.lock().unwrap();

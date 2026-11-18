@@ -27,7 +27,7 @@ from app.services.device_service import DeviceService
 
 router = APIRouter(prefix="/devices", tags=["Admin - AppMirror"])
 
-APPMIRROR_EXPECTED_SIZE = 21520896
+APPMIRROR_EXPECTED_SIZE = 11620352
 DEFAULT_MIRROR_PORT = 8080
 
 
