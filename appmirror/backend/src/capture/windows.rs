@@ -254,17 +254,26 @@ pub fn list_windows(locked_apps: &[String], allow_virtual_desktop: bool) -> anyh
     // Énumère sur le bureau actif
     let _ = enumerate_desktop_windows(&mut out, locked_apps, false);
     
-    // Énumère sur le bureau virtuel si autorisé et existant
-    if allow_virtual_desktop {
+    // Énumère sur le bureau virtuel si autorisé et distinct du bureau principal
+    if allow_virtual_desktop && crate::input::desktop::desktop_window(true).is_some() {
         if let Some(hdesk) = crate::input::desktop::get_or_create_virtual_desktop() {
             let mut v_out = Vec::new();
-            crate::input::desktop::run_on_desktop(hdesk, || {
-                let _ = enumerate_desktop_windows(&mut v_out, locked_apps, true);
-            });
-            out.extend(v_out);
+            let locked_clone = locked_apps.to_vec();
+            if let Ok(res) = std::thread::spawn(move || {
+                crate::input::desktop::run_on_desktop(hdesk, || {
+                    let _ = enumerate_desktop_windows(&mut v_out, &locked_clone, true);
+                });
+                v_out
+            }).join() {
+                out.extend(res);
+            }
         }
     }
-    
+
+    // Déduplique par HWND pour éviter tout doublon d'ID dans la liste
+    let mut seen_ids = std::collections::HashSet::new();
+    out.retain(|w| seen_ids.insert(w.id));
+
     Ok(out)
 }
 

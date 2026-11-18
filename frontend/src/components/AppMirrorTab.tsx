@@ -220,7 +220,13 @@ export const AppMirrorTab: React.FC<AppMirrorTabProps> = ({
             break;
 
           case 'windows': {
-            const items: MirrorWindowItem[] = msg.items || [];
+            const rawItems: MirrorWindowItem[] = msg.items || [];
+            const seen = new Set<number>();
+            const items = rawItems.filter((item) => {
+              if (seen.has(item.id)) return false;
+              seen.add(item.id);
+              return true;
+            });
             setWindows(items);
             if (items.length === 0) {
               setStatusMessage('Aucune fenêtre ou bureau détecté sur le poste (vérifiez la session Windows active).');
@@ -606,7 +612,7 @@ export const AppMirrorTab: React.FC<AppMirrorTabProps> = ({
             >
               <option value="">-- Sélectionner un écran / une fenêtre --</option>
               {windows.map((w) => (
-                <option key={w.id} value={w.id}>
+                <option key={`${w.id}-${w.is_desktop ? (w.is_virtual ? 'vdesk' : 'desk') : 'win'}`} value={w.id}>
                   {w.locked ? '🔒 ' : ''}
                   {w.is_desktop ? '🖥️ ' : w.is_virtual ? '[V] ' : ''}
                   {w.title}

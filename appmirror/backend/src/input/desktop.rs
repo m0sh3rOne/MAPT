@@ -52,11 +52,21 @@ pub fn get_or_create_virtual_desktop() -> Option<isize> {
 /// Ces handles sont exposés comme cibles synthétiques pour permettre la
 /// capture du bureau complet dans l'interface web.
 pub fn desktop_window(is_virtual: bool) -> Option<isize> {
+    let main_hwnd = unsafe { GetDesktopWindow() }.0 as isize;
     if !is_virtual {
-        return Some(unsafe { GetDesktopWindow() }.0 as isize);
+        return Some(main_hwnd);
     }
     let hdesk = get_or_create_virtual_desktop()?;
-    Some(run_on_desktop(hdesk, || unsafe { GetDesktopWindow() }.0 as isize))
+    let v_hwnd = std::thread::spawn(move || {
+        run_on_desktop(hdesk, || unsafe { GetDesktopWindow() }.0 as isize)
+    })
+    .join()
+    .ok()?;
+    if v_hwnd == 0 || v_hwnd == main_hwnd {
+        None
+    } else {
+        Some(v_hwnd)
+    }
 }
 
 /// Retourne le HDESK auquel appartient une cible « bureau complet ».
