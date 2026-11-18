@@ -3,6 +3,7 @@
 export type MouseButtonName = "left" | "right" | "middle";
 
 export type ClientMessage =
+  | { type: "authenticate"; username: string; password: string }
   | { type: "list_windows" }
   | { type: "focus_window" }
   | { type: "select_window"; id: number; pin?: string | null; quality?: number | null; scale?: number | null; show_cursor?: boolean | null }
@@ -178,6 +179,8 @@ export interface AppProfile {
 }
 
 export type ServerMessage =
+  | { type: "auth_required"; required: boolean }
+  | { type: "auth_result"; success: boolean; message: string }
   | { type: "windows"; items: WindowInfo[] }
   | { type: "selected"; width: number; height: number; background: boolean }
   | { type: "screenshot_saved"; path: string }

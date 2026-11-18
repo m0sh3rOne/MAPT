@@ -313,6 +313,32 @@ const stream = new StreamClient(canvas, {
   },
   onServerMessage: (msg: ServerMessage) => {
     switch (msg.type) {
+      case "auth_required": {
+        if (msg.required) {
+          const authModal = document.getElementById("authModal") as HTMLDivElement | null;
+          const authPass = document.getElementById("authPass") as HTMLInputElement | null;
+          const authError = document.getElementById("authError") as HTMLDivElement | null;
+          if (authModal) authModal.style.display = "flex";
+          if (authError) authError.textContent = "";
+          if (authPass) authPass.focus();
+          statusEl.textContent = "Authentification requise";
+        }
+        break;
+      }
+      case "auth_result": {
+        const authModal = document.getElementById("authModal") as HTMLDivElement | null;
+        const authError = document.getElementById("authError") as HTMLDivElement | null;
+        if (msg.success) {
+          if (authModal) authModal.style.display = "none";
+          if (authError) authError.textContent = "";
+          statusEl.textContent = "Connecté — chargement des fenêtres...";
+          stream.send({ type: "list_windows" });
+        } else {
+          if (authModal) authModal.style.display = "flex";
+          if (authError) authError.textContent = msg.message || "Identifiants invalides.";
+        }
+        break;
+      }
       case "windows": {
         select.length = 1; // garde le placeholder
         windowContexts.clear();
@@ -859,4 +885,19 @@ document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
     pauseOnFocusLoss: false,
   };
   stream.send({ type: "save_profile", profile });
+});
+
+function submitAuth() {
+  const authUser = document.getElementById("authUser") as HTMLInputElement | null;
+  const authPass = document.getElementById("authPass") as HTMLInputElement | null;
+  stream.send({
+    type: "authenticate",
+    username: authUser?.value.trim() || "admin",
+    password: authPass?.value || "",
+  });
+}
+
+document.getElementById("authSubmit")?.addEventListener("click", submitAuth);
+document.getElementById("authPass")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitAuth();
 });
