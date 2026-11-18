@@ -384,6 +384,7 @@ export interface MirrorStartPayload {
   allow_full_desktop?: boolean;
   allow_virtual_desktop?: boolean;
   expose_all_apps?: boolean;
+  force_reinstall?: boolean;
 }
 
 

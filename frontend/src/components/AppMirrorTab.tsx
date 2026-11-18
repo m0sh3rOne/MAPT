@@ -42,8 +42,10 @@ interface AppMirrorTabProps {
   onOpenStartModal: (defaultMode?: 'headless' | 'gui') => void;
   onQuickStart: (mode: 'headless' | 'gui') => void;
   onStopService: () => void;
+  onPurgeClient: () => void;
   isStarting: boolean;
   isStopping: boolean;
+  isPurging: boolean;
 }
 
 const MOUSE_BTN_MAP: Record<number, 'left' | 'middle' | 'right'> = {
@@ -68,8 +70,10 @@ export const AppMirrorTab: React.FC<AppMirrorTabProps> = ({
   onOpenStartModal,
   onQuickStart,
   onStopService,
+  onPurgeClient,
   isStarting,
   isStopping,
+  isPurging,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -502,12 +506,27 @@ export const AppMirrorTab: React.FC<AppMirrorTabProps> = ({
             <button
               type="button"
               onClick={onStopService}
-              disabled={!isOnline || isStopping || isStarting}
+              disabled={!isOnline || isStopping || isStarting || isPurging}
               className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white border border-rose-500/40 text-xs font-semibold transition disabled:opacity-50"
               title="Arrêter immédiatement appmirror-backend.exe sur la machine cible"
             >
               {isStopping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5 fill-current" />}
               <span>Arrêter AppMirror</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Supprimer C:\\ProgramData\\MAPT\\appmirror\\ sur ${hostname} ?\nLe binaire sera re-téléchargé automatiquement au prochain lancement (Headless ou GUI).`)) {
+                  onPurgeClient();
+                }
+              }}
+              disabled={!isOnline || isPurging || isStarting || isStopping}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-600/15 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 text-xs font-semibold transition disabled:opacity-50"
+              title="Arrêter AppMirror et supprimer C:\ProgramData\MAPT\appmirror\ sur la machine cible pour forcer le re-téléchargement du client"
+            >
+              {isPurging ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              <span>Purger client</span>
             </button>
 
             <button

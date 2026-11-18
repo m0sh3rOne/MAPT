@@ -76,6 +76,34 @@ def deploy():
         print("    ou renseigner les variables d'environnement PROXMOX_HOST, PROXMOX_USER, PROXMOX_PASSWORD.")
         sys.exit(1)
 
+    import shutil
+    appmirror_backend_dir = os.path.join(local_base, "appmirror", "backend")
+    appmirror_frontend_dir = os.path.join(local_base, "appmirror", "frontend")
+    cargo_bin = shutil.which("cargo") or os.path.expanduser("~/.cargo/bin/cargo.exe")
+    if os.path.isdir(appmirror_backend_dir) and cargo_bin and os.path.isfile(cargo_bin):
+        print("[*] Compilation incrémentale d'AppMirror (frontend + backend Rust)...")
+        if os.path.isdir(appmirror_frontend_dir):
+            am_fe_res = subprocess.run("npm run build", shell=True, cwd=appmirror_frontend_dir)
+            if am_fe_res.returncode != 0:
+                print("[!] Échec du build frontend AppMirror.")
+                sys.exit(1)
+        env_cargo = os.environ.copy()
+        env_cargo["PATH"] = os.path.dirname(cargo_bin) + os.pathsep + env_cargo.get("PATH", "")
+        am_be_res = subprocess.run(
+            f'"{cargo_bin}" build --release --no-default-features',
+            shell=True,
+            cwd=appmirror_backend_dir,
+            env=env_cargo,
+        )
+        if am_be_res.returncode != 0:
+            print("[!] Échec du build Rust AppMirror.")
+            sys.exit(1)
+        built_exe = os.path.join(appmirror_backend_dir, "target", "release", "appmirror-backend.exe")
+        target_exe = os.path.join(local_base, "agent", "appmirror-backend.exe")
+        if os.path.isfile(built_exe):
+            shutil.copy2(built_exe, target_exe)
+            print(f"[+] appmirror-backend.exe mis à jour ({os.path.getsize(target_exe)} octets).")
+
     print("[*] Compilation du frontend en local...")
     frontend_dir = os.path.join(local_base, "frontend")
     build_res = subprocess.run("npm run build", shell=True, cwd=frontend_dir)

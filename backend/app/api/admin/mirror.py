@@ -1,6 +1,8 @@
 import asyncio
 import base64
+import hashlib
 import json
+import os
 import secrets
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -31,6 +33,23 @@ APPMIRROR_EXPECTED_SIZE = 11620352
 DEFAULT_MIRROR_PORT = 8080
 
 
+def _get_appmirror_binary_info() -> tuple[int, str]:
+    candidates = [
+        "/app/agent/appmirror-backend.exe",
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "agent", "appmirror-backend.exe")),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            h = hashlib.sha256()
+            size = 0
+            with open(path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    size += len(chunk)
+                    h.update(chunk)
+            return size, h.hexdigest().upper()
+    return APPMIRROR_EXPECTED_SIZE, ""
+
+
 class MirrorStartRequest(BaseModel):
     mode: Literal["headless", "gui"] = "headless"
     port: int = Field(default=DEFAULT_MIRROR_PORT, ge=1024, le=65535)
@@ -40,6 +59,7 @@ class MirrorStartRequest(BaseModel):
     allow_full_desktop: bool = True
     allow_virtual_desktop: bool = True
     expose_all_apps: bool = True
+    force_reinstall: bool = False
 
 
 class MirrorStatusResponse(BaseModel):
@@ -141,7 +161,9 @@ def _build_start_mirror_command(
     allow_full_desktop: bool,
     allow_virtual_desktop: bool,
     expose_all_apps: bool,
+    force_reinstall: bool = False,
 ) -> str:
+    expected_size, expected_sha256 = _get_appmirror_binary_info()
     config_obj = {
         "pin": pin or "1234",
         "locked_apps": [],
@@ -173,11 +195,25 @@ if (-not (Test-Path $baseDir)) {{ New-Item -ItemType Directory -Path $baseDir -F
 Get-Process -Name 'appmirror-backend' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400
 
-# 2. Telechargement du binaire uniquement si absent ou taille differente
+# 2. Telechargement du binaire si absent, taille/SHA256 different ou remplacement force
 $needDownload = $true
-if (Test-Path $exePath) {{
+$forceReinstall = ${str(force_reinstall).lower()}
+if ($forceReinstall -and (Test-Path $exePath)) {{
+    Write-Output '[MAPT] Remplacement force : suppression de l ancien binaire appmirror-backend.exe...'
+    Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
+}}
+if (-not $forceReinstall -and (Test-Path $exePath)) {{
     $len = (Get-Item $exePath).Length
-    if ($len -eq {APPMIRROR_EXPECTED_SIZE}) {{ $needDownload = $false }}
+    if ($len -eq {expected_size}) {{
+        if ('{expected_sha256}' -eq '') {{
+            $needDownload = $false
+        }} else {{
+            try {{
+                $sha = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($exePath))).Replace('-', '').ToUpperInvariant()
+                if ($sha -eq '{expected_sha256}') {{ $needDownload = $false }}
+            }} catch {{}}
+        }}
+    }}
 }}
 if ($needDownload) {{
     Write-Output '[MAPT] Telechargement de appmirror-backend.exe...'
@@ -432,6 +468,7 @@ async def start_mirror_on_device(
         allow_full_desktop=body.allow_full_desktop,
         allow_virtual_desktop=body.allow_virtual_desktop,
         expose_all_apps=body.expose_all_apps,
+        force_reinstall=body.force_reinstall,
     )
 
     mode_label = "Headless" if body.mode == "headless" else "GUI"
@@ -514,6 +551,76 @@ async def stop_mirror_on_device(
         "status": "dispatched",
         "deployment_id": str(deployment.id),
         "message": f"Ordre d'arrêt AppMirror envoyé à {device.hostname}.",
+    }
+
+
+def _build_purge_mirror_command() -> str:
+    ps_script = """$ErrorActionPreference = 'Continue'
+$ProgressPreference = 'SilentlyContinue'
+$procs = Get-Process -Name 'appmirror-backend' -ErrorAction SilentlyContinue
+if ($procs) {
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
+$remaining = Get-Process -Name 'appmirror-backend' -ErrorAction SilentlyContinue
+if ($remaining) {
+    & taskkill.exe /F /IM appmirror-backend.exe /T 2>$null | Out-Null
+    Start-Sleep -Milliseconds 400
+}
+try { & schtasks.exe /Delete /TN "MAPT_AppMirror_OnDemand" /F >$null 2>$null } catch {}
+$baseDir = 'C:\\ProgramData\\MAPT\\appmirror'
+if (Test-Path $baseDir) {
+    Remove-Item -Path $baseDir -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path $baseDir) {
+        Start-Sleep -Milliseconds 500
+        Remove-Item -Path $baseDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-Output '[MAPT] Dossier C:\\ProgramData\\MAPT\\appmirror supprime. Le binaire sera re-telecharge au prochain lancement.'
+} else {
+    Write-Output '[MAPT] Dossier C:\\ProgramData\\MAPT\\appmirror deja absent.'
+}
+exit 0
+"""
+    encoded = _encode_ps_utf16(ps_script)
+    return f"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}"
+
+
+@router.post("/{device_id}/mirror/purge")
+async def purge_mirror_on_device(
+    device_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_device_permission(db, current_user, device_id)
+    dev_service = DeviceService(db)
+    device = await dev_service.get_device_by_id(device_id)
+
+    cmd = _build_purge_mirror_command()
+    dep_in = DeploymentCreate(
+        name=f"🧹 Purger client AppMirror - {device.hostname}",
+        description="Arrêt d'AppMirror et suppression de C:\\ProgramData\\MAPT\\appmirror\\ pour forcer le re-téléchargement",
+        deployment_type="command",
+        custom_command=cmd,
+        target_all_devices=False,
+        target_device_ids=[device_id],
+        target_group_ids=[],
+        schedule_type="immediate",
+        is_recurring=False,
+    )
+    dep_service = DeploymentService(db)
+    client_ip = request.client.host if request.client else None
+    deployment = await dep_service.create_deployment(dep_in, current_user, ip_address=client_ip)
+
+    cfg = await _load_mirror_config(device_id)
+    if cfg:
+        cfg["stopped_at"] = datetime.now(timezone.utc).isoformat()
+        await _save_mirror_config(device_id, cfg)
+
+    return {
+        "status": "dispatched",
+        "deployment_id": str(deployment.id),
+        "message": f"Ordre de suppression du client AppMirror (C:\\ProgramData\\MAPT\\appmirror\\) envoyé à {device.hostname}.",
     }
 
 

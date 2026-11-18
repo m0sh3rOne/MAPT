@@ -157,6 +157,7 @@ export const DeviceDetail: React.FC = () => {
   const [mirrorPin, setMirrorPin] = useState<string>('1234');
   const [mirrorAllowFullDesktop, setMirrorAllowFullDesktop] = useState<boolean>(true);
   const [mirrorExposeAllApps, setMirrorExposeAllApps] = useState<boolean>(true);
+  const [mirrorForceReinstall, setMirrorForceReinstall] = useState<boolean>(false);
 
   // Software uninstallation state
   const [softwareToUninstall, setSoftwareToUninstall] = useState<InstalledSoftware | null>(null);
@@ -267,6 +268,7 @@ export const DeviceDetail: React.FC = () => {
       pin?: string;
       allow_full_desktop?: boolean;
       expose_all_apps?: boolean;
+      force_reinstall?: boolean;
     }) => api.startMirror(id!, payload),
     onSuccess: () => {
       setActiveModal(null);
@@ -289,6 +291,18 @@ export const DeviceDetail: React.FC = () => {
     },
     onError: (err: any) => {
       alert("Erreur lors de l'arrêt d'AppMirror : " + (err.response?.data?.detail || err.message));
+    },
+  });
+
+  const purgeMirrorMutation = useMutation({
+    mutationFn: () => api.purgeMirror(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['device-mirror-status', id] });
+      queryClient.invalidateQueries({ queryKey: ['device-actions', id] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    },
+    onError: (err: any) => {
+      alert("Erreur lors de la suppression du client AppMirror : " + (err.response?.data?.detail || err.message));
     },
   });
 
@@ -3566,8 +3580,10 @@ Write-Output "Operation terminee avec succes pour '$u'."
             });
           }}
           onStopService={() => stopMirrorMutation.mutate()}
+          onPurgeClient={() => purgeMirrorMutation.mutate()}
           isStarting={startMirrorMutation.isPending}
           isStopping={stopMirrorMutation.isPending}
+          isPurging={purgeMirrorMutation.isPending}
         />
       )}
 
@@ -5578,6 +5594,7 @@ Write-Output "Operation terminee avec succes pour '$u'."
                   pin: mirrorPin.trim() || '1234',
                   allow_full_desktop: mirrorAllowFullDesktop,
                   expose_all_apps: mirrorExposeAllApps,
+                  force_reinstall: mirrorForceReinstall,
                 });
               }}
               className="space-y-4 text-xs"
@@ -5675,6 +5692,16 @@ Write-Output "Operation terminee avec succes pour '$u'."
                     className="rounded bg-slate-900 border-slate-700 text-cyan-500"
                   />
                   <span className="text-slate-200 font-medium">Exposer toutes les applications ouvertes (Mode permissif)</span>
+                </label>
+
+                <label className="flex items-center space-x-2.5 p-2.5 bg-slate-950 border border-amber-500/30 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mirrorForceReinstall}
+                    onChange={(e) => setMirrorForceReinstall(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-amber-500"
+                  />
+                  <span className="text-amber-200 font-medium">Forcer le remplacement du client AppMirror (re-télécharger dans C:\ProgramData\MAPT\appmirror\)</span>
                 </label>
               </div>
 

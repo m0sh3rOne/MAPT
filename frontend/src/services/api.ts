@@ -542,6 +542,14 @@ export const api = {
     const res = await apiClient.post(`/admin/devices/${deviceId}/mirror/stop`);
     return res.data;
   },
+  purgeMirror: async (deviceId: string): Promise<{
+    status: string;
+    deployment_id: string;
+    message: string;
+  }> => {
+    const res = await apiClient.post(`/admin/devices/${deviceId}/mirror/purge`);
+    return res.data;
+  },
   getMirrorWsUrl: (deviceId: string): string => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const token = localStorage.getItem('mapt_token') || sessionStorage.getItem('mapt_token') || '';
