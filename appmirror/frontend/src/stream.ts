@@ -56,13 +56,19 @@ export class StreamClient {
         const msg = JSON.parse(ev.data) as ServerMessage;
         
         if (msg.type === "selected") {
-          // Une fenêtre a été sélectionnée, on initie la négociation WebRTC si active.
+          // Une fenêtre a été sélectionnée, on initie la négociation WebRTC uniquement si activée.
           const webrtcCheckbox = document.getElementById("webrtcToggle") as HTMLInputElement | null;
-          if (!webrtcCheckbox || webrtcCheckbox.checked) {
+          if (webrtcCheckbox?.checked) {
             this.initWebrtc();
           } else {
             this.cleanupWebrtc();
           }
+        } else if (msg.type === "error" && msg.message.includes("WebRTC")) {
+          // Repli silencieux sur WebSocket/JPEG si WebRTC n'est pas compilé dans ce binaire
+          const webrtcCheckbox = document.getElementById("webrtcToggle") as HTMLInputElement | null;
+          if (webrtcCheckbox) webrtcCheckbox.checked = false;
+          this.cleanupWebrtc();
+          return;
         } else if (msg.type === "webrtc_offer") {
           await this.handleWebrtcOffer(msg.sdp);
         } else if (msg.type === "webrtc_ice_candidate") {
