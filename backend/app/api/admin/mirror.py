@@ -35,6 +35,7 @@ DEFAULT_MIRROR_PORT = 8080
 
 def _get_appmirror_binary_info() -> tuple[int, str]:
     candidates = [
+        "/agent/appmirror-backend.exe",
         "/app/agent/appmirror-backend.exe",
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "agent", "appmirror-backend.exe")),
     ]

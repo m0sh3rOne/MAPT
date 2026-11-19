@@ -13,6 +13,7 @@ dist/
 *.new.exe
 agent/*.exe
 agent/*.new.exe
+!agent/appmirror-backend.exe
 *.dll
 *.so
 *.dylib
