@@ -61,7 +61,7 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}[2/5] 🛠️  Recompilation de l'Agent Windows (mapt-agent.exe)...${NC}"
+echo -e "${BLUE}[2/5] 🛠️  Recompilation des binaires Windows (mapt-agent.exe & appmirror-backend.exe)...${NC}"
 
 if command -v go >/dev/null 2>&1; then
     mkdir -p "$DIR/agent"
@@ -75,6 +75,12 @@ if command -v go >/dev/null 2>&1; then
     fi
 else
     echo -e "${YELLOW}[!] Go n'est pas installé sur l'hôte. Utilisation du binaire mapt-agent.exe existant.${NC}"
+fi
+
+if [ -f "$DIR/scripts/build-appmirror.sh" ]; then
+    bash "$DIR/scripts/build-appmirror.sh" || {
+        echo -e "${YELLOW}[!] Avertissement : Échec de la compilation AppMirror. Le binaire existant sera conservé.${NC}"
+    }
 fi
 
 echo ""

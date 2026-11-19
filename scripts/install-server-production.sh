@@ -153,12 +153,18 @@ else
 fi
 
 # ==============================================================================
-#   COMPILATION DE L'AGENT WINDOWS
+#   COMPILATION DES BINAIRES WINDOWS (MAPT-AGENT & APPMIRROR)
 # ==============================================================================
-echo -e "${BLUE}[3/5] Compilation de l'Agent Windows (mapt-agent.exe)...${NC}"
+echo -e "${BLUE}[3/5] Compilation de l'Agent Windows (mapt-agent.exe) et d'AppMirror (appmirror-backend.exe)...${NC}"
 cd "$DIR/agent"
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o mapt-agent.exe ./cmd/agent
 echo -e "${GREEN}[✓] Binaire Windows mapt-agent.exe généré avec succès dans $DIR/agent/mapt-agent.exe.${NC}"
+
+if [ -f "$DIR/scripts/build-appmirror.sh" ]; then
+    bash "$DIR/scripts/build-appmirror.sh" || {
+        echo -e "${YELLOW}[!] Avertissement : Échec de la compilation AppMirror. Le binaire existant sera conservé.${NC}"
+    }
+fi
 
 # ==============================================================================
 #   DÉMARRAGE DES CONTENEURS DOCKER COMPOSE
