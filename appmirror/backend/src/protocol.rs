@@ -100,8 +100,10 @@ pub enum ClientMessage {
     /// Initialise la connexion WebRTC.
     WebrtcInit,
     /// Envoie la réponse SDP (Session Description Protocol) du navigateur.
+    #[allow(dead_code)]
     WebrtcAnswer { sdp: String },
     /// Transmet un candidat ICE réseau.
+    #[allow(dead_code)]
     IceCandidate {
         candidate: String,
         sdp_mid: Option<String>,
@@ -160,8 +162,10 @@ pub enum ServerMessage {
     Notice { message: String },
     Error { message: String },
     /// Offre SDP (Session Description Protocol) générée par le serveur pour WebRTC.
+    #[allow(dead_code)]
     WebrtcOffer { sdp: String },
     /// Candidat ICE réseau généré par le serveur.
+    #[allow(dead_code)]
     WebrtcIceCandidate {
         candidate: String,
         sdp_mid: Option<String>,

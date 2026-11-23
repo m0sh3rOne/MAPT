@@ -57,6 +57,11 @@ fi
 # 3. Compilation du backend Rust Windows
 echo "    Compilation Rust d'appmirror-backend.exe (x86_64-pc-windows-gnu)..."
 cd "$AM_BACK"
+export CARGO_PROFILE_RELEASE_LTO=off
+MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 4096)
+if [ "$MEM_MB" -lt 4096 ]; then
+    export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}"
+fi
 cargo build --release --no-default-features --target x86_64-pc-windows-gnu
 
 BUILT_EXE="$AM_BACK/target/x86_64-pc-windows-gnu/release/appmirror-backend.exe"
