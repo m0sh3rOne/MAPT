@@ -72,6 +72,7 @@ export const DeviceDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const canUseAppMirror = currentUser?.role === 'super_admin' || currentUser?.role === 'administrator';
   const [activeTab, setActiveTab] = useState<'inventory' | 'software' | 'network' | 'general' | 'actions' | 'mirror' | 'logs'>('inventory');
 
   // Execution Logs tab search & filter state
@@ -256,7 +257,7 @@ export const DeviceDetail: React.FC = () => {
   } = useQuery({
     queryKey: ['device-mirror-status', id],
     queryFn: () => api.getMirrorStatus(id!),
-    enabled: !!id,
+    enabled: Boolean(id && canUseAppMirror),
     refetchInterval: activeTab === 'mirror' || activeTab === 'actions' ? 3500 : 12000,
   });
 
@@ -1605,27 +1606,29 @@ Write-Output "Operation terminee avec succes pour '$u'."
           )}
         </button>
 
-        <button
-          onClick={() => setActiveTab('mirror')}
-          className={`pb-3 border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
-            activeTab === 'mirror'
-              ? 'border-emerald-500 text-emerald-400'
-              : 'border-transparent text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          <Monitor className="w-4 h-4" />
-          <span>Contrôle AppMirror</span>
-          <span
-            className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full border flex items-center gap-1 ${
-              mirrorStatus?.running
-                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+        {canUseAppMirror && (
+          <button
+            onClick={() => setActiveTab('mirror')}
+            className={`pb-3 border-b-2 transition flex items-center space-x-2 whitespace-nowrap ${
+              activeTab === 'mirror'
+                ? 'border-emerald-500 text-emerald-400'
+                : 'border-transparent text-slate-400 hover:text-slate-300'
             }`}
           >
-            {mirrorStatus?.running && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-            {mirrorStatus?.running ? 'ACTIF' : 'ARRÊTÉ'}
-          </span>
-        </button>
+            <Monitor className="w-4 h-4" />
+            <span>Contrôle AppMirror</span>
+            <span
+              className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full border flex items-center gap-1 ${
+                mirrorStatus?.running
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/60'
+                  : 'bg-slate-800 text-slate-400 border-slate-700'
+              }`}
+            >
+              {mirrorStatus?.running && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+              {mirrorStatus?.running ? 'ACTIF' : 'ARRÊTÉ'}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('logs')}
@@ -3374,38 +3377,40 @@ Write-Output "Operation terminee avec succes pour '$u'."
                 </p>
               </div>
 
-              {/* Card 10: Exécuter AppMirror (Headless ou GUI) */}
-              <div
-                onClick={() => {
-                  setMirrorMode(mirrorStatus?.mode === 'gui' ? 'gui' : 'headless');
-                  setActiveModal('appmirror');
-                }}
-                className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-cyan-950/20"
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-110 transition">
-                    <Monitor className="w-5 h-5" />
+              {/* Card 10: Exécuter AppMirror (Headless ou GUI) — réservé Admin & Super Admin */}
+              {canUseAppMirror && (
+                <div
+                  onClick={() => {
+                    setMirrorMode(mirrorStatus?.mode === 'gui' ? 'gui' : 'headless');
+                    setActiveModal('appmirror');
+                  }}
+                  className="group bg-slate-900/90 hover:bg-slate-850 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 cursor-pointer transition shadow-sm hover:shadow-lg hover:shadow-cyan-950/20"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center group-hover:scale-110 transition">
+                      <Monitor className="w-5 h-5" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                          mirrorStatus?.running
+                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/50'
+                            : 'bg-slate-950 text-slate-400 border-slate-800'
+                        }`}
+                      >
+                        {mirrorStatus?.running ? 'En cours' : 'Arrêté'}
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-500 group-hover:text-cyan-400 transition flex items-center gap-1">
+                        Exécuter <Play className="w-3 h-3 fill-current" />
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                        mirrorStatus?.running
-                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-600/50'
-                          : 'bg-slate-950 text-slate-400 border-slate-800'
-                      }`}
-                    >
-                      {mirrorStatus?.running ? 'En cours' : 'Arrêté'}
-                    </span>
-                    <span className="text-[11px] font-semibold text-slate-500 group-hover:text-cyan-400 transition flex items-center gap-1">
-                      Exécuter <Play className="w-3 h-3 fill-current" />
-                    </span>
-                  </div>
+                  <h3 className="text-sm font-bold text-slate-100 mb-1">Exécuter AppMirror (Headless / GUI)</h3>
+                  <p className="text-xs text-slate-400">
+                    Lance appMirror à la demande sur ce poste en mode silencieux (Headless) ou GUI pour visualiser et contrôler l'écran.
+                  </p>
                 </div>
-                <h3 className="text-sm font-bold text-slate-100 mb-1">Exécuter AppMirror (Headless / GUI)</h3>
-                <p className="text-xs text-slate-400">
-                  Lance appMirror à la demande sur ce poste en mode silencieux (Headless) ou GUI pour visualiser et contrôler l'écran.
-                </p>
-              </div>
+              )}
             </div>
           </div>
 
@@ -3559,7 +3564,7 @@ Write-Output "Operation terminee avec succes pour '$u'."
       )}
 
       {/* Tab: Contrôle & Supervision AppMirror */}
-      {activeTab === 'mirror' && (
+      {activeTab === 'mirror' && canUseAppMirror && (
         <AppMirrorTab
           deviceId={device.id}
           hostname={device.hostname}
@@ -5564,7 +5569,7 @@ Write-Output "Operation terminee avec succes pour '$u'."
       {/* ========================================================================= */}
       {/* MODAL 11: EXÉCUTER APPMIRROR (HEADLESS OU GUI)                            */}
       {/* ========================================================================= */}
-      {activeModal === 'appmirror' && (
+      {activeModal === 'appmirror' && canUseAppMirror && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between">

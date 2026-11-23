@@ -50,6 +50,11 @@ La plateforme MAPT définit **5 niveaux de privilèges hiérarchiques** :
 | Activer / Désactiver / Approuver des machines | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
 | Supprimer une machine du parc | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ Non |
 | Réveil Wake-on-LAN et actions distantes directes | ✅ Oui | ✅ Oui | ✅ **Oui (Groupes assignés)** | ❌ **Non** | ❌ Non |
+| **🖥️ Prise en main & Contrôle à distance (AppMirror)** | | | | | |
+| Consulter l'état du service & onglet **Contrôle AppMirror** | ✅ Oui | ✅ Oui | ❌ **Non (Masqué / 403)** | ❌ **Non (Masqué / 403)** | ❌ **Non (Masqué / 403)** |
+| Démarrer AppMirror (`Headless` ou `GUI`) sur une machine | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** |
+| Visualiser l'écran & piloter à distance (WebSocket AppMirror) | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** |
+| Arrêter ou purger/réinstaller le client (`C:\ProgramData\MAPT\appmirror\`) | ✅ Oui | ✅ Oui | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** | ❌ **Non (Interdit)** |
 | **👥 Gestion des Utilisateurs & Sécurité** | | | | | |
 | Créer / Modifier / Désactiver des utilisateurs | ✅ Oui | ✅ Oui | ❌ Non | ❌ Non | ❌ Non |
 | Modifier les rôles utilisateurs | ✅ **Super Admin** | ❌ Non | ❌ Non | ❌ Non | ❌ Non |
@@ -69,6 +74,7 @@ Pour garantir la sécurité de l'infrastructure et éviter les déploiements non
    - Les menus et actions liés aux scripts personnalisés, aux commandes directes du terminal et aux extinctions distantes sont masqués et interdits via l'API (HTTP `403 Forbidden`).
 3. **Opérateur** :
    - Déploie des packages et des scripts certifiés, et exécute les actions rapides de maintenance (WoL, Redémarrage, Auto-Logon...) **uniquement sur ses groupes assignés**.
+   - **AppMirror interdit** : la prise en main et le contrôle d'écran à distance (**AppMirror**) sont strictement réservés aux rôles **Super Administrateur** et **Administrateur** (masqués dans l'interface et rejetés avec HTTP `403` / WebSocket `4403` côté API).
 4. **Ciblage Global Interdit** : Ni l'Opérateur ni le Client App Store ne peuvent cibler la totalité du parc (`target_all_devices`).
 5. **Contrôle Backend Rigoureux** : Toute tentative de contournement déclenche un rejet immédiat côté serveur avec enregistrement dans le journal d'audit.
 
@@ -86,5 +92,5 @@ Pour garantir la sécurité de l'infrastructure et éviter les déploiements non
 Toutes les opérations d'assignation de membres, de déploiement de packages, d'exécution ou d'approbation sont enregistrées dans le journal d'audit (`audit_logs`) avec :
 - L'identifiant utilisateur (`user_id`), son nom et son rôle (`super_admin`, `administrator`, `operator`, `app_store_client`, `viewer`).
 - L'adresse IP de la session (`ip_address`).
-- Le type d'action (`group_created`, `group_updated`, `deployment_created`, `device_wol`, `package_imported`, etc.).
+- Le type d'action (`group_created`, `group_updated`, `deployment_created`, `device_wol`, `package_imported`, lancement/arrêt/purge AppMirror, etc.).
 - Les cibles exactes (identifiants de groupes et de machines).

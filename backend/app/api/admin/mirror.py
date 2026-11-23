@@ -383,7 +383,7 @@ exit 0
 @router.get("/{device_id}/mirror/status", response_model=MirrorStatusResponse)
 async def get_mirror_status(
     device_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_device_permission(db, current_user, device_id)
@@ -430,7 +430,7 @@ async def start_mirror_on_device(
     device_id: UUID,
     body: MirrorStartRequest,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_device_permission(db, current_user, device_id)
@@ -520,7 +520,7 @@ async def start_mirror_on_device(
 async def stop_mirror_on_device(
     device_id: UUID,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_device_permission(db, current_user, device_id)
@@ -590,7 +590,7 @@ exit 0
 async def purge_mirror_on_device(
     device_id: UUID,
     request: Request,
-    current_user: User = Depends(require_roles(UserRole.WRITE_ROLES)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_device_permission(db, current_user, device_id)
@@ -651,12 +651,9 @@ async def mirror_websocket_proxy(
             await websocket.close(code=4403, reason="Utilisateur inactif ou introuvable.")
             return
 
-        if user.role == UserRole.OPERATOR:
-            group_repo = GroupRepository(db)
-            allowed_ids = await group_repo.get_operator_device_ids(user.id)
-            if device_id not in allowed_ids:
-                await websocket.close(code=4403, reason="Accès machine refusé.")
-                return
+        if user.role not in UserRole.ADMIN_ROLES:
+            await websocket.close(code=4403, reason="Accès AppMirror réservé aux administrateurs et super administrateurs.")
+            return
 
         dev_service = DeviceService(db)
         try:
